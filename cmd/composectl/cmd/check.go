@@ -3,6 +3,7 @@ package composectl
 import (
 	"context"
 	"fmt"
+	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
@@ -19,6 +20,7 @@ var (
 		Run:   checkAppsCmd,
 	}
 	checkUsageWatermark *uint
+	checkSrcStorePath   *string
 )
 
 type (
@@ -38,10 +40,11 @@ const (
 func init() {
 	rootCmd.AddCommand(checkCmd)
 	checkUsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
+	checkSrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string) {
-	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark)
+	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark, *checkSrcStorePath)
 
 	fmt.Printf("required: %d (%g%%), available: %d (%g%%) at %s, size: %d (100%%), free: %d (%g%%), reserved: %d (%g%%)\n",
 		ui.Required, ui.RequiredP, ui.Available, ui.AvailableP, ui.Path, ui.SizeB, ui.Free, ui.FreeP, ui.Reserved, ui.ReservedP)
@@ -50,7 +53,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string) {
 		len(cr.missingBlobs), cr.totalPullSize, cr.totalStoreSize, cr.totalRuntimeSize, cr.totalStoreSize+cr.totalRuntimeSize)
 }
 
-func checkApps(ctx context.Context, appRefs []string, usageWatermark uint) (*checkAppResult, *compose.UsageInfo, []compose.App) {
+func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath ...string) (*checkAppResult, *compose.UsageInfo, []compose.App) {
 	if usageWatermark < MinUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
 	}
@@ -61,17 +64,30 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint) (*che
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 
-	authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-	resolver := compose.NewResolver(authorizer)
+	var localSrcStore string
+	var blobProvider compose.BlobProvider
+	if len(srcStorePath) == 1 && len(srcStorePath[0]) > 0 {
+		localSrcStore = srcStorePath[0]
+		cs, err := local.NewStore(localSrcStore)
+		DieNotNil(err)
+		blobProvider = compose.NewLocalBlobProvider(cs)
+	} else {
+		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
+		resolver := compose.NewResolver(authorizer)
+		blobProvider = compose.NewRemoteBlobProvider(resolver)
+	}
 
 	var apps []compose.App
 	blobsToPull := map[digest.Digest]compose.BlobInfo{}
 	checkRes := checkAppResult{missingBlobs: blobsToPull}
 
 	for _, appRef := range appRefs {
-		fmt.Printf("Loading %s metadata from registry...\n", appRef)
-		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, compose.NewRemoteBlobProvider(resolver),
-			platforms.OnlyStrict(config.Platform), appRef)
+		if len(localSrcStore) > 0 {
+			fmt.Printf("Loading %s metadata from %s...\n", appRef, localSrcStore)
+		} else {
+			fmt.Printf("Loading %s metadata from registry...\n", appRef)
+		}
+		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps = append(apps, app)
 		fmt.Printf("%s metadata loaded\n", app.Name())

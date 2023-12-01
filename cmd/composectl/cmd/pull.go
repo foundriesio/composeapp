@@ -6,6 +6,7 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
+	"path"
 )
 
 var (
@@ -17,11 +18,13 @@ var (
 		Run:   pullApps,
 	}
 	pullUsageWatermark *uint
+	pullSrcStorePath   *string
 )
 
 func init() {
 	rootCmd.AddCommand(pullCmd)
 	pullUsageWatermark = pullCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
+	pullSrcStorePath = pullCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
 }
 
 func pullApps(cmd *cobra.Command, args []string) {
@@ -31,7 +34,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 		fmt.Printf("Pulling %s to %s\n", args[0], config.StoreRoot)
 	}
 
-	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark)
+	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark, *pullSrcStorePath)
 	fmt.Printf("required: %d (%g%%), available: %d (%g%%) at %s, size: %d (100%%), free: %d (%g%%), reserved: %d (%g%%)\n",
 		ui.Required, ui.RequiredP, ui.Available, ui.AvailableP, ui.Path, ui.SizeB, ui.Free, ui.FreeP, ui.Reserved, ui.ReservedP)
 
@@ -52,8 +55,14 @@ func pullApps(cmd *cobra.Command, args []string) {
 	DieNotNil(err)
 	for _, b := range cr.missingBlobs {
 		fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
-		err := compose.FetchBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
-		DieNotNil(err)
+		var copyErr error
+		if len(*pullSrcStorePath) > 0 {
+			blobPath := path.Join(*pullSrcStorePath, "blobs/sha256", b.Descriptor.Digest.Encoded())
+			copyErr = compose.CopyLocalBlob(cmd.Context(), blobPath, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
+		} else {
+			copyErr = compose.CopyBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
+		}
+		DieNotNil(copyErr)
 		fmt.Println("ok")
 	}
 
