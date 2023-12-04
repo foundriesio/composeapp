@@ -24,6 +24,8 @@ type (
 		RuntimeSize int64
 	}
 	BlobsStatus map[digest.Digest]BlobInfo
+
+	ctxKeyType string
 )
 
 const (
@@ -33,15 +35,29 @@ const (
 	BlobSizeInvalid
 	BlobDigestInvalid
 
-	BlobTypeUnknown       BlobType = "unknown blob type"
-	BlobTypeAppManifest   BlobType = "app manifest"
-	BlobTypeAppBundle              = "app bundle"
-	BlobTypeAppLayersMeta          = "app meta"
-	BlobTypeImageIndex             = "index"
-	BlobTypeImageManifest          = "manifest"
-	BlobTypeImageConfig            = "config"
-	BlobTypeImageLayer             = "layer"
+	BlobTypeUnknown          BlobType = "unknown blob type"
+	BlobTypeAppManifest      BlobType = "app manifest"
+	BlobTypeAppBundle        BlobType = "app bundle"
+	BlobTypeAppLayersMeta    BlobType = "app meta"
+	BlobTypeImageIndex       BlobType = "index"
+	BlobTypeSkopeoImageIndex BlobType = "skopeo index"
+	BlobTypeImageManifest    BlobType = "manifest"
+	BlobTypeImageConfig      BlobType = "config"
+	BlobTypeImageLayer       BlobType = "layer"
+
+	ctxKeyBlobType ctxKeyType = "blob:type"
 )
+
+func WithBlobType(ctx context.Context, blobType BlobType) context.Context {
+	return context.WithValue(ctx, ctxKeyBlobType, blobType)
+}
+
+func GetBlobType(ctx context.Context) BlobType {
+	if blobType, ok := ctx.Value(ctxKeyBlobType).(BlobType); ok {
+		return blobType
+	}
+	return ""
+}
 
 func (s BlobState) String() string {
 	var ret string

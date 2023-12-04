@@ -88,7 +88,7 @@ func (t ImageTree) Print(initDepth ...int) {
 
 func LoadImageTree(ctx context.Context, provider BlobProvider, platform platforms.MatchComparer, ref string) (*TreeNode, error) {
 	// root node
-	rootRef, imageRoot, rootDesc, err := ReadImageRoot(ctx, provider, ref)
+	rootRef, imageRoot, rootDesc, err := ReadImageRoot(WithBlobType(ctx, BlobTypeImageIndex), provider, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func LoadImageTree(ctx context.Context, provider BlobProvider, platform platform
 	// depth 1, arch specific manifests or config + layers
 	var childrenDescs []*ocispec.Descriptor
 	switch imageRoot.Type {
-	case BlobTypeImageIndex:
+	case BlobTypeSkopeoImageIndex, BlobTypeImageIndex:
 		{
 			if err := json.Unmarshal(imageRoot.Manifests, &childrenDescs); err != nil {
 				return nil, err
@@ -130,30 +130,31 @@ func LoadImageTree(ctx context.Context, provider BlobProvider, platform platform
 	}
 
 	// depth 2 if image root is index
-	if imageRoot.Type != BlobTypeImageIndex {
+	if imageRoot.Type != BlobTypeImageIndex && imageRoot.Type != BlobTypeSkopeoImageIndex {
 		panic("expected image index got " + imageRoot.MediaType)
 	}
 
 	for _, c := range childrenDescs {
 		var grandchildren []*TreeNode
-		if platform.Match(*c.Platform) {
-			manifestRef := rootRef.GetBlobRef(c.Digest)
-			manifest, err := ReadImageManifest(ctx, provider, manifestRef, c.Size)
-			if err != nil {
-				return nil, err
-			}
-			c.URLs = []string{manifestRef}
-			manifest.Config.URLs = []string{rootRef.GetBlobRef(manifest.Config.Digest)}
-			grandchildren = append(grandchildren, &TreeNode{Descriptor: &manifest.Config, Type: BlobTypeImageConfig, Children: nil})
-			for ii := 0; ii < len(manifest.Layers); ii++ {
-				l := &manifest.Layers[ii]
-				l.URLs = []string{rootRef.GetBlobRef(l.Digest)}
-				grandchildren = append(grandchildren, &TreeNode{Descriptor: l, Type: BlobTypeImageLayer, Children: nil})
-			}
-			imageTree.Children = append(imageTree.Children, &TreeNode{
-				Descriptor: c, Type: BlobTypeImageManifest, Children: grandchildren,
-			})
+		if imageRoot.Type != BlobTypeSkopeoImageIndex && !platform.Match(*c.Platform) {
+			continue
 		}
+		manifestRef := rootRef.GetBlobRef(c.Digest)
+		manifest, err := ReadImageManifest(ctx, provider, manifestRef, c.Size)
+		if err != nil {
+			return nil, err
+		}
+		c.URLs = []string{manifestRef}
+		manifest.Config.URLs = []string{rootRef.GetBlobRef(manifest.Config.Digest)}
+		grandchildren = append(grandchildren, &TreeNode{Descriptor: &manifest.Config, Type: BlobTypeImageConfig, Children: nil})
+		for ii := 0; ii < len(manifest.Layers); ii++ {
+			l := &manifest.Layers[ii]
+			l.URLs = []string{rootRef.GetBlobRef(l.Digest)}
+			grandchildren = append(grandchildren, &TreeNode{Descriptor: l, Type: BlobTypeImageLayer, Children: nil})
+		}
+		imageTree.Children = append(imageTree.Children, &TreeNode{
+			Descriptor: c, Type: BlobTypeImageManifest, Children: grandchildren,
+		})
 	}
 	return &imageTree, nil
 }
@@ -267,6 +268,8 @@ func validateRoot(root *ImageRoot) (BlobType, error) {
 			return blobType, fmt.Errorf("media-type: expected index but found manifest (%s)", root.MediaType)
 		}
 		blobType = BlobTypeImageIndex
+	} else if root.SchemaVersion == 2 && len(root.Manifests) > 0 {
+		blobType = BlobTypeSkopeoImageIndex
 	}
 	return blobType, nil
 }

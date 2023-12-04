@@ -4,9 +4,11 @@ import (
 	"archive/tar"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/compose-spec/compose-go/loader"
 	composetypes "github.com/compose-spec/compose-go/types"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/pkg/archive"
@@ -34,6 +36,8 @@ type (
 	}
 
 	appLoader struct{}
+
+	ctxKeyType string
 )
 
 const (
@@ -41,7 +45,20 @@ const (
 	AppManifestMaxSize   = 50 * 1024
 	AppLayerMediaType    = "application/octet-stream"
 	AppLayersMetaVersion = "v1"
+
+	ctxKeyAppRef ctxKeyType = "app:ref"
 )
+
+func WithAppRef(ctx context.Context, ref *compose.AppRef) context.Context {
+	return context.WithValue(ctx, ctxKeyAppRef, ref)
+}
+
+func GetAppRef(ctx context.Context) *compose.AppRef {
+	if appRef, ok := ctx.Value(ctxKeyAppRef).(*compose.AppRef); ok {
+		return appRef
+	}
+	return nil
+}
 
 func (a *appCtx) Name() string {
 	return a.AppRef.Name
@@ -82,9 +99,6 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 
 	// depth 1, layers meta (optional)
 	layersMetaDesc, _ := app.GetLayersMetadataDescriptor()
-	//if layersMetaDescErr != nil {
-	//	// TODO: log warning
-	//}
 	if layersMetaDesc != nil {
 		if b, readErr := compose.ReadBlob(ctx, provider, app.GetBlobRef(layersMetaDesc.Digest), layersMetaDesc.Digest, layersMetaDesc.Size); readErr == nil {
 			if unmarshalErr := json.Unmarshal(b, &app.layersMeta); unmarshalErr == nil {
@@ -97,8 +111,10 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 				fmt.Printf("Failed to unmarshal app layers meta: %s\n", unmarshalErr.Error())
 			}
 		} else {
-			// TODO: log
-			fmt.Printf("Failed to read app layers meta: %s\n", readErr.Error())
+			if !errors.Is(readErr, errdefs.ErrNotFound) {
+				fmt.Printf("Failed to read app layers meta: %s\n", readErr.Error())
+			}
+			// TODO: log else (if not found)
 		}
 	}
 
@@ -114,7 +130,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 
 	// depth 2, compose service images, each is a sub-tree
 	for _, service := range composeProject.Services {
-		imageTree, err := compose.LoadImageTree(ctx, provider, platform, service.Image)
+		imageTree, err := compose.LoadImageTree(WithAppRef(ctx, &app.AppRef), provider, platform, service.Image)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -140,7 +156,8 @@ func ReadAppManifest(ctx context.Context, provider compose.BlobProvider, ref str
 		return nil, nil, err
 	}
 	app := appCtx{AppRef: *appRef}
-	b, err := compose.ReadBlobWithReadLimit(ctx, provider, ref, AppManifestMaxSize)
+	b, err := compose.ReadBlobWithReadLimit(compose.WithBlobType(WithAppRef(ctx, appRef), compose.BlobTypeAppManifest),
+		provider, ref, AppManifestMaxSize)
 	if err != nil {
 		return &app, nil, err
 	}
@@ -200,7 +217,8 @@ func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx
 	}
 
 	// Read and parse App compose project
-	srcReader, err := provider.GetReadCloser(ctx, compose.WithRef(app.GetBlobRef(composeDesc.Digest)),
+	srcReader, err := provider.GetReadCloser(compose.WithBlobType(WithAppRef(ctx, &app.AppRef), compose.BlobTypeAppBundle),
+		compose.WithRef(app.GetBlobRef(composeDesc.Digest)),
 		compose.WithExpectedDigest(composeDesc.Digest), compose.WithExpectedSize(composeDesc.Size))
 	if err != nil {
 		return nil, nil, err

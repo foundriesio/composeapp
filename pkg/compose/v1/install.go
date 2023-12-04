@@ -41,7 +41,7 @@ func InstallApp(ctx context.Context, app compose.App, provider compose.BlobProvi
 			tags = append(tags, s.Locator+":"+(s.Digest().Encoded())[:7])
 		}
 		manifestNode := imageRoot
-		if images.IsIndexType(imageRoot.Descriptor.MediaType) {
+		if images.IsIndexType(imageRoot.Descriptor.MediaType) || imageRoot.Type == compose.BlobTypeSkopeoImageIndex {
 			manifestNode = imageRoot.Children[0]
 		}
 		var lh []string
@@ -78,8 +78,9 @@ func installCompose(ctx context.Context, app compose.App, provider compose.BlobP
 	if err != nil {
 		return err
 	}
-
-	rc, err := provider.GetReadCloser(ctx, compose.WithExpectedDigest(composeDesc.Digest), compose.WithExpectedSize(composeDesc.Size))
+	appContext := app.(*appCtx)
+	rc, err := provider.GetReadCloser(compose.WithBlobType(WithAppRef(ctx, &appContext.AppRef), compose.BlobTypeAppBundle),
+		compose.WithExpectedDigest(composeDesc.Digest), compose.WithExpectedSize(composeDesc.Size))
 	if err != nil {
 		return err
 	}

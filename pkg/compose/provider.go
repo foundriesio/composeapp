@@ -49,13 +49,6 @@ func NewMemoryBlobProvider(blobs map[digest.Digest][]byte) BlobProvider {
 	}
 }
 
-//func (l *localBlobProvider) Name() string {
-//	return "local store"
-//}
-//func (l *remoteBlobProvider) Name() string {
-//	return "remote registry"
-//}
-
 func (l *localBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
 	newOpts := opts
 	p := GetSecureReadParams(opts...)
