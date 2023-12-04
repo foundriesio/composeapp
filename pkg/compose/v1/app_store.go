@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/content/local"
+	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/opencontainers/image-spec/specs-go"
@@ -69,7 +70,7 @@ func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureRead
 	return s.bp.GetReadCloser(ctx, opts...)
 }
 
-func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.App) error {
+func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.App, platformMatcher platforms.MatchComparer) error {
 	storeV1 := store.(*appStore)
 	appV1 := app.(*appCtx)
 	appDir := path.Join(storeV1.root, "apps", app.Name(), appV1.Digest.Encoded())
@@ -135,34 +136,31 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 			return err
 		}
 		indexFile := path.Join(imageDir, "index.json")
+		index := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2,
+			},
+		}
 		if imageNode.Type == compose.BlobTypeImageIndex {
-			if err := syscall.Symlink(indexBlobPath, indexFile); err != nil {
-				return err
-			}
+			var manifests []ocispec.Descriptor
 			for _, im := range imageNode.Children {
-				blobPath := path.Join(storeV1.root, "blobs/sha256", im.Descriptor.Digest.Encoded())
-				if err := os.Chmod(blobPath, 0644); err != nil {
-					return err
+				if platformMatcher.Match(*im.Descriptor.Platform) {
+					manifests = append(manifests, *im.Descriptor)
 				}
 			}
+			index.Manifests = manifests
 		} else {
-			index := ocispec.Index{
-				Versioned: specs.Versioned{
-					SchemaVersion: 2,
-				},
-				Manifests: []ocispec.Descriptor{
-					*imageNode.Descriptor,
-				},
-			}
-			b, err := json.Marshal(&index)
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(indexFile, b, 0644); err != nil {
-				return err
+			index.Manifests = []ocispec.Descriptor{
+				*imageNode.Descriptor,
 			}
 		}
-
+		b, err := json.Marshal(&index)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(indexFile, b, 0644); err != nil {
+			return err
+		}
 	}
 	return err
 }

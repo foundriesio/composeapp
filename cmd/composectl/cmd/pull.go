@@ -3,6 +3,7 @@ package composectl
 import (
 	"fmt"
 	"github.com/containerd/containerd/content/local"
+	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
@@ -69,7 +70,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	for _, app := range apps {
-		err = v1.MakeAkliteHappy(cmd.Context(), cs, app)
+		err = v1.MakeAkliteHappy(cmd.Context(), cs, app, platforms.OnlyStrict(config.Platform))
 		DieNotNil(err)
 	}
 
