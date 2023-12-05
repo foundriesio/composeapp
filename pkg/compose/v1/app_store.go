@@ -190,10 +190,6 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		if err != nil {
 			return err
 		}
-		indexBlobPath := path.Join(storeV1.root, "blobs/sha256", uri.Digest().Encoded())
-		if err := os.Chmod(indexBlobPath, 0644); err != nil {
-			return err
-		}
 		imagePath := uri.Locator[len(uri.Hostname()):]
 		imageDir := path.Join(appDir, "images", uri.Hostname(), imagePath, uri.Digest().Encoded())
 		if _, err := os.Stat(path.Join(imageDir, "index.json")); err == nil {
@@ -227,6 +223,14 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		}
 		if err := os.WriteFile(indexFile, b, 0644); err != nil {
 			return err
+		}
+		// Set write permission for an owner for each image manifest because
+		// `skopeo` rewrites image manifest even if it exists. So, if the permission is set to read-only
+		// then `skopeo copy` command will fail.
+		for _, m := range index.Manifests {
+			if err := os.Chmod(path.Join(storeV1.blobsRoot, m.Digest.Encoded()), 0644); err != nil {
+				return err
+			}
 		}
 	}
 	return err
