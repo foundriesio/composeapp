@@ -12,16 +12,16 @@ type (
 	}
 
 	UsageInfo struct {
-		Path       string
-		SizeB      uint64
-		Free       uint64
-		FreeP      float32
-		Reserved   uint64
-		ReservedP  float32
-		Available  uint64
-		AvailableP float32
-		Required   uint64
-		RequiredP  float32
+		Path       string  `json:"path"`
+		SizeB      uint64  `json:"size_b"`
+		Free       uint64  `json:"free"`
+		FreeP      float32 `json:"free_p"`
+		Reserved   uint64  `json:"reserved"`
+		ReservedP  float32 `json:"reserved_p"`
+		Available  uint64  `json:"available"`
+		AvailableP float32 `json:"available_p"`
+		Required   uint64  `json:"required"`
+		RequiredP  float32 `json:"required_p"`
 	}
 )
 

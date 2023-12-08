@@ -1,12 +1,14 @@
 package composectl
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
+	"os"
 	"path"
 )
 
@@ -18,14 +20,17 @@ var (
 		Args:  cobra.MinimumNArgs(1),
 		Run:   pullApps,
 	}
-	pullUsageWatermark *uint
-	pullSrcStorePath   *string
+	pullUsageWatermark        *uint
+	pullSrcStorePath          *string
+	pullPrintUsageStat        *bool
+	exitCodeInsufficientSpace int = 100
 )
 
 func init() {
 	rootCmd.AddCommand(pullCmd)
 	pullUsageWatermark = pullCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
 	pullSrcStorePath = pullCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
+	pullPrintUsageStat = pullCmd.Flags().BoolP("print-usage-stat", "p", false, "A flag to enable/disable usage statistic output to stderr")
 }
 
 func pullApps(cmd *cobra.Command, args []string) {
@@ -40,7 +45,12 @@ func pullApps(cmd *cobra.Command, args []string) {
 		ui.Required, ui.RequiredP, ui.Available, ui.AvailableP, ui.Path, ui.SizeB, ui.Free, ui.FreeP, ui.Reserved, ui.ReservedP)
 
 	if ui.Required > ui.Available {
-		DieNotNil(fmt.Errorf("Not enough available storage"))
+		if *pullPrintUsageStat {
+			if b, err := json.Marshal(ui); err == nil {
+				fmt.Fprintln(os.Stderr, string(b))
+			}
+		}
+		DieNotNilWithCode(fmt.Errorf("not enough storage available"), exitCodeInsufficientSpace)
 	}
 	fmt.Printf("Pulling %d blobs; total download size: %d, total store size: %d, total runtime size of missing blobs: %d, total required %d...\n",
 		len(cr.missingBlobs), cr.totalPullSize, cr.totalStoreSize, cr.totalRuntimeSize, cr.totalStoreSize+cr.totalRuntimeSize)

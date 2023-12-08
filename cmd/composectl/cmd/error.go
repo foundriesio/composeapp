@@ -14,6 +14,10 @@ func AddLastWill(lastWill LastWill) {
 }
 
 func DieNotNil(err error, message ...string) {
+	DieNotNilWithCode(err, 1, message...)
+}
+
+func DieNotNilWithCode(err error, exitCode int, message ...string) {
 	if err != nil {
 		parts := []interface{}{"ERROR:"}
 		for _, p := range message {
@@ -24,6 +28,6 @@ func DieNotNil(err error, message ...string) {
 		for _, w := range onLastWill {
 			w()
 		}
-		os.Exit(1)
+		os.Exit(exitCode)
 	}
 }
