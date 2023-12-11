@@ -15,6 +15,7 @@ var (
 	storeRoot   string
 	composeRoot string
 	arch        string
+	dockerHost  string
 
 	rootCmd = &cobra.Command{
 		Use:   "composectl",
@@ -39,7 +40,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&storeRoot, "store", "s", "", "store root path")
 	rootCmd.PersistentFlags().StringVarP(&composeRoot, "compose", "i", "", "compose projects root path")
 	rootCmd.PersistentFlags().StringVarP(&arch, "arch", "a", "", "architecture of app/images to pull")
-	viper.BindPFlag("author", rootCmd.PersistentFlags().Lookup("author"))
+	rootCmd.PersistentFlags().StringVarP(&dockerHost, "host", "H", "", "path to the socket on which the Docker daemon listens")
 }
 
 func initConfig() {
@@ -93,6 +94,7 @@ func initConfig() {
 		os.Exit(1)
 	}
 	config.DockerCfg = cfg
+	config.DockerHost = dockerHost
 	config.Platform = platforms.DefaultSpec()
 	if len(arch) > 0 {
 		config.Platform.Architecture = arch

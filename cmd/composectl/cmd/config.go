@@ -9,6 +9,7 @@ type Config struct {
 	StoreRoot   string
 	ComposeRoot string
 	DockerCfg   *configfile.ConfigFile
+	DockerHost  string
 	Platform    specs.Platform
 }
 

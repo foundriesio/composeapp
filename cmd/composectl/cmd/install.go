@@ -16,22 +16,13 @@ var (
 		Args:  cobra.ExactArgs(1),
 		Run:   installApp,
 	}
-	composeInstallRootFlag string
-	dockerHostFlag         string
 )
 
 func init() {
 	rootCmd.AddCommand(installCmd)
-	installCmd.Flags().StringVarP(&composeInstallRootFlag, "compose-dir", "p", "", "Compose projects root dir")
-	installCmd.Flags().StringVarP(&dockerHostFlag, "docker-host", "d", "", "Docker daemon socket")
 }
 
 func installApp(cmd *cobra.Command, args []string) {
-	composeRoot := config.ComposeRoot
-	dockerHost := dockerHostFlag
-	if len(composeInstallRootFlag) > 0 {
-		composeRoot = composeInstallRootFlag
-	}
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 
@@ -41,6 +32,6 @@ func installApp(cmd *cobra.Command, args []string) {
 	DieNotNil(err)
 	fmt.Println("ok")
 	fmt.Printf("Extracting app compose archive to %s and loading its images to docker %s\n", composeRoot, dockerHost)
-	err = v1.InstallApp(cmd.Context(), app, cs, path.Join(config.StoreRoot, "blobs/sha256"), composeRoot, dockerHost)
+	err = v1.InstallApp(cmd.Context(), app, cs, path.Join(config.StoreRoot, "blobs/sha256"), config.ComposeRoot, config.DockerHost)
 	DieNotNil(err)
 }
