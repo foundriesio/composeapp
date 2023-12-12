@@ -38,8 +38,7 @@ $(exe): $(bd)
 clean:
 	@rm -r $(bd)
 
-check:
-	@test -z $(shell go fmt ./..) || echo "[WARN] fix formatting issues with 'make format'"
+check: format
 	$(linter) run
 
 tidy-mod:
