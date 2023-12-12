@@ -2,11 +2,24 @@
 
 GO ?= go
 GOBUILDFLAGS ?=
+LDFLAGS ?=
 MODVER ?= 1.20
+STOREROOT ?=
+COMPOSEROOT ?=
 
 bd = bin
 exe = composectl
 linter = golangci-lint
+
+ifdef STOREROOT
+	LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.storeRoot=$(STOREROOT)'
+endif
+ifdef COMPOSEROOT
+    LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.composeRoot=$(COMPOSEROOT)'
+endif
+ifdef LDFLAGS
+	GOBUILDFLAGS += -ldflags="$(LDFLAGS)"
+endif
 
 all: $(exe) 
 

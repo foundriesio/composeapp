@@ -95,7 +95,7 @@ func installCompose(ctx context.Context, app compose.App, provider compose.BlobP
 func loadImagesToDocker(ctx context.Context, lm []imageLoadManifest, dockerHost string) error {
 	// TODO: support two types of image load, the regular load that does not require the docker patch, and
 	// the given one that requires the patch. The problem with the first one is that it requires transferring blobs
-	// via the tar stream (what's point in the copying them if ther are already present in the local system?).
+	// via the tar stream (what's point in the copying them if they are already present in the local system?).
 	b, err := json.Marshal(lm)
 	if err != nil {
 		return err
