@@ -2,6 +2,7 @@
 
 GO ?= go
 GOBUILDFLAGS ?=
+MODVER ?= 1.20
 
 bd = bin
 exe = composectl
@@ -28,3 +29,5 @@ check:
 	@test -z $(shell go fmt ./..) || echo "[WARN] fix formatting issues with 'make format'"
 	$(linter) run
 
+tidy-mod:
+	go mod tidy -go=$(MODVER)
