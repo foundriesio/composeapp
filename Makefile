@@ -4,6 +4,7 @@ GO ?= go
 GOBUILDFLAGS ?=
 LDFLAGS ?=
 MODVER ?= 1.20
+DOCKERCFGDIR ?=
 STOREROOT ?=
 COMPOSEROOT ?=
 
@@ -11,6 +12,9 @@ bd = bin
 exe = composectl
 linter = golangci-lint
 
+ifdef DOCKERCFGDIR
+    LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.overrideConfigDir=$(DOCKERCFGDIR)'
+endif
 ifdef STOREROOT
 	LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.storeRoot=$(STOREROOT)'
 endif

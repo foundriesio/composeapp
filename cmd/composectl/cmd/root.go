@@ -9,11 +9,16 @@ import (
 	"path"
 )
 
+const (
+	EnvOverrideDockerConfigDir = "DOCKER_CONFIG"
+)
+
 var (
-	storeRoot   string
-	composeRoot string
-	arch        string
-	dockerHost  string
+	overrideConfigDir string
+	storeRoot         string
+	composeRoot       string
+	arch              string
+	dockerHost        string
 
 	rootCmd = &cobra.Command{
 		Use:   "composectl",
@@ -58,6 +63,9 @@ func init() {
 }
 
 func initConfig() {
+	if len(overrideConfigDir) > 0 && len(os.Getenv(EnvOverrideDockerConfigDir)) == 0 {
+		dockercfg.SetDir(overrideConfigDir)
+	}
 	cfg := dockercfg.LoadDefaultConfigFile(os.Stderr)
 	if cfg == nil {
 		os.Exit(1)
