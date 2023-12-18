@@ -10,6 +10,8 @@ import (
 	"github.com/containerd/containerd/reference"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/jsonmessage"
+	units "github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"io"
 	"os"
@@ -132,15 +134,58 @@ func loadImagesToDocker(ctx context.Context, lm []imageLoadManifest, dockerHost 
 		return err
 	}
 	fmt.Printf("Loading images to the docker engine listening on: %s\n", cli.DaemonHost())
-	resp, err := cli.ImageLoad(ctx, &tarredLoadManifest, true)
+	resp, err := cli.ImageLoad(ctx, &tarredLoadManifest, false)
 	if err != nil {
 		return fmt.Errorf("failed to load images to docker: %s", err.Error())
 	}
-	if b, err := io.ReadAll(resp.Body); err == nil {
-		//TODO: pretty print of both error and success
-		fmt.Printf("%s\n", string(b))
-	} else {
-		fmt.Printf("Failed to read response to the image load request: %s\n", err.Error())
+	defer resp.Body.Close()
+	return printImageLoadProgress(resp.Body, lm)
+}
+
+func printImageLoadProgress(in io.Reader, lm []imageLoadManifest) error {
+	dec := json.NewDecoder(in)
+	curLayerID := ""
+	curLayerStatus := 0
+	curImgIndx := 0
+
+	for {
+		var jm jsonmessage.JSONMessage
+		if err := dec.Decode(&jm); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		if jm.Progress == nil {
+			if curLayerStatus == 2 {
+				fmt.Println("done")
+				fmt.Printf("Image loaded: %s\n", lm[curImgIndx].RepoTags[0])
+			} else {
+				fmt.Printf("Image exists: %s\n", lm[curImgIndx].RepoTags[0])
+			}
+			curLayerID = ""
+			curLayerStatus = 0
+			curImgIndx += 1
+			continue
+		}
+		if curLayerStatus == 0 {
+			// loading new image
+			fmt.Printf("Loading image layers: %s\n", lm[curImgIndx].RepoTags[0])
+		}
+		if curLayerID != jm.ID {
+			if curLayerStatus == 2 {
+				fmt.Println("done")
+			}
+			// start of a new layer load
+			fmt.Printf("\tID: %s, size: %s:", jm.ID, units.HumanSize(float64(jm.Progress.Total)))
+			curLayerID = jm.ID
+			curLayerStatus = 1 // layer loading - extracting layer
+		}
+		if jm.Progress.Current == jm.Progress.Total && curLayerStatus == 1 {
+			fmt.Printf(".loaded; syncing...")
+			curLayerStatus = 2 // FS syncing the extracted layer
+		}
+		fmt.Printf(".")
 	}
 	return nil
 }
