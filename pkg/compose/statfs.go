@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"fmt"
+	"github.com/docker/go-units"
 	"syscall"
 )
 
@@ -24,6 +26,16 @@ type (
 		RequiredP  float32 `json:"required_p"`
 	}
 )
+
+func (u *UsageInfo) Print() {
+	fmt.Printf("required: %s (%.2f%%), available: %s (%.2f%%) at %s, size: %s (100%%), free: %s (%.2f%%),"+
+		" reserved: %s (%.2f%%)\n",
+		units.BytesSize(float64(u.Required)), u.RequiredP,
+		units.BytesSize(float64(u.Available)), u.AvailableP,
+		u.Path, units.BytesSize(float64(u.SizeB)),
+		units.BytesSize(float64(u.Free)), u.FreeP,
+		units.BytesSize(float64(u.Reserved)), u.ReservedP)
+}
 
 func GetUsageInfo(path string, required int64, watermark uint) (*UsageInfo, error) {
 	fsStat, err := GetFsStat(path)

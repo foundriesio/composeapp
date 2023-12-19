@@ -39,49 +39,45 @@ func pullApps(cmd *cobra.Command, args []string) {
 	} else {
 		fmt.Printf("Pulling %s to %s\n", args[0], config.StoreRoot)
 	}
-
 	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark, *pullSrcStorePath)
-	fmt.Printf("required: %d (%g%%), available: %d (%g%%) at %s, size: %d (100%%), free: %d (%g%%), reserved: %d (%g%%)\n",
-		ui.Required, ui.RequiredP, ui.Available, ui.AvailableP, ui.Path, ui.SizeB, ui.Free, ui.FreeP, ui.Reserved, ui.ReservedP)
-
-	if ui.Required > ui.Available {
-		if *pullPrintUsageStat {
-			if b, err := json.Marshal(ui); err == nil {
-				fmt.Fprintln(os.Stderr, string(b))
+	if len(cr.missingBlobs) > 0 {
+		ui.Print()
+		if ui.Required > ui.Available {
+			if *pullPrintUsageStat {
+				if b, err := json.Marshal(ui); err == nil {
+					fmt.Fprintln(os.Stderr, string(b))
+				}
 			}
+			DieNotNilWithCode(fmt.Errorf("not enough storage available"), exitCodeInsufficientSpace)
 		}
-		DieNotNilWithCode(fmt.Errorf("not enough storage available"), exitCodeInsufficientSpace)
-	}
-	fmt.Printf("Pulling %d blobs; total download size: %d, total store size: %d, total runtime size of missing blobs: %d, total required %d...\n",
-		len(cr.missingBlobs), cr.totalPullSize, cr.totalStoreSize, cr.totalRuntimeSize, cr.totalStoreSize+cr.totalRuntimeSize)
+		cr.print()
+		fmt.Println("Pulling app blobs...")
+		// copying missing blobs
+		// TODO:  move to a separate function:
+		//  1) Copy in multiple goroutines/workers (configurable)
+		//  2) Generic status reporting mechanism
+		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
+		resolver := compose.NewResolver(authorizer)
 
-	// copying missing blobs
-	// TODO:  move to a separate function:
-	//  1) Copy in multiple goroutines/workers (configurable)
-	//  2) Generic status reporting mechanism
-	authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-	resolver := compose.NewResolver(authorizer)
-
-	ls, err := local.NewStore(config.StoreRoot)
-	DieNotNil(err)
-	for _, b := range cr.missingBlobs {
-		fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
-		var copyErr error
-		if len(*pullSrcStorePath) > 0 {
-			blobPath := path.Join(*pullSrcStorePath, "blobs/sha256", b.Descriptor.Digest.Encoded())
-			copyErr = compose.CopyLocalBlob(cmd.Context(), blobPath, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
-		} else {
-			copyErr = compose.CopyBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
+		ls, err := local.NewStore(config.StoreRoot)
+		DieNotNil(err)
+		for _, b := range cr.missingBlobs {
+			fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
+			var copyErr error
+			if len(*pullSrcStorePath) > 0 {
+				blobPath := path.Join(*pullSrcStorePath, "blobs/sha256", b.Descriptor.Digest.Encoded())
+				copyErr = compose.CopyLocalBlob(cmd.Context(), blobPath, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
+			} else {
+				copyErr = compose.CopyBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
+			}
+			DieNotNil(copyErr)
+			fmt.Println("ok")
 		}
-		DieNotNil(copyErr)
-		fmt.Println("ok")
 	}
-
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	for _, app := range apps {
 		err = v1.MakeAkliteHappy(cmd.Context(), cs, app, platforms.OnlyStrict(config.Platform))
 		DieNotNil(err)
 	}
-
 }

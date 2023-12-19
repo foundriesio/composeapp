@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
+	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
@@ -45,12 +46,8 @@ func init() {
 
 func checkAppsCmd(cmd *cobra.Command, args []string) {
 	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark, *checkSrcStorePath)
-
-	fmt.Printf("required: %d (%g%%), available: %d (%g%%) at %s, size: %d (100%%), free: %d (%g%%), reserved: %d (%g%%)\n",
-		ui.Required, ui.RequiredP, ui.Available, ui.AvailableP, ui.Path, ui.SizeB, ui.Free, ui.FreeP, ui.Reserved, ui.ReservedP)
-
-	fmt.Printf("%d blobs to pull; total download size: %d, total store size: %d, total runtime size of missing blobs: %d, total required %d...\n",
-		len(cr.missingBlobs), cr.totalPullSize, cr.totalStoreSize, cr.totalRuntimeSize, cr.totalStoreSize+cr.totalRuntimeSize)
+	ui.Print()
+	cr.print()
 }
 
 func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath ...string) (*checkAppResult, *compose.UsageInfo, []compose.App) {
@@ -146,4 +143,9 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 		fmt.Printf("Failed to get storage usage information")
 	}
 	return &checkRes, ui, apps
+}
+
+func (cr *checkAppResult) print() {
+	fmt.Printf("%d blobs to pull; total download size: %s, total store size: %s, total runtime size of missing blobs: %s, total required: %s\n",
+		len(cr.missingBlobs), units.BytesSize(float64(cr.totalPullSize)), units.BytesSize(float64(cr.totalStoreSize)), units.BytesSize(float64(cr.totalRuntimeSize)), units.BytesSize(float64(cr.totalStoreSize+cr.totalRuntimeSize)))
 }
