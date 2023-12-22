@@ -65,7 +65,7 @@ func InstallApp(ctx context.Context, app compose.App, provider compose.BlobProvi
 			LayersRoot: blobRoot,
 		})
 	}
-	return loadImagesToDocker(ctx, lm, dockerHost)
+	return loadImagesToDockerWithFallback(ctx, lm, dockerHost)
 }
 
 func installCompose(ctx context.Context, app compose.App, provider compose.BlobProvider, composeRoot string) error {
@@ -94,55 +94,27 @@ func installCompose(ctx context.Context, app compose.App, provider compose.BlobP
 	return nil
 }
 
-func loadImagesToDocker(ctx context.Context, lm []imageLoadManifest, dockerHost string) error {
-	// TODO: support two types of image load, the regular load that does not require the docker patch, and
-	// the given one that requires the patch. The problem with the first one is that it requires transferring blobs
-	// via the tar stream (what's point in the copying them if they are already present in the local system?).
-	b, err := json.Marshal(lm)
-	if err != nil {
-		return err
+func loadImagesToDockerWithFallback(ctx context.Context, lm []imageLoadManifest, dockerHost string) error {
+	if err := loadImagesToDocker(ctx, lm, nil, dockerHost); err == nil {
+		return nil
+	} else {
+		fmt.Printf("Failed to load images: %s\n", err.Error())
+		fmt.Println("Trying the legacy image loading...")
 	}
-	var tarredLoadManifest bytes.Buffer
-	tw := tar.NewWriter(&tarredLoadManifest)
-	defer tw.Close()
-	if err := tw.WriteHeader(&tar.Header{
-		Typeflag: tar.TypeReg,
-		Name:     "manifest.json",
-		Size:     int64(len(b)),
-	}); err != nil {
-		return err
+	// a set of blobs (union) across all images to be loaded to dockerd
+	blobs := make(map[string]bool)
+	for ii := 0; ii < len(lm); ii++ {
+		// remove the "digest/hash tag" since the unpatched docker doesn't support it
+		lm[ii].RepoTags = []string{lm[ii].RepoTags[1]}
+		blobs[path.Join(lm[ii].LayersRoot, lm[ii].Config)] = true
+		for _, l := range lm[ii].Layers {
+			blobs[path.Join(lm[ii].LayersRoot, l)] = true
+		}
 	}
-	n, err := io.Copy(tw, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	if n != int64(len(b)) {
-		return fmt.Errorf("failed to write required number of bytes to tarrer; required: %d, written: %d", len(b), n)
-	}
-	if err := tw.Flush(); err != nil {
-		return fmt.Errorf("failed to tar image load manifest: %s", err.Error())
-	}
-
-	opts := []dockerclient.Opt{
-		dockerclient.FromEnv,
-	}
-	if len(dockerHost) > 0 {
-		opts = append(opts, dockerclient.WithHost(dockerHost))
-	}
-	cli, err := dockerclient.NewClientWithOpts(opts...)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Loading images to the docker engine listening on: %s\n", cli.DaemonHost())
-	resp, err := cli.ImageLoad(ctx, &tarredLoadManifest, false)
-	if err != nil {
-		return fmt.Errorf("failed to load images to docker: %s", err.Error())
-	}
-	defer resp.Body.Close()
-	return printImageLoadProgress(resp.Body, lm)
+	return loadImagesToDocker(ctx, lm, blobs, dockerHost)
 }
 
-func printImageLoadProgress(in io.Reader, lm []imageLoadManifest) error {
+func processAndPrintImageLoadProgress(in io.Reader, lm []imageLoadManifest) error {
 	dec := json.NewDecoder(in)
 	curLayerID := ""
 	curLayerStatus := 0
@@ -155,6 +127,9 @@ func printImageLoadProgress(in io.Reader, lm []imageLoadManifest) error {
 				break
 			}
 			return err
+		}
+		if jm.Error != nil {
+			return fmt.Errorf("dockerd err: %s", jm.Error)
 		}
 		if jm.Progress == nil {
 			if curLayerStatus == 2 {
@@ -177,7 +152,7 @@ func printImageLoadProgress(in io.Reader, lm []imageLoadManifest) error {
 				fmt.Println("done")
 			}
 			// start of a new layer load
-			fmt.Printf("\tID: %s, size: %s:", jm.ID, units.HumanSize(float64(jm.Progress.Total)))
+			fmt.Printf("\tID: %s, size: %s:", jm.ID, units.BytesSize(float64(jm.Progress.Total)))
 			curLayerID = jm.ID
 			curLayerStatus = 1 // layer loading - extracting layer
 		}
@@ -186,6 +161,90 @@ func printImageLoadProgress(in io.Reader, lm []imageLoadManifest) error {
 			curLayerStatus = 2 // FS syncing the extracted layer
 		}
 		fmt.Printf(".")
+	}
+	return nil
+}
+
+func loadImagesToDocker(ctx context.Context, lm []imageLoadManifest, blobs map[string]bool, dockerHost string) error {
+	manifest, err := json.Marshal(lm)
+	if err != nil {
+		return err
+	}
+	tarStreamReader, tarStreamWriter := io.Pipe()
+	defer tarStreamReader.Close()
+	tarErr := make(chan error, 1)
+	go func() {
+		defer tarStreamWriter.Close()
+		tarErr <- writeToTarStream(manifest, blobs, tarStreamWriter)
+	}()
+	opts := []dockerclient.Opt{
+		dockerclient.FromEnv,
+	}
+	if len(dockerHost) > 0 {
+		opts = append(opts, dockerclient.WithHost(dockerHost))
+	}
+	cli, err := dockerclient.NewClientWithOpts(opts...)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Loading images to the docker engine listening on: %s\n", cli.DaemonHost())
+	resp, err := cli.ImageLoad(ctx, tarStreamReader, false)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := <-tarErr; err != nil {
+		return err
+	}
+	return processAndPrintImageLoadProgress(resp.Body, lm)
+}
+
+func writeToTarStream(manifest []byte, blobs map[string]bool, w io.Writer) error {
+	tw := tar.NewWriter(w)
+	defer tw.Close()
+	if err := tw.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeReg,
+		Name:     "manifest.json",
+		Size:     int64(len(manifest)),
+	}); err != nil {
+		return err
+	}
+	n, err := io.Copy(tw, bytes.NewReader(manifest))
+	if err != nil {
+		return err
+	}
+	if n != int64(len(manifest)) {
+		return fmt.Errorf("failed to write required number of bytes to tarrer; required: %d, written: %d", len(manifest), n)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	// send all blobs to dockerd through the tar channel if any (legacy mode)
+	for b := range blobs {
+		fi, err := os.Stat(b)
+		if err != nil {
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(fi, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = fi.Name()
+		hdr.Format = tar.FormatPAX
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		f, err := os.Open(b)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(tw, f)
+		if err != nil {
+			f.Close()
+			return err
+		}
+		tw.Flush()
+		f.Close()
 	}
 	return nil
 }
