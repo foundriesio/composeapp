@@ -65,7 +65,7 @@ func GetUsageInfo(path string, required int64, watermark uint) (*UsageInfo, erro
 func GetFsStat(path string) (StatFS, error) {
 	var statfs syscall.Statfs_t
 	if err := syscall.Statfs(path, &statfs); err == nil {
-		return StatFS{BlockSize: statfs.Bsize, Blocks: statfs.Blocks, Bfree: statfs.Bfree}, nil
+		return StatFS{BlockSize: int64(statfs.Bsize), Blocks: statfs.Blocks, Bfree: statfs.Bfree}, nil
 	} else {
 		return StatFS{}, err
 	}
