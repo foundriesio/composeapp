@@ -10,6 +10,8 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
+	"os"
+	"path"
 )
 
 type (
@@ -22,6 +24,9 @@ type (
 	localBlobProvider struct {
 		localFileProvider content.Provider
 	}
+	storeBlobProvider struct {
+		appStoreBlobRoot string
+	}
 	memoryBlobProvider struct {
 		blobs map[digest.Digest][]byte
 	}
@@ -30,6 +35,12 @@ type (
 		closer io.Closer
 	}
 )
+
+func NewStoreBlobProvider(blobRoot string) BlobProvider {
+	return &storeBlobProvider{
+		appStoreBlobRoot: blobRoot,
+	}
+}
 
 func NewLocalBlobProvider(fileProvider content.Provider) BlobProvider {
 	return &localBlobProvider{
@@ -47,6 +58,28 @@ func NewMemoryBlobProvider(blobs map[digest.Digest][]byte) BlobProvider {
 	return &memoryBlobProvider{
 		blobs: blobs,
 	}
+}
+
+func (store *storeBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
+	newOpts := opts
+	p := GetSecureReadParams(opts...)
+	if len(p.ExpectedDigest) == 0 {
+		if len(p.Ref) > 0 {
+			s, err := reference.Parse(p.Ref)
+			if err != nil {
+				return nil, err
+			}
+			p.ExpectedDigest = s.Digest()
+			newOpts = append(newOpts, WithExpectedDigest(p.ExpectedDigest))
+		} else {
+			return nil, fmt.Errorf("missing parameters: either `SecureReadOpts.Ref` or `SecureReadOpts.ExpectedDigest` should be specified")
+		}
+	}
+	f, err := os.Open(path.Join(store.appStoreBlobRoot, p.ExpectedDigest.Encoded()))
+	if err != nil {
+		return nil, err
+	}
+	return NewSecureReadCloser(f, newOpts...)
 }
 
 func (l *localBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
