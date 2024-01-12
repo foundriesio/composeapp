@@ -3,13 +3,13 @@ package composectl
 import (
 	"context"
 	"fmt"
-	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
+	"path"
 )
 
 var (
@@ -65,9 +65,7 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 	var blobProvider compose.BlobProvider
 	if len(srcStorePath) == 1 && len(srcStorePath[0]) > 0 {
 		localSrcStore = srcStorePath[0]
-		cs, err := local.NewStore(localSrcStore)
-		DieNotNil(err)
-		blobProvider = compose.NewLocalBlobProvider(cs)
+		blobProvider = compose.NewStoreBlobProvider(path.Join(localSrcStore, "blobs", "sha256"))
 	} else {
 		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
 		resolver := compose.NewResolver(authorizer)
