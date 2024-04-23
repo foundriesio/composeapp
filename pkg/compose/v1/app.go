@@ -97,7 +97,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 	// root node
 	app, rootDesc, err := ReadAppManifest(ctx, provider, ref)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to read app manifest: %s", err)
 	}
 	appTree := compose.AppTree{Descriptor: rootDesc, Type: compose.BlobTypeAppManifest}
 
@@ -125,7 +125,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 	// depth 1, compose
 	composeProject, composeDesc, err := readAndLoadComposeProject(ctx, provider, app)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to read app compose project: %s", err)
 	}
 	composeTree := compose.TreeNode{
 		Descriptor: composeDesc,
@@ -136,7 +136,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 	for _, service := range composeProject.Services {
 		imageTree, err := compose.LoadImageTree(WithAppRef(ctx, &app.AppRef), provider, platform, service.Image)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("failed to load app service image (%s): %s", service.Name, err)
 		}
 		composeTree.Children = append(composeTree.Children, imageTree)
 	}
