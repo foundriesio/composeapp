@@ -9,6 +9,7 @@ import (
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
+	"os"
 	"path"
 )
 
@@ -20,8 +21,10 @@ var (
 		Args:  cobra.MinimumNArgs(1),
 		Run:   checkAppsCmd,
 	}
-	checkUsageWatermark *uint
-	checkSrcStorePath   *string
+	checkUsageWatermark  *uint
+	checkSrcStorePath    *string
+	setExitCodeIfMissing *bool
+	quiet                *bool
 )
 
 type (
@@ -42,15 +45,22 @@ func init() {
 	rootCmd.AddCommand(checkCmd)
 	checkUsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
 	checkSrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
+	setExitCodeIfMissing = checkCmd.Flags().BoolP("set-exit-code", "e", false, "Set an exit code to 1 if at least one of app blobs is missing")
+	quiet = checkCmd.Flags().BoolP("quiet", "q", false, "Do not print app details")
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string) {
-	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark, *checkSrcStorePath)
-	ui.Print()
-	cr.print()
+	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark, *checkSrcStorePath, *quiet)
+	if len(cr.missingBlobs) > 0 {
+		ui.Print()
+		cr.print()
+	}
+	if *setExitCodeIfMissing && len(cr.missingBlobs) > 0 {
+		os.Exit(1)
+	}
 }
 
-func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath ...string) (*checkAppResult, *compose.UsageInfo, []compose.App) {
+func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string, quiet bool) (*checkAppResult, *compose.UsageInfo, []compose.App) {
 	if usageWatermark < MinUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
 	}
@@ -63,9 +73,8 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 	var localSrcStore string
 	var blobProvider compose.BlobProvider
-	if len(srcStorePath) == 1 && len(srcStorePath[0]) > 0 {
-		localSrcStore = srcStorePath[0]
-		blobProvider = compose.NewStoreBlobProvider(path.Join(localSrcStore, "blobs", "sha256"))
+	if len(srcStorePath) > 0 {
+		blobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
 	} else {
 		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
 		resolver := compose.NewResolver(authorizer)
@@ -77,16 +86,20 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 	checkRes := checkAppResult{missingBlobs: blobsToPull}
 
 	for _, appRef := range appRefs {
-		if len(localSrcStore) > 0 {
-			fmt.Printf("Loading %s metadata from %s...\n", appRef, localSrcStore)
-		} else {
-			fmt.Printf("Loading %s metadata from registry...\n", appRef)
+		if !quiet {
+			if len(localSrcStore) > 0 {
+				fmt.Printf("Loading %s metadata from %s...\n", appRef, localSrcStore)
+			} else {
+				fmt.Printf("Loading %s metadata from registry...\n", appRef)
+			}
 		}
 		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps = append(apps, app)
-		fmt.Printf("%s metadata loaded\n", app.Name())
-		fmt.Printf("Checking %s state in the local store...\n", app.Name())
+		if !quiet {
+			fmt.Printf("%s metadata loaded\n", app.Name())
+			fmt.Printf("Checking %s state in the local store...\n", app.Name())
+		}
 
 		var blockSize int64 = 4096
 		s, err := compose.GetFsStat(config.StoreRoot)
@@ -99,13 +112,17 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 		err = tree.Walk(func(node *compose.TreeNode, depth int) error {
 			blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
-			fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
+			if !quiet {
+				fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
+			}
 			bs, stateCheckErr := compose.CheckBlob(ctx, cs, compose.WithExpectedDigest(node.Descriptor.Digest),
 				compose.WithExpectedSize(node.Descriptor.Size))
 			if stateCheckErr != nil {
 				return stateCheckErr
 			}
-			fmt.Printf("...%s\n", bs.String())
+			if !quiet {
+				fmt.Printf("...%s\n", bs.String())
+			}
 			if bs != compose.BlobOk {
 				blobsToPull[node.Descriptor.Digest] = compose.BlobInfo{
 					Descriptor:  node.Descriptor,
@@ -119,12 +136,15 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 		})
 		DieNotNil(err)
 
-		fmt.Println()
+		if !quiet {
+			fmt.Println()
+			if len(blobsToPull) == 0 {
+				fmt.Printf("%s is in sync (%s)\n", app.Name(), appRef)
+			}
+		}
 		if len(blobsToPull) == 0 {
-			fmt.Printf("%s is in sync (%s)\n", app.Name(), appRef)
 			continue
 		}
-
 		if !app.HasLayersMeta(config.Platform.Architecture) {
 			fmt.Println("No app layers meta are found, the app layer sizes are approximated!")
 		}
