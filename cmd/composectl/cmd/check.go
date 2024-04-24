@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/reference"
+	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
@@ -25,6 +27,7 @@ var (
 	checkSrcStorePath    *string
 	setExitCodeIfMissing *bool
 	quiet                *bool
+	checkInstalled       *bool
 )
 
 type (
@@ -34,6 +37,7 @@ type (
 		totalStoreSize   int64
 		totalRuntimeSize int64
 	}
+	installCheckResult map[string][]string
 )
 
 const (
@@ -47,6 +51,7 @@ func init() {
 	checkSrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
 	setExitCodeIfMissing = checkCmd.Flags().BoolP("set-exit-code", "e", false, "Set an exit code to 1 if at least one of app blobs is missing")
 	quiet = checkCmd.Flags().BoolP("quiet", "q", false, "Do not print app details")
+	checkInstalled = checkCmd.Flags().BoolP("check-installed", "d", false, "Check if app is installed (loaded into the docker store)")
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string) {
@@ -55,7 +60,13 @@ func checkAppsCmd(cmd *cobra.Command, args []string) {
 		ui.Print()
 		cr.print()
 	}
-	if *setExitCodeIfMissing && len(cr.missingBlobs) > 0 {
+	var ic *installCheckResult
+	var err error
+	if *checkInstalled {
+		ic, err = checkIfInstalled(cmd.Context(), args, config.StoreRoot, config.DockerHost, *quiet)
+		DieNotNil(err)
+	}
+	if *setExitCodeIfMissing && (len(cr.missingBlobs) > 0 || (ic != nil && len(*ic) > 0)) {
 		os.Exit(1)
 	}
 }
@@ -166,4 +177,55 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 func (cr *checkAppResult) print() {
 	fmt.Printf("%d blobs to pull; total download size: %s, total store size: %s, total runtime size of missing blobs: %s, total required: %s\n",
 		len(cr.missingBlobs), units.BytesSize(float64(cr.totalPullSize)), units.BytesSize(float64(cr.totalStoreSize)), units.BytesSize(float64(cr.totalRuntimeSize)), units.BytesSize(float64(cr.totalStoreSize+cr.totalRuntimeSize)))
+}
+
+func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string, dockerHost string, quiet bool) (*installCheckResult, error) {
+	cli, err := compose.GetDockerClient(dockerHost)
+	if err != nil {
+		return nil, err
+	}
+	images, err := cli.ImageList(ctx, dockertypes.ImageListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	installedImages := map[string]bool{}
+	for _, i := range images {
+		if len(i.RepoDigests) > 0 {
+			installedImages[i.RepoDigests[0]] = true
+		}
+		if len(i.RepoTags) > 0 {
+			// unpatch docker won't store the digest URI of loaded image
+			installedImages[i.RepoTags[0]] = true
+		}
+	}
+
+	checkResult := installCheckResult{}
+	blobProvider := compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
+	for _, appRef := range appRefs {
+		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
+		DieNotNil(err)
+		var missingImages []string
+		appComposeRoot := app.GetComposeRoot()
+		for _, imageNode := range appComposeRoot.Children {
+			imageUri := imageNode.Descriptor.URLs[0]
+			if !installedImages[imageUri] {
+				if s, err := reference.Parse(imageUri); err == nil {
+					taggedUri := s.Locator + ":" + (s.Digest().Encoded())[:7]
+					if !installedImages[taggedUri] {
+						missingImages = append(missingImages, imageUri)
+					}
+				}
+			}
+		}
+		if len(missingImages) > 0 {
+			checkResult[appRef] = missingImages
+			fmt.Printf("%s is not installed (%s); missing images:\n", app.Name(), appRef)
+			for _, image := range missingImages {
+				fmt.Printf("\t- %s\n", image)
+			}
+		} else if !quiet {
+			fmt.Printf("%s is installed (%s)\n", app.Name(), appRef)
+		}
+	}
+	return &checkResult, nil
 }

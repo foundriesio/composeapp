@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/reference"
-	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/jsonmessage"
 	units "github.com/docker/go-units"
@@ -177,13 +176,7 @@ func loadImagesToDocker(ctx context.Context, lm []imageLoadManifest, blobs map[s
 		defer tarStreamWriter.Close()
 		tarErr <- writeToTarStream(manifest, blobs, tarStreamWriter)
 	}()
-	opts := []dockerclient.Opt{
-		dockerclient.FromEnv,
-	}
-	if len(dockerHost) > 0 {
-		opts = append(opts, dockerclient.WithHost(dockerHost))
-	}
-	cli, err := dockerclient.NewClientWithOpts(opts...)
+	cli, err := compose.GetDockerClient(dockerHost)
 	if err != nil {
 		return err
 	}
