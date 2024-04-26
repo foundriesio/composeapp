@@ -24,7 +24,7 @@ func DieNotNilWithCode(err error, exitCode int, message ...string) {
 			parts = append(parts, p)
 		}
 		parts = append(parts, err)
-		fmt.Println(parts...)
+		fmt.Fprintln(os.Stderr, parts...)
 		for _, w := range onLastWill {
 			w()
 		}
