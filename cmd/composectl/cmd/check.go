@@ -28,6 +28,7 @@ var (
 	setExitCodeIfMissing *bool
 	quiet                *bool
 	checkInstalled       *bool
+	checkLocally         *bool
 )
 
 type (
@@ -52,9 +53,13 @@ func init() {
 	setExitCodeIfMissing = checkCmd.Flags().BoolP("set-exit-code", "e", false, "Set an exit code to 1 if at least one of app blobs is missing")
 	quiet = checkCmd.Flags().BoolP("quiet", "q", false, "Do not print app details")
 	checkInstalled = checkCmd.Flags().BoolP("check-installed", "d", false, "Check if app is installed (loaded into the docker store)")
+	checkLocally = checkCmd.Flags().BoolP("local", "", false, "Check if app is fetched locally without getting app manifest from registry")
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string) {
+	if *checkLocally && len(*checkSrcStorePath) == 0 {
+		checkSrcStorePath = &config.StoreRoot
+	}
 	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark, *checkSrcStorePath, *quiet)
 	if len(cr.missingBlobs) > 0 {
 		ui.Print()
