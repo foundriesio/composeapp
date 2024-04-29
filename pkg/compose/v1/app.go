@@ -16,6 +16,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
+	"os"
 )
 
 type (
@@ -41,10 +42,11 @@ type (
 )
 
 const (
-	AppManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
-	AppManifestMaxSize   = 50 * 1024
-	AppLayerMediaType    = "application/octet-stream"
-	AppLayersMetaVersion = "v1"
+	AppManifestMediaType   = "application/vnd.oci.image.manifest.v1+json"
+	AppManifestMaxSize     = 50 * 1024
+	AppLayerMediaType      = "application/octet-stream"
+	AppLayersMetaVersion   = "v1"
+	AppServiceHashLabelKey = "io.compose-spec.config-hash"
 
 	ctxKeyAppRef ctxKeyType = "app:ref"
 )
@@ -115,7 +117,8 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 				fmt.Printf("Failed to unmarshal app layers meta: %s\n", unmarshalErr.Error())
 			}
 		} else {
-			if !errors.Is(readErr, errdefs.ErrNotFound) {
+			_, isPathErr := readErr.(*os.PathError)
+			if !errors.Is(readErr, errdefs.ErrNotFound) && !isPathErr {
 				fmt.Printf("Failed to read app layers meta: %s\n", readErr.Error())
 			}
 			// TODO: log else (if not found)
@@ -137,6 +140,14 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 		imageTree, err := compose.LoadImageTree(WithAppRef(ctx, &app.AppRef), provider, platform, service.Image)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load app service image (%s): %s", service.Name, err)
+		}
+		if service.Labels != nil {
+			if srvHash, ok := service.Labels[AppServiceHashLabelKey]; ok {
+				if imageTree.Descriptor.Annotations == nil {
+					imageTree.Descriptor.Annotations = make(map[string]string)
+				}
+				imageTree.Descriptor.Annotations[AppServiceHashLabelKey] = srvHash
+			}
 		}
 		composeTree.Children = append(composeTree.Children, imageTree)
 	}
