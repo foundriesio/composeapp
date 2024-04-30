@@ -64,6 +64,10 @@ func (a *appCtx) Name() string {
 	return a.AppRef.Name
 }
 
+func (a *appCtx) Ref() *compose.AppRef {
+	return &a.AppRef
+}
+
 func (a *appCtx) HasLayersMeta(arch string) bool {
 	if a.layersMeta != nil {
 		_, ok := a.layersMeta[arch]

@@ -22,6 +22,7 @@ type (
 	AppTree TreeNode
 	App     interface {
 		Name() string
+		Ref() *AppRef
 		HasLayersMeta(arch string) bool
 		GetBlobRuntimeSize(desc *ocispec.Descriptor, arch string, blockSize int64) int64
 		GetComposeRoot() *TreeNode
