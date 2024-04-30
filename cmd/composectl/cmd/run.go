@@ -3,6 +3,7 @@ package composectl
 import (
 	"fmt"
 	"github.com/containerd/containerd/platforms"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
 	"os"
@@ -40,24 +41,27 @@ func runApps(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	checkedApps := map[string]string{}
+	checkedApps := map[string]compose.App{}
 	for _, app := range apps {
 		if appShortlist != nil && !appShortlist[app.Name] {
 			fmt.Printf("%s: skipping, not in the shortlist\n", app.Name)
 			continue
 		}
-		_, _, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), app.String())
+		a, _, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), app.String())
 		DieNotNil(err)
 		if _, ok := checkedApps[app.Name]; ok {
 			DieNotNil(fmt.Errorf("cannot start %s since there are two or more versions of it found in the store", app.Name))
 		}
-		checkedApps[app.Name] = app.String()
+		checkedApps[app.Name] = a
 	}
 
-	for app, ref := range checkedApps {
-		fmt.Printf("Starting %s --> %s\n", app, ref)
+	for _, app := range checkedApps {
+		fmt.Printf("Installing %s --> %s\n", app.Name(), app.Ref().String())
+		err = v1.InstallApp(cmd.Context(), app, cs, path.Join(config.StoreRoot, "blobs/sha256"), config.ComposeRoot, config.DockerHost)
+		DieNotNil(err)
+		fmt.Printf("Starting %s --> %s\n", app.Name(), app.Ref().String())
 		cmd := exec.Command("docker", "compose", "up", "-d", "--remove-orphans")
-		cmd.Dir = path.Join(config.ComposeRoot, app)
+		cmd.Dir = path.Join(config.ComposeRoot, app.Name())
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
 		DieNotNil(cmd.Run())
