@@ -47,6 +47,12 @@ func NewAppStore(root string, platform ocispec.Platform) (compose.AppStore, erro
 func (s *appStore) ListApps(ctx context.Context) ([]*compose.AppRef, error) {
 	var apps []*compose.AppRef
 	err := filepath.Walk(s.appsRoot, func(path string, fi os.FileInfo, err error) error {
+		if pathErr, ok := err.(*os.PathError); ok {
+			if s.appsRoot == pathErr.Path {
+				// Just exit with empty error since the store is simply empty
+				return nil
+			}
+		}
 		if err != nil {
 			return err
 		}
