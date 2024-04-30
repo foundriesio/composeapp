@@ -2,6 +2,7 @@ package composectl
 
 import (
 	"fmt"
+	"github.com/containerd/containerd/platforms"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
 	"os"
@@ -39,14 +40,24 @@ func runApps(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	for _, a := range apps {
-		if appShortlist != nil && !appShortlist[a.Name] {
-			fmt.Printf("Skipping starting %s since it is not in the specfified shortlist\n", a.Name)
+	checkedApps := map[string]string{}
+	for _, app := range apps {
+		if appShortlist != nil && !appShortlist[app.Name] {
+			fmt.Printf("%s: skipping, not in the shortlist\n", app.Name)
 			continue
 		}
-		fmt.Printf("Starting %s --> %s\n", a.Name, a.Spec.String())
+		_, _, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), app.String())
+		DieNotNil(err)
+		if _, ok := checkedApps[app.Name]; ok {
+			DieNotNil(fmt.Errorf("cannot start %s since there are two or more versions of it found in the store", app.Name))
+		}
+		checkedApps[app.Name] = app.String()
+	}
+
+	for app, ref := range checkedApps {
+		fmt.Printf("Starting %s --> %s\n", app, ref)
 		cmd := exec.Command("docker", "compose", "up", "-d", "--remove-orphans")
-		cmd.Dir = path.Join(config.ComposeRoot, a.Name)
+		cmd.Dir = path.Join(config.ComposeRoot, app)
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
 		DieNotNil(cmd.Run())
