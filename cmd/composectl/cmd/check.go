@@ -18,13 +18,15 @@ var (
 		Short: "check <ref> [<ref>]",
 		Long:  ``,
 		Args:  cobra.MinimumNArgs(1),
-		Run:   checkAppsCmd,
 	}
-	checkUsageWatermark *uint
-	checkSrcStorePath   *string
 )
 
 type (
+	checkOptions struct {
+		UsageWatermark *uint
+		SrcStorePath   *string
+	}
+
 	checkAppResult struct {
 		missingBlobs     map[digest.Digest]compose.BlobInfo
 		totalPullSize    int64
@@ -39,13 +41,18 @@ const (
 )
 
 func init() {
+	opts := checkOptions{}
+	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
+	opts.SrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
+	checkCmd.Run = func(cmd *cobra.Command, args []string) {
+		checkAppsCmd(cmd, args, &opts)
+	}
+
 	rootCmd.AddCommand(checkCmd)
-	checkUsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
-	checkSrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
 }
 
-func checkAppsCmd(cmd *cobra.Command, args []string) {
-	cr, ui, _ := checkApps(cmd.Context(), args, *checkUsageWatermark, *checkSrcStorePath)
+func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
+	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath)
 	ui.Print()
 	cr.print()
 }
