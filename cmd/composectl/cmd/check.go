@@ -25,6 +25,7 @@ type (
 	checkOptions struct {
 		UsageWatermark *uint
 		SrcStorePath   *string
+		Locally        *bool
 	}
 
 	checkAppResult struct {
@@ -42,8 +43,12 @@ const (
 
 func init() {
 	opts := checkOptions{}
-	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
-	opts.SrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
+	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80,
+		"The maximum allowed storage usage in percentage")
+	opts.SrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "",
+		"A path to the source store root directory")
+	opts.Locally = checkCmd.Flags().BoolP("local", "", false,
+		"Check whether app is fetched without getting app manifest from registry")
 	checkCmd.Run = func(cmd *cobra.Command, args []string) {
 		checkAppsCmd(cmd, args, &opts)
 	}
@@ -52,6 +57,11 @@ func init() {
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
+	if *opts.Locally && len(*opts.SrcStorePath) == 0 {
+		// Use the local store as the source store to check whether app is fetched without a need in connection to Registry.
+		// Requires app manifest and app archive presence in the local store, otherwise fails.
+		opts.SrcStorePath = &config.StoreRoot
+	}
 	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath)
 	ui.Print()
 	cr.print()
