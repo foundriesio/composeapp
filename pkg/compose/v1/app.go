@@ -16,6 +16,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
+	"os"
 )
 
 type (
@@ -115,7 +116,8 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 				fmt.Printf("Failed to unmarshal app layers meta: %s\n", unmarshalErr.Error())
 			}
 		} else {
-			if !errors.Is(readErr, errdefs.ErrNotFound) {
+			_, isPathErr := readErr.(*os.PathError)
+			if !errors.Is(readErr, errdefs.ErrNotFound) && !isPathErr {
 				fmt.Printf("Failed to read app layers meta: %s\n", readErr.Error())
 			}
 			// TODO: log else (if not found)
