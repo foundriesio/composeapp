@@ -67,7 +67,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	cr.print()
 }
 
-func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath ...string) (*checkAppResult, *compose.UsageInfo, []compose.App) {
+func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string) (*checkAppResult, *compose.UsageInfo, []compose.App) {
 	if usageWatermark < MinUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
 	}
@@ -80,9 +80,8 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 	var localSrcStore string
 	var blobProvider compose.BlobProvider
-	if len(srcStorePath) == 1 && len(srcStorePath[0]) > 0 {
-		localSrcStore = srcStorePath[0]
-		blobProvider = compose.NewStoreBlobProvider(path.Join(localSrcStore, "blobs", "sha256"))
+	if len(srcStorePath) > 0 {
+		blobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
 	} else {
 		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
 		resolver := compose.NewResolver(authorizer)
