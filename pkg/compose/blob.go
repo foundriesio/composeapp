@@ -17,11 +17,11 @@ type (
 	BlobState int
 	BlobType  string
 	BlobInfo  struct {
-		Descriptor  *ocispec.Descriptor
-		State       BlobState
-		Type        BlobType
-		StoreSize   int64
-		RuntimeSize int64
+		Descriptor  *ocispec.Descriptor `json:"descriptor"`
+		State       BlobState           `json:"state"`
+		Type        BlobType            `json:"type"`
+		StoreSize   int64               `json:"store_size"`
+		RuntimeSize int64               `json:"runtime_size"`
 	}
 	BlobsStatus map[digest.Digest]BlobInfo
 

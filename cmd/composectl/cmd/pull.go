@@ -40,7 +40,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 		fmt.Printf("Pulling %s to %s\n", args[0], config.StoreRoot)
 	}
 	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark, *pullSrcStorePath, false)
-	if len(cr.missingBlobs) > 0 {
+	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
 		if ui.Required > ui.Available {
 			if *pullPrintUsageStat {
@@ -61,7 +61,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 
 		ls, err := local.NewStore(config.StoreRoot)
 		DieNotNil(err)
-		for _, b := range cr.missingBlobs {
+		for _, b := range cr.MissingBlobs {
 			fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
 			var copyErr error
 			if len(*pullSrcStorePath) > 0 {

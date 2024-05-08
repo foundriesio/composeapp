@@ -2,6 +2,7 @@ package composectl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/go-units"
@@ -31,10 +32,10 @@ type (
 	}
 
 	checkAppResult struct {
-		missingBlobs     map[digest.Digest]compose.BlobInfo
-		totalPullSize    int64
-		totalStoreSize   int64
-		totalRuntimeSize int64
+		MissingBlobs     map[digest.Digest]compose.BlobInfo `json:"missing_blobs"`
+		TotalPullSize    int64                              `json:"total_pull_size"`
+		TotalStoreSize   int64                              `json:"total_store_size"`
+		TotalRuntimeSize int64                              `json:"total_runtime_size"`
 	}
 )
 
@@ -71,9 +72,21 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		// Requires app manifest and app archive presence in the local store, otherwise fails.
 		opts.SrcStorePath = &config.StoreRoot
 	}
-	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, false)
-	ui.Print()
-	cr.print()
+	quietCheck := false
+	if opts.Format == "json" {
+		quietCheck = true
+	}
+	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck)
+	if opts.Format == "json" {
+		if b, err := json.MarshalIndent(cr, "", "  "); err == nil {
+			fmt.Println(string(b))
+		} else {
+			DieNotNil(err)
+		}
+	} else {
+		ui.Print()
+		cr.print()
+	}
 }
 
 func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string, quiet bool) (*checkAppResult, *compose.UsageInfo, []compose.App) {
@@ -99,7 +112,7 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 	var apps []compose.App
 	blobsToPull := map[digest.Digest]compose.BlobInfo{}
-	checkRes := checkAppResult{missingBlobs: blobsToPull}
+	checkRes := checkAppResult{MissingBlobs: blobsToPull}
 
 	for _, appRef := range appRefs {
 		if !quiet {
@@ -164,13 +177,13 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 		}
 
 		for _, b := range blobsToPull {
-			checkRes.totalPullSize += b.Descriptor.Size
-			checkRes.totalStoreSize += b.StoreSize
-			checkRes.totalRuntimeSize += b.RuntimeSize
+			checkRes.TotalPullSize += b.Descriptor.Size
+			checkRes.TotalStoreSize += b.StoreSize
+			checkRes.TotalRuntimeSize += b.RuntimeSize
 		}
 	}
 	// TODO:  take into account that docker data root and OCI/blob store can be located on different volumes
-	ui, err := compose.GetUsageInfo(config.StoreRoot, checkRes.totalStoreSize+checkRes.totalRuntimeSize, usageWatermark)
+	ui, err := compose.GetUsageInfo(config.StoreRoot, checkRes.TotalStoreSize+checkRes.TotalRuntimeSize, usageWatermark)
 	if err != nil && !quiet {
 		fmt.Printf("Failed to get storage usage information")
 	}
@@ -179,5 +192,5 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 func (cr *checkAppResult) print() {
 	fmt.Printf("%d blobs to pull; total download size: %s, total store size: %s, total runtime size of missing blobs: %s, total required: %s\n",
-		len(cr.missingBlobs), units.BytesSize(float64(cr.totalPullSize)), units.BytesSize(float64(cr.totalStoreSize)), units.BytesSize(float64(cr.totalRuntimeSize)), units.BytesSize(float64(cr.totalStoreSize+cr.totalRuntimeSize)))
+		len(cr.MissingBlobs), units.BytesSize(float64(cr.TotalPullSize)), units.BytesSize(float64(cr.TotalStoreSize)), units.BytesSize(float64(cr.TotalRuntimeSize)), units.BytesSize(float64(cr.TotalStoreSize+cr.TotalRuntimeSize)))
 }
