@@ -62,12 +62,12 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		// Requires app manifest and app archive presence in the local store, otherwise fails.
 		opts.SrcStorePath = &config.StoreRoot
 	}
-	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath)
+	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, false)
 	ui.Print()
 	cr.print()
 }
 
-func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string) (*checkAppResult, *compose.UsageInfo, []compose.App) {
+func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string, quiet bool) (*checkAppResult, *compose.UsageInfo, []compose.App) {
 	if usageWatermark < MinUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
 	}
@@ -93,20 +93,23 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 	checkRes := checkAppResult{missingBlobs: blobsToPull}
 
 	for _, appRef := range appRefs {
-		if len(localSrcStore) > 0 {
-			fmt.Printf("Loading %s metadata from %s...\n", appRef, localSrcStore)
-		} else {
-			fmt.Printf("Loading %s metadata from registry...\n", appRef)
+		if !quiet {
+			if len(localSrcStore) > 0 {
+				fmt.Printf("Loading %s metadata from %s...\n", appRef, localSrcStore)
+			} else {
+				fmt.Printf("Loading %s metadata from registry...\n", appRef)
+			}
 		}
 		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps = append(apps, app)
-		fmt.Printf("%s metadata loaded\n", app.Name())
-		fmt.Printf("Checking %s state in the local store...\n", app.Name())
-
+		if !quiet {
+			fmt.Printf("%s metadata loaded\n", app.Name())
+			fmt.Printf("Checking %s state in the local store...\n", app.Name())
+		}
 		var blockSize int64 = 4096
 		s, err := compose.GetFsStat(config.StoreRoot)
-		if err != nil {
+		if err != nil && !quiet {
 			fmt.Printf("Failed to get FS block size: %s\n", err.Error())
 			fmt.Printf("Assuming the FS block size if 4096")
 		} else {
@@ -114,14 +117,18 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 		}
 
 		err = tree.Walk(func(node *compose.TreeNode, depth int) error {
-			blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
-			fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
+			if !quiet {
+				blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
+				fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
+			}
 			bs, stateCheckErr := compose.CheckBlob(ctx, cs, compose.WithExpectedDigest(node.Descriptor.Digest),
 				compose.WithExpectedSize(node.Descriptor.Size))
 			if stateCheckErr != nil {
 				return stateCheckErr
 			}
-			fmt.Printf("...%s\n", bs.String())
+			if !quiet {
+				fmt.Printf("...%s\n", bs.String())
+			}
 			if bs != compose.BlobOk {
 				blobsToPull[node.Descriptor.Digest] = compose.BlobInfo{
 					Descriptor:  node.Descriptor,
@@ -135,14 +142,16 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 		})
 		DieNotNil(err)
 
-		fmt.Println()
-		if len(blobsToPull) == 0 {
-			fmt.Printf("%s is in sync (%s)\n", app.Name(), appRef)
-			continue
-		}
+		if !quiet {
+			fmt.Println()
+			if len(blobsToPull) == 0 {
+				fmt.Printf("%s is in sync (%s)\n", app.Name(), appRef)
+				continue
+			}
 
-		if !app.HasLayersMeta(config.Platform.Architecture) {
-			fmt.Println("No app layers meta are found, the app layer sizes are approximated!")
+			if !app.HasLayersMeta(config.Platform.Architecture) {
+				fmt.Println("No app layers meta are found, the app layer sizes are approximated!")
+			}
 		}
 
 		for _, b := range blobsToPull {
@@ -153,7 +162,7 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 	}
 	// TODO:  take into account that docker data root and OCI/blob store can be located on different volumes
 	ui, err := compose.GetUsageInfo(config.StoreRoot, checkRes.totalStoreSize+checkRes.totalRuntimeSize, usageWatermark)
-	if err != nil {
+	if err != nil && !quiet {
 		fmt.Printf("Failed to get storage usage information")
 	}
 	return &checkRes, ui, apps
