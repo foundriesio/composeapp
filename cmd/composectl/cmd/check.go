@@ -9,6 +9,7 @@ import (
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
+	"os"
 	"path"
 )
 
@@ -26,6 +27,7 @@ type (
 		UsageWatermark *uint
 		SrcStorePath   *string
 		Locally        *bool
+		Format         string
 	}
 
 	checkAppResult struct {
@@ -49,7 +51,14 @@ func init() {
 		"A path to the source store root directory")
 	opts.Locally = checkCmd.Flags().BoolP("local", "", false,
 		"Check whether app is fetched without getting app manifest from registry")
+	checkCmd.Flags().StringVar(&opts.Format, "format", "plain",
+		"Output format; supported: plain, json")
 	checkCmd.Run = func(cmd *cobra.Command, args []string) {
+		if opts.Format != "plain" && opts.Format != "json" {
+			DieNotNil(cmd.Usage())
+			fmt.Fprintf(os.Stderr, "unsupported  `--format` value: %s\n", opts.Format)
+			os.Exit(1)
+		}
 		checkAppsCmd(cmd, args, &opts)
 	}
 
