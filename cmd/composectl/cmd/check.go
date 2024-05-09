@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/reference"
+	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
@@ -29,6 +31,7 @@ type (
 		SrcStorePath   *string
 		Locally        *bool
 		Format         string
+		CheckInstall   bool
 	}
 
 	checkAppResult struct {
@@ -37,6 +40,13 @@ type (
 		TotalStoreSize   int64                              `json:"total_store_size"`
 		TotalRuntimeSize int64                              `json:"total_runtime_size"`
 	}
+
+	appInstallCheckResult struct {
+		AppName       string   `json:"app_name"`
+		MissingImages []string `json:"missing_images"`
+	}
+
+	installCheckResult map[string]*appInstallCheckResult
 )
 
 const (
@@ -54,6 +64,8 @@ func init() {
 		"Check whether app is fetched without getting app manifest from registry")
 	checkCmd.Flags().StringVar(&opts.Format, "format", "plain",
 		"Output format; supported: plain, json")
+	checkCmd.Flags().BoolVar(&opts.CheckInstall, "install", false,
+		"Check both whether app is fetched and installed")
 	checkCmd.Run = func(cmd *cobra.Command, args []string) {
 		if opts.Format != "plain" && opts.Format != "json" {
 			DieNotNil(cmd.Usage())
@@ -77,8 +89,22 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		quietCheck = true
 	}
 	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck)
+	var ir installCheckResult
+	var err error
+	if opts.CheckInstall {
+		ir, err = checkIfInstalled(cmd.Context(), args, *opts.SrcStorePath, config.DockerHost)
+		DieNotNil(err)
+	}
 	if opts.Format == "json" {
-		if b, err := json.MarshalIndent(cr, "", "  "); err == nil {
+		aggregatedCheckRes :=
+			struct {
+				FetchCheck   *checkAppResult     `json:"fetch_check"`
+				InstallCheck *installCheckResult `json:"install_check"`
+			}{
+				FetchCheck:   cr,
+				InstallCheck: &ir,
+			}
+		if b, err := json.MarshalIndent(aggregatedCheckRes, "", "  "); err == nil {
 			fmt.Println(string(b))
 		} else {
 			DieNotNil(err)
@@ -86,6 +112,18 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	} else {
 		ui.Print()
 		cr.print()
+		if opts.CheckInstall {
+			for appRef, r := range ir {
+				if len(r.MissingImages) > 0 {
+					fmt.Printf("%s is not installed (%s); missing images:\n", r.AppName, appRef)
+				} else {
+					fmt.Printf("%s is installed (%s)\n", r.AppName, appRef)
+				}
+				for _, i := range r.MissingImages {
+					fmt.Printf("\t- %s\n", i)
+				}
+			}
+		}
 	}
 }
 
@@ -193,4 +231,50 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 func (cr *checkAppResult) print() {
 	fmt.Printf("%d blobs to pull; total download size: %s, total store size: %s, total runtime size of missing blobs: %s, total required: %s\n",
 		len(cr.MissingBlobs), units.BytesSize(float64(cr.TotalPullSize)), units.BytesSize(float64(cr.TotalStoreSize)), units.BytesSize(float64(cr.TotalRuntimeSize)), units.BytesSize(float64(cr.TotalStoreSize+cr.TotalRuntimeSize)))
+}
+
+func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string, dockerHost string) (installCheckResult, error) {
+	cli, err := compose.GetDockerClient(dockerHost)
+	if err != nil {
+		return nil, err
+	}
+	images, err := cli.ImageList(ctx, dockertypes.ImageListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	installedImages := map[string]bool{}
+	for _, i := range images {
+		if len(i.RepoDigests) > 0 {
+			installedImages[i.RepoDigests[0]] = true
+		}
+		if len(i.RepoTags) > 0 {
+			// unpatch docker won't store the digest URI of loaded image
+			installedImages[i.RepoTags[0]] = true
+		}
+	}
+
+	checkResult := installCheckResult{}
+	blobProvider := compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
+	for _, appRef := range appRefs {
+		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
+		DieNotNil(err)
+		var missingImages []string
+		appComposeRoot := app.GetComposeRoot()
+		for _, imageNode := range appComposeRoot.Children {
+			imageUri := imageNode.Descriptor.URLs[0]
+			if !installedImages[imageUri] {
+				if s, err := reference.Parse(imageUri); err == nil {
+					taggedUri := s.Locator + ":" + (s.Digest().Encoded())[:7]
+					if !installedImages[taggedUri] {
+						missingImages = append(missingImages, imageUri)
+					}
+				}
+			}
+		}
+		checkResult[appRef] = &appInstallCheckResult{
+			AppName:       app.Name(),
+			MissingImages: missingImages,
+		}
+	}
+	return checkResult, nil
 }
