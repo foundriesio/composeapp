@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"path"
+	"strconv"
 )
 
 const (
@@ -19,6 +20,8 @@ var (
 	composeRoot       string
 	arch              string
 	dockerHost        string
+	connectTimeout    int
+	defConnectTimeout string
 
 	rootCmd = &cobra.Command{
 		Use:   "composectl",
@@ -55,11 +58,19 @@ func init() {
 		}
 		composeRoot = path.Join(homeDir, ".composeapps/projects")
 	}
+	var err error
+	defConnectTimeoutValue := 30
+	if len(defConnectTimeout) > 0 {
+		fmt.Println(defConnectTimeout)
+		defConnectTimeoutValue, err = strconv.Atoi(defConnectTimeout)
+		DieNotNil(err)
+	}
 
 	rootCmd.PersistentFlags().StringVarP(&config.StoreRoot, "store", "s", storeRoot, "store root path")
 	rootCmd.PersistentFlags().StringVarP(&config.ComposeRoot, "compose", "i", composeRoot, "compose projects root path")
 	rootCmd.PersistentFlags().StringVarP(&arch, "arch", "a", "", "architecture of app/images to pull")
 	rootCmd.PersistentFlags().StringVarP(&dockerHost, "host", "H", "", "path to the socket on which the Docker daemon listens")
+	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", defConnectTimeoutValue, "timeout for connecting to a container registry service")
 }
 
 func initConfig() {
@@ -76,4 +87,5 @@ func initConfig() {
 	if len(arch) > 0 {
 		config.Platform.Architecture = arch
 	}
+	config.ConnectTime = connectTimeout
 }

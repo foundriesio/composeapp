@@ -11,6 +11,7 @@ type Config struct {
 	DockerCfg   *configfile.ConfigFile
 	DockerHost  string
 	Platform    specs.Platform
+	ConnectTime int
 }
 
 var (

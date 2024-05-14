@@ -57,7 +57,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 		//  1) Copy in multiple goroutines/workers (configurable)
 		//  2) Generic status reporting mechanism
 		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-		resolver := compose.NewResolver(authorizer)
+		resolver := compose.NewResolver(authorizer, config.ConnectTime)
 
 		ls, err := local.NewStore(config.StoreRoot)
 		DieNotNil(err)
