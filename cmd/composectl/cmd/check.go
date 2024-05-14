@@ -144,7 +144,7 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 		blobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
 	} else {
 		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-		resolver := compose.NewResolver(authorizer)
+		resolver := compose.NewResolver(authorizer, config.ConnectTime)
 		blobProvider = compose.NewRemoteBlobProvider(resolver)
 	}
 
