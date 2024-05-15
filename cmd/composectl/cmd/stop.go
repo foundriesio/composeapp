@@ -63,13 +63,11 @@ func stopApps(cmd *cobra.Command, args []string, opts *stopOptions) {
 	}
 
 	for _, app := range appsToStop {
-		fmt.Printf("Stopping %s...\n", app)
 		cmd := exec.Command("docker", "compose", "down")
 		cmd.Dir = path.Join(config.ComposeRoot, app)
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
 		DieNotNil(cmd.Run())
-		fmt.Printf("%s has been stopped\n", app)
 	}
 }
 
