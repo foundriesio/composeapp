@@ -13,6 +13,7 @@ import (
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -72,6 +73,85 @@ func (s *appStore) ListApps(ctx context.Context) ([]*compose.AppRef, error) {
 		return nil
 	})
 	return apps, err
+}
+
+func (s *appStore) RemoveApps(ctx context.Context, apps []*compose.AppRef, prune bool) error {
+	for _, a := range apps {
+		appVerDir := filepath.Join(s.appsRoot, a.Name, a.Digest.Encoded())
+		if _, err := os.Stat(appVerDir); os.IsNotExist(err) {
+			return fmt.Errorf("app dir does not exist: %s", appVerDir)
+		}
+		err := os.RemoveAll(appVerDir)
+		if err != nil {
+			return err
+		}
+		appVerNumb := 0
+		appDir := filepath.Join(s.appsRoot, a.Name)
+		if err := filepath.Walk(appDir, func(path string, info fs.FileInfo, err error) error {
+			if path == appDir {
+				return nil
+			}
+			appVerNumb += 1
+			return nil
+		}); err != nil {
+			return err
+		}
+		if appVerNumb == 0 {
+			if err := os.RemoveAll(appDir); err != nil {
+				return err
+			}
+		}
+	}
+	if prune {
+		return s.Prune(ctx)
+	}
+	return nil
+}
+
+func (s *appStore) Prune(ctx context.Context) error {
+	apps, err := s.ListApps(ctx)
+	if err != nil {
+		return err
+	}
+	blobProvider := compose.NewStoreBlobProvider(s.blobsRoot)
+	referencedBlobs := map[string]bool{}
+	for _, a := range apps {
+		_, tree, err := NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(s.platform), a.String())
+		if err != nil {
+			return err
+		}
+		if err := tree.Walk(func(node *compose.TreeNode, depth int) error {
+			referencedBlobs[node.Descriptor.Digest.Encoded()] = true
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	var blobsToPrune []string
+	err = filepath.Walk(s.blobsRoot, func(path string, info fs.FileInfo, err error) error {
+		if pathErr, ok := err.(*os.PathError); ok {
+			if s.blobsRoot == pathErr.Path {
+				// Just exit with empty error since the store is simply empty
+				return nil
+			}
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if _, ok := referencedBlobs[info.Name()]; !ok {
+			blobsToPrune = append(blobsToPrune, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, p := range blobsToPrune {
+		if err := os.RemoveAll(p); err != nil {
+			return nil
+		}
+	}
+	return nil
 }
 
 func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureReadOptions) (io.ReadCloser, error) {
