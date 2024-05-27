@@ -243,7 +243,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		return err
 	}
 
-	if err := os.WriteFile(path.Join(appDir, "uri"), []byte(appV1.Spec.String()), 0644); err != nil {
+	if err := writeAndSync(path.Join(appDir, "uri"), []byte(appV1.Spec.String())); err != nil {
 		return err
 	}
 
@@ -264,7 +264,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		}
 	}
 	if b, _, err := readCompose(ctx, storeV1.bp, appV1); err == nil {
-		if writeErr := os.WriteFile(path.Join(appDir, "docker-compose.yml"), b, 0644); writeErr != nil {
+		if writeErr := writeAndSync(path.Join(appDir, "docker-compose.yml"), b); writeErr != nil {
 			fmt.Printf("Failed to write compose file: %s\n", writeErr.Error())
 		}
 	} else {
@@ -308,7 +308,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(indexFile, b, 0644); err != nil {
+		if err := writeAndSync(indexFile, b); err != nil {
 			return err
 		}
 		// Set write permission for an owner for each image manifest because
@@ -321,4 +321,26 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		}
 	}
 	return err
+}
+
+func writeAndSync(path string, data []byte) error {
+	tmpfile := path + ".tmp"
+	f, err := os.OpenFile(tmpfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to create a tmp file: %s; err: %s", tmpfile, err.Error())
+	}
+	defer os.Remove(tmpfile)
+	_, err = f.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to write a tmp file: %s; err: %s", tmpfile, err.Error())
+	}
+	err = f.Sync()
+	if err != nil {
+		return fmt.Errorf("failed to sync a tmp file: %s; err: %s", tmpfile, err.Error())
+	}
+	err = f.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close a tmp file: %s; err: %s", tmpfile, err.Error())
+	}
+	return os.Rename(tmpfile, path)
 }
