@@ -10,7 +10,7 @@ import (
 
 var rmCmd = &cobra.Command{
 	Use:   "rm",
-	Short: "remove apps from store",
+	Short: "rm <app-name> | <ref> [<app-name> | <ref>]",
 	Long:  ``,
 	Args:  cobra.MinimumNArgs(1),
 }
