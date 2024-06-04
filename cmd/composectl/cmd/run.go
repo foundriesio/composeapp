@@ -15,35 +15,61 @@ import (
 var (
 	runCmd = &cobra.Command{
 		Use:   "run",
-		Short: "",
+		Short: "run <app name> [<app name>] | --apps <app list>; if empty (\"\") then run all apps",
 		Long:  ``,
-		Args:  cobra.NoArgs,
-		Run:   runApps,
+		Args:  cobra.ArbitraryArgs,
 	}
-	runAppShortlist *string
+)
+
+type (
+	runOptions struct {
+		Apps map[string]bool
+	}
 )
 
 func init() {
+	opts := runOptions{Apps: map[string]bool{}}
+	runAppShortlist := runCmd.Flags().String("apps", ",", "Comma separated list of apps to run;"+
+		" all installed apps are started if not defined")
+
+	runCmd.Run = func(cmd *cobra.Command, args []string) {
+		if *runAppShortlist == "," && len(args) == 0 {
+			DieNotNil(fmt.Errorf("at least one app must be specified as an argument or in `--apps` parameter"))
+		}
+		if len(*runAppShortlist) > 0 && *runAppShortlist != "," {
+			for _, a := range strings.Split(*runAppShortlist, ",") {
+				opts.Apps[a] = true
+			}
+		} else {
+			for _, a := range args {
+				opts.Apps[a] = true
+			}
+		}
+
+		runApps(cmd, args, &opts)
+	}
 	rootCmd.AddCommand(runCmd)
-	runAppShortlist = runCmd.Flags().String("apps", "", "Comma separated list of apps to run; all installed apps are started if not defined")
 }
 
-func runApps(cmd *cobra.Command, args []string) {
+func runApps(cmd *cobra.Command, args []string, opts *runOptions) {
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	apps, err := cs.ListApps(cmd.Context())
 	DieNotNil(err)
-	var appShortlist map[string]bool
-	if len(*runAppShortlist) > 0 {
-		appShortlist = make(map[string]bool)
-		for _, a := range strings.Split(*runAppShortlist, ",") {
-			appShortlist[a] = true
+
+	foundApps := map[string]bool{}
+	for _, app := range apps {
+		foundApps[app.Name] = true
+	}
+	for app := range opts.Apps {
+		if !foundApps[app] {
+			DieNotNil(fmt.Errorf("specified app is not present in the local store: %s", app))
 		}
 	}
 
 	checkedApps := map[string]compose.App{}
 	for _, app := range apps {
-		if appShortlist != nil && !appShortlist[app.Name] {
+		if opts.Apps != nil && len(opts.Apps) > 0 && !opts.Apps[app.Name] {
 			fmt.Printf("%s: skipping, not in the shortlist\n", app.Name)
 			continue
 		}
