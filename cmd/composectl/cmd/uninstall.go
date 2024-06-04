@@ -9,7 +9,7 @@ import (
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "uninstall apps",
+	Short: "uninstall <app-name> [<app-name>]",
 	Long:  ``,
 	Args:  cobra.MinimumNArgs(1),
 }
