@@ -104,18 +104,20 @@ func initConfig() {
 		dockercfg.SetDir(overrideConfigDir)
 	}
 	cfgFile := filepath.Join(dockercfg.Dir(), dockercfg.ConfigFileName)
+	if cfg == nil {
+		cfg = configfile.New(cfgFile)
+	}
 	f, errOpen := os.Open(cfgFile)
 	if errOpen != nil {
 		if os.IsNotExist(errOpen) {
-			fmt.Printf("WARNING: the specified config is not found: %s; check configuration\n", cfgFile)
+			if len(overrideConfigDir) > 0 || len(os.Getenv(EnvOverrideDockerConfigDir)) > 0 {
+				fmt.Printf("WARNING: the specified config is not found: %s; check configuration\n", cfgFile)
+			}
 		} else {
 			DieNotNil(errOpen)
 		}
 	} else {
 		defer f.Close()
-		if cfg == nil {
-			cfg = configfile.New(cfgFile)
-		}
 		err = cfg.LoadFromReader(f)
 		DieNotNil(err)
 		if showConfigFile {
@@ -124,9 +126,6 @@ func initConfig() {
 	}
 	if cfg != nil && !cfg.ContainsAuth() {
 		cfg.CredentialsStore = credentials.DetectDefaultStore(cfg.CredentialsStore)
-	}
-	if cfg == nil {
-		os.Exit(1)
 	}
 
 	config.DockerCfg = cfg
