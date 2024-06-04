@@ -8,6 +8,7 @@ DOCKERCFGDIR ?=
 STOREROOT ?=
 COMPOSEROOT ?=
 CONNECTTIMEOUT ?=
+BASESYSTEMCONFIG ?=
 
 bd = bin
 exe = composectl
@@ -25,6 +26,10 @@ endif
 ifdef CONNECTTIMEOUT
     LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.defConnectTimeout=$(CONNECTTIMEOUT)'
 endif
+ifdef BASESYSTEMCONFIG
+    LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.baseSystemConfig=$(BASESYSTEMCONFIG)'
+endif
+
 ifdef LDFLAGS
 	GOBUILDFLAGS += -ldflags="$(LDFLAGS)"
 endif
