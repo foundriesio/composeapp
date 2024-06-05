@@ -18,6 +18,7 @@ const (
 )
 
 var (
+	commit            string
 	baseSystemConfig  string
 	overrideConfigDir string
 	storeRoot         string
@@ -31,6 +32,19 @@ var (
 	rootCmd = &cobra.Command{
 		Use:   "composectl",
 		Short: "Manage Compose Apps",
+	}
+	versionCmd = &cobra.Command{
+		Use:   "version",
+		Short: "print a version of the utility",
+		Long:  ``,
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(commit) > 0 {
+				fmt.Println(commit)
+			} else {
+				fmt.Println("unknown")
+			}
+		},
 	}
 )
 
@@ -77,6 +91,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&dockerHost, "host", "H", "", "path to the socket on which the Docker daemon listens")
 	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", defConnectTimeoutValue, "timeout for connecting to a container registry service")
 	rootCmd.PersistentFlags().BoolVarP(&showConfigFile, "show-config", "C", false, "print paths of the applied config files")
+	rootCmd.AddCommand(versionCmd)
 }
 
 func initConfig() {

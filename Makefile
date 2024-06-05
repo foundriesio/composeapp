@@ -14,6 +14,12 @@ bd = bin
 exe = composectl
 linter = golangci-lint
 
+commit = $(shell git rev-parse HEAD)
+
+ifneq ($(strip $(commit)),)
+	LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.commit=$(commit)'
+endif
+
 ifdef DOCKERCFGDIR
     LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.overrideConfigDir=$(DOCKERCFGDIR)'
 endif
