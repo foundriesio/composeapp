@@ -15,7 +15,7 @@ import (
 var (
 	pullCmd = &cobra.Command{
 		Use:   "pull <ref> [<ref>]",
-		Short: "",
+		Short: "pull <ref> [<ref>]",
 		Long:  ``,
 		Args:  cobra.MinimumNArgs(1),
 		Run:   pullApps,

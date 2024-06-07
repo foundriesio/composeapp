@@ -14,7 +14,7 @@ func init() {
 
 var inspectCmd = &cobra.Command{
 	Use:   "inspect <app ref>",
-	Short: "",
+	Short: "inspect <ref>",
 	Long:  ``,
 	Args:  cobra.ExactArgs(1),
 	Run:   inspectApp,
