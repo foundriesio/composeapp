@@ -130,6 +130,8 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 				appState = "not running"
 				continue
 			}
+			appServiceHash := imageNode.Descriptor.Annotations[v1.AppServiceHashLabelKey]
+			var foundMatchingSrv *Service
 			for _, fsrv := range foundSrvs {
 				if len(fsrv.Hash) == 0 {
 					appServices = append(appServices, &Service{
@@ -140,20 +142,23 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 					appState = "unknown"
 					continue
 				}
-				appServiceHash := imageNode.Descriptor.Annotations[v1.AppServiceHashLabelKey]
 				if fsrv.Hash == appServiceHash {
-					appServices = append(appServices, fsrv)
-					if len(fsrv.State) == 0 || fsrv.State != "running" {
-						appState = "not running"
-					}
-				} else {
-					appServices = append(appServices, &Service{
-						Image:  imageUri,
-						State:  "missing",
-						Status: "config hash mismatch",
-					})
+					foundMatchingSrv = fsrv
+					break
+				}
+			}
+			if foundMatchingSrv != nil {
+				appServices = append(appServices, foundMatchingSrv)
+				if len(foundMatchingSrv.State) == 0 || foundMatchingSrv.State != "running" {
 					appState = "not running"
 				}
+			} else {
+				appServices = append(appServices, &Service{
+					Image:  imageUri,
+					State:  "missing",
+					Status: "config hash mismatch",
+				})
+				appState = "not running"
 			}
 		}
 		appStatuses[appRef] = &App{
