@@ -32,6 +32,7 @@ type (
 		Name     string     `json:"name"`
 		State    string     `json:"state"`
 		Services []*Service `json:"services"`
+		InStore  bool       `json:"in_store"`
 	}
 	ServiceStatus struct {
 		URI     string `json:"uri"`
@@ -98,11 +99,21 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 			}
 			continue
 		}
+		if !runningApp.InStore {
+			// Since we iterate over apps stored in apps, it is not possible that running app is not in store
+			// in this context/loop.
+			fmt.Printf("ERR: Running app is not found in the store: %s\n", appRef)
+			continue
+		}
+		// If the running app URI is empty and the app is found in the store then it
+		// means that more than one version of the app are in the store.
+		// In this case we assume that a caller/user would like to check status of the app version
+		// specified via `appRefs`.
 		if len(runningApp.URI) > 0 && runningApp.URI != appRef {
 			appStatuses[appRef] = &App{
 				URI:   appRef,
 				Name:  app.Name(),
-				State: "running another version " + runningApp.URI,
+				State: "running another app version than found in the store" + runningApp.URI,
 			}
 			continue
 		}
@@ -130,6 +141,8 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 				appState = "not running"
 				continue
 			}
+			appServiceHash := imageNode.Descriptor.Annotations[v1.AppServiceHashLabelKey]
+			var foundMatchingSrv *Service
 			for _, fsrv := range foundSrvs {
 				if len(fsrv.Hash) == 0 {
 					appServices = append(appServices, &Service{
@@ -140,20 +153,23 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 					appState = "unknown"
 					continue
 				}
-				appServiceHash := imageNode.Descriptor.Annotations[v1.AppServiceHashLabelKey]
 				if fsrv.Hash == appServiceHash {
-					appServices = append(appServices, fsrv)
-					if len(fsrv.State) == 0 || fsrv.State != "running" {
-						appState = "not running"
-					}
-				} else {
-					appServices = append(appServices, &Service{
-						Image:  imageUri,
-						State:  "missing",
-						Status: "config hash mismatch",
-					})
+					foundMatchingSrv = fsrv
+					break
+				}
+			}
+			if foundMatchingSrv != nil {
+				appServices = append(appServices, foundMatchingSrv)
+				if len(foundMatchingSrv.State) == 0 || foundMatchingSrv.State != "running" {
 					appState = "not running"
 				}
+			} else {
+				appServices = append(appServices, &Service{
+					Image:  imageUri,
+					State:  "missing",
+					Status: "config hash mismatch",
+				})
+				appState = "not running"
 			}
 		}
 		appStatuses[appRef] = &App{
@@ -161,6 +177,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 			Name:     app.Name(),
 			State:    appState,
 			Services: appServices,
+			InStore:  true,
 		}
 	}
 
@@ -176,7 +193,17 @@ func printAppStatuses(appStatuses map[string]*App, format string) {
 		}
 	} else {
 		for _, app := range appStatuses {
-			fmt.Printf("%s (%s) -> %s\n", app.Name, app.State, app.URI)
+			var appUri string
+			if app.InStore {
+				if len(app.URI) > 0 {
+					appUri = app.URI
+				} else {
+					appUri = "multiple versions of app found in the app store"
+				}
+			} else {
+				appUri = "not found in the app store"
+			}
+			fmt.Printf("%s (%s) -> %s\n", app.Name, app.State, appUri)
 			for _, srv := range app.Services {
 				id := "------------"
 				if len(srv.CtrID) > 0 {
@@ -192,15 +219,15 @@ func printAppStatuses(appStatuses map[string]*App, format string) {
 	}
 }
 
-func getAppUri(storeApps []*compose.AppRef, appName string) string {
-	var foundApp string
+func checkAppInStore(storeApps []*compose.AppRef, appName string) []*compose.AppRef {
+	var foundApps []*compose.AppRef
 	for _, a := range storeApps {
 		if a.Name == appName {
 			// TODO: handle the case when there are more than two one version of the same app in the store
-			foundApp = a.String()
+			foundApps = append(foundApps, a)
 		}
 	}
-	return foundApp
+	return foundApps
 }
 func getAllAppStatuses(ctx context.Context) map[string]*App {
 	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
@@ -244,15 +271,17 @@ func getAllAppStatuses(ctx context.Context) map[string]*App {
 				app.State = "not running"
 			}
 		} else {
-			appUri := getAppUri(storeApps, appName)
-			if len(appUri) == 0 {
-				appUri = "not found in store"
+			var appUri string
+			appsFoundInStore := checkAppInStore(storeApps, appName)
+			if len(appsFoundInStore) == 1 {
+				appUri = appsFoundInStore[0].String()
 			}
 			foundApps[appName] = &App{
 				URI:      appUri,
 				Name:     appName,
 				State:    c.State,
 				Services: []*Service{srv},
+				InStore:  len(appsFoundInStore) > 0,
 			}
 		}
 	}
