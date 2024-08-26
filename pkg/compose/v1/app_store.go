@@ -203,7 +203,7 @@ func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureRead
 	}
 
 	f, fileOpenErr := os.Open(blobPath)
-	if checkHash {
+	if checkHash && fileOpenErr == nil {
 		newOpts := opts
 		p := compose.GetSecureReadParams(opts...)
 		if len(p.ExpectedDigest) == 0 {
