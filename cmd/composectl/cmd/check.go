@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
+	"github.com/containerd/containerd/reference/docker"
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
@@ -266,7 +267,13 @@ func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string
 				if s, err := reference.Parse(imageUri); err == nil {
 					taggedUri := s.Locator + ":" + (s.Digest().Encoded())[:7]
 					if !installedImages[taggedUri] {
-						missingImages = append(missingImages, imageUri)
+						// Check familiar name
+						if anyRef, err := docker.ParseAnyReference(imageUri); err == nil {
+							familiarRef := docker.FamiliarString(anyRef)
+							if !installedImages[familiarRef] {
+								missingImages = append(missingImages, imageUri)
+							}
+						}
 					}
 				}
 			}
