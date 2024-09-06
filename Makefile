@@ -58,7 +58,7 @@ $(bd):
 	@mkdir -p $@
 
 $(exe): $(bd) check_connect_timeout
-	$(GO) build $(GOBUILDFLAGS) -o $(bd)/$@ cmd/composectl/main.go
+	$(GO) build -tags publish $(GOBUILDFLAGS) -o $(bd)/$@ cmd/composectl/main.go
 
 clean:
 	@rm -r $(bd)

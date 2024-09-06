@@ -1,3 +1,5 @@
+//go:build publish
+
 package composectl
 
 import (
