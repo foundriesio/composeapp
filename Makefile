@@ -69,6 +69,9 @@ check: format
 tidy-mod:
 	go mod tidy -go=$(MODVER)
 
+preload-images:
+	test/fixtures/preload-images.sh
+
 # target should be run only in the dev container
-test-e2e: $(exe)
+test-e2e: $(exe) preload-images
 	go test -v ./...
