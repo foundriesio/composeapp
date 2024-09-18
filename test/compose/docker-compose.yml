@@ -1,0 +1,42 @@
+services:
+  registry:
+    image: ghcr.io/foundriesio/docker-distribution:2.8.3-fio
+    volumes:
+      - ${REG_CERT_DIR}:/certs
+      - ${REG_DIR}/config.yml:/etc/docker/registry/config.yml
+
+  dockerd:
+    image: ghcr.io/foundriesio/moby:25.0.3_fio
+    command: ["dockerd", "-D", "-H", "unix:///var/run/docker/docker.sock"]
+    privileged: true
+    volumes:
+      - docker-runtime:/var/run/docker
+      - ${REG_DIR}/daemon.json:/etc/docker/daemon.json:ro
+      - reset-apps:/var/sota/reset-apps
+
+  composectl:
+    build:
+      context: ${SRC_DIR}
+      dockerfile: ${CPS_DIR}/Dockerfile
+      args:
+        REG_CERT: ${REG_CERT}
+        SRC_DIR: ${SRC_DIR}
+    volumes:
+      - ${SRC_DIR}:${SRC_DIR}
+      - ${BIN_DIR}:${SRC_DIR}/bin
+      - docker-runtime:/var/run/docker
+      - reset-apps:/var/sota/reset-apps
+    working_dir: ${SRC_DIR}
+    depends_on:
+      - registry
+      - dockerd
+    environment:
+      - GOCACHE=${SRC_DIR}/.cache
+      - DOCKER_HOST=unix:///var/run/docker/docker.sock
+      - COMPOSECTL_EXE=${BIN_DIR}/composectl
+      - SRC_DIR=${SRC_DIR}
+      - STOREROOT=/var/sota/reset-apps
+
+volumes:
+  docker-runtime:
+  reset-apps:
