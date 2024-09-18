@@ -18,7 +18,7 @@ type (
 	listOptions struct {
 		Format string
 	}
-	appJsonOutput struct {
+	AppJsonOutput struct {
 		Name string `json:"name"`
 		URI  string `json:"uri"`
 	}
@@ -42,9 +42,9 @@ func listApps(cmd *cobra.Command, args []string, opts *listOptions) {
 	apps, err := cs.ListApps(cmd.Context())
 	DieNotNil(err)
 	if opts.Format == "json" {
-		var lsOutput []appJsonOutput
+		var lsOutput []AppJsonOutput
 		for _, app := range apps {
-			lsOutput = append(lsOutput, appJsonOutput{
+			lsOutput = append(lsOutput, AppJsonOutput{
 				Name: app.Name,
 				URI:  app.String(),
 			})

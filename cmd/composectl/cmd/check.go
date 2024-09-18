@@ -35,11 +35,16 @@ type (
 		CheckInstall   bool
 	}
 
-	checkAppResult struct {
+	CheckAppResult struct {
 		MissingBlobs     map[digest.Digest]compose.BlobInfo `json:"missing_blobs"`
 		TotalPullSize    int64                              `json:"total_pull_size"`
 		TotalStoreSize   int64                              `json:"total_store_size"`
 		TotalRuntimeSize int64                              `json:"total_runtime_size"`
+	}
+
+	CheckAndInstallResult struct {
+		FetchCheck   *CheckAppResult     `json:"fetch_check"`
+		InstallCheck *InstallCheckResult `json:"install_check"`
 	}
 
 	appInstallCheckResult struct {
@@ -47,7 +52,7 @@ type (
 		MissingImages []string `json:"missing_images"`
 	}
 
-	installCheckResult map[string]*appInstallCheckResult
+	InstallCheckResult map[string]*appInstallCheckResult
 )
 
 const (
@@ -90,7 +95,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		quietCheck = true
 	}
 	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck)
-	var ir installCheckResult
+	var ir InstallCheckResult
 	var err error
 	if opts.CheckInstall {
 		ir, err = checkIfInstalled(cmd.Context(), args, *opts.SrcStorePath, config.DockerHost)
@@ -99,8 +104,8 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	if opts.Format == "json" {
 		aggregatedCheckRes :=
 			struct {
-				FetchCheck   *checkAppResult     `json:"fetch_check"`
-				InstallCheck *installCheckResult `json:"install_check"`
+				FetchCheck   *CheckAppResult     `json:"fetch_check"`
+				InstallCheck *InstallCheckResult `json:"install_check"`
 			}{
 				FetchCheck:   cr,
 				InstallCheck: &ir,
@@ -128,7 +133,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	}
 }
 
-func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string, quiet bool) (*checkAppResult, *compose.UsageInfo, []compose.App) {
+func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string, quiet bool) (*CheckAppResult, *compose.UsageInfo, []compose.App) {
 	if usageWatermark < MinUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
 	}
@@ -151,7 +156,7 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 	var apps []compose.App
 	blobsToPull := map[digest.Digest]compose.BlobInfo{}
-	checkRes := checkAppResult{MissingBlobs: blobsToPull}
+	checkRes := CheckAppResult{MissingBlobs: blobsToPull}
 
 	for _, appRef := range appRefs {
 		if !quiet {
@@ -229,12 +234,12 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 	return &checkRes, ui, apps
 }
 
-func (cr *checkAppResult) print() {
+func (cr *CheckAppResult) print() {
 	fmt.Printf("%d blobs to pull; total download size: %s, total store size: %s, total runtime size of missing blobs: %s, total required: %s\n",
 		len(cr.MissingBlobs), units.BytesSize(float64(cr.TotalPullSize)), units.BytesSize(float64(cr.TotalStoreSize)), units.BytesSize(float64(cr.TotalRuntimeSize)), units.BytesSize(float64(cr.TotalStoreSize+cr.TotalRuntimeSize)))
 }
 
-func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string, dockerHost string) (installCheckResult, error) {
+func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string, dockerHost string) (InstallCheckResult, error) {
 	cli, err := compose.GetDockerClient(dockerHost)
 	if err != nil {
 		return nil, err
@@ -254,7 +259,7 @@ func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string
 		}
 	}
 
-	checkResult := installCheckResult{}
+	checkResult := InstallCheckResult{}
 	blobProvider := compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
 	for _, appRef := range appRefs {
 		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)

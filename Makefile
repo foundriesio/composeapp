@@ -68,3 +68,7 @@ check: format
 
 tidy-mod:
 	go mod tidy -go=$(MODVER)
+
+# target should be run only in the dev container
+test-e2e: $(exe)
+	go test -v ./...
