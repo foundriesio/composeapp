@@ -1,0 +1,19 @@
+name: Tests
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Build and run all tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: docker compose --env-file=test/compose/.env.test -f test/compose/docker-compose.yml run composectl make
+      - name: test
+        run: docker compose --env-file=test/compose/.env.test -f test/compose/docker-compose.yml run composectl make test-e2e
+      - name: teardown test env
+        run: docker compose --env-file=test/compose/.env.test -f test/compose/docker-compose.yml down
