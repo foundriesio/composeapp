@@ -89,3 +89,21 @@ composectl rm <app name> [<app name>] [--prune]
 ```commandline
 composectl prune
 ```
+
+## Development And Testing
+
+The dev&test environment based on docker compose contains all required elements to build, manually test, as well as run automated tests.
+To launch the environment and enter into its shell just run:
+```commandline
+./dev-shell.sh
+```
+It will take some time to start the environment for the first time because:
+1. The docker daemon (dind) and the registry container (distribution) images have to be pulled.
+2. The dev&test container should be built.
+
+Once you are logged into the container shell you can build and run the `composectl` utility, test it manually
+and run automated tests:
+```commandline
+./dev-shell.sh
+make test-e2e
+```
