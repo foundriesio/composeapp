@@ -27,6 +27,12 @@ type (
 	}
 )
 
+func WithRegistry(registry string) func(*App) {
+	return func(app *App) {
+		app.BaseUri = registry + ":5000/factory/"
+	}
+}
+
 func WithAppName(name string) func(*App) {
 	return func(app *App) {
 		app.Name = name
