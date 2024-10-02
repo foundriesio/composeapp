@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/docker/distribution"
 	"os"
 	"strings"
 
@@ -43,7 +44,8 @@ func loadProj(ctx context.Context, appName string, file string, content []byte) 
 	})
 }
 
-func DoPublish(ctx context.Context, appName string, file, target, digestFile string, dryRun bool, archList []string, pinnedImages map[string]digest.Digest, layersMetaFile string) error {
+func DoPublish(ctx context.Context, appName string, file, target, digestFile string, dryRun bool, archList []string,
+	pinnedImages map[string]digest.Digest, layersMetaFile string, createAppLayersManifest bool) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -92,10 +94,13 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 		return fmt.Errorf("app cannot support more than %d architectures, found %d", internal.MaxArchNumb, len(appLayers))
 	}
 
-	fmt.Println("= Posting app layers manifests...")
-	layerManifests, err := PostAppLayersManifests(ctx, target, appLayers, dryRun)
-	if err != nil {
-		return err
+	var layerManifests []distribution.Descriptor
+	if createAppLayersManifest {
+		fmt.Println("= Posting app layers manifests...")
+		layerManifests, err = PostAppLayersManifests(ctx, target, appLayers, dryRun)
+		if err != nil {
+			return err
+		}
 	}
 
 	var appLayersMetaBytes []byte

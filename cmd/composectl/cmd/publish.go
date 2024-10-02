@@ -28,11 +28,12 @@ var publishCmd = &cobra.Command{
 
 type (
 	publishOptions struct {
-		ComposeFile     string
-		DigestFile      string
-		DryRun          bool
-		PinnedImageURIs []string
-		LayersMetaFile  string
+		ComposeFile             string
+		DigestFile              string
+		DryRun                  bool
+		PinnedImageURIs         []string
+		LayersMetaFile          string
+		CreateAppLayersManifest bool
 	}
 )
 
@@ -43,6 +44,7 @@ func init() {
 	publishCmd.Flags().BoolVar(&opts.DryRun, "dryrun", false, "Show what would be done, but don't actually publish")
 	publishCmd.Flags().StringArrayVar(&opts.PinnedImageURIs, "pinned-images", nil, "A list of app images referred through digest URIs to pin app to")
 	publishCmd.Flags().StringVarP(&opts.LayersMetaFile, "layers-meta", "l", "", "Json file containing App layers' metadata (size, usage)")
+	publishCmd.Flags().BoolVar(&opts.CreateAppLayersManifest, "layers-manifest", true, "Add app layers manifests to the app manifest")
 
 	publishCmd.Run = func(cmd *cobra.Command, args []string) {
 		fmt.Println(banner)
@@ -84,5 +86,6 @@ func publishApp(cmd *cobra.Command, appRef *compose.AppRef, archList []string, o
 		}
 	}
 
-	DieNotNil(compose.DoPublish(cmd.Context(), appRef.Name, opts.ComposeFile, appRef.String(), opts.DigestFile, opts.DryRun, archList, pinnedImages, opts.LayersMetaFile))
+	DieNotNil(compose.DoPublish(cmd.Context(), appRef.Name, opts.ComposeFile, appRef.String(), opts.DigestFile,
+		opts.DryRun, archList, pinnedImages, opts.LayersMetaFile, opts.CreateAppLayersManifest))
 }

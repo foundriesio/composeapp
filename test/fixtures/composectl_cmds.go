@@ -66,14 +66,18 @@ func NewApp(t *testing.T, composeDef string, options ...func(*App)) *App {
 	return app
 }
 
-func (a *App) Publish(t *testing.T) {
+func (a *App) Publish(t *testing.T, dontPublishLayersManifest ...bool) {
 	t.Run("publish app", func(t *testing.T) {
 		digestFile := path.Join(a.Dir, "digest.sha256")
 		tag, err := randomStringCrypto(7)
 		if err != nil {
 			t.Fatalf("failed to generate a random image tag value: %s\n", err)
 		}
-		runCmd(t, a.Dir, "publish", "-d", digestFile, a.BaseUri+":"+tag, "amd64")
+		if len(dontPublishLayersManifest) > 0 && dontPublishLayersManifest[0] {
+			runCmd(t, a.Dir, "publish", "--layers-manifest=false", "-d", digestFile, a.BaseUri+":"+tag, "amd64")
+		} else {
+			runCmd(t, a.Dir, "publish", "-d", digestFile, a.BaseUri+":"+tag, "amd64")
+		}
 		if b, err := os.ReadFile(digestFile); err == nil {
 			a.PublishedUri = a.BaseUri + "@" + string(b)
 		} else {

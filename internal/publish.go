@@ -300,35 +300,34 @@ func CreateApp(ctx context.Context, config map[string]interface{}, target string
 	if !ok {
 		return "", fmt.Errorf("invalid manifest type, expected *ocischema.DeserializedManifest, got: %T", manifest)
 	}
-
 	b, err := man.MarshalJSON()
 	if err != nil {
 		return "", err
 	}
 
-	manMap := make(map[string]interface{})
-	err = json.Unmarshal(b, &manMap)
-	if err != nil {
-		return "", err
+	if layerManifests != nil {
+		manMap := make(map[string]interface{})
+		err = json.Unmarshal(b, &manMap)
+		if err != nil {
+			return "", err
+		}
+
+		manMap["manifests"] = layerManifests
+		b, err = json.MarshalIndent(manMap, "", "   ")
+		if err != nil {
+			return "", err
+		}
+		err = man.UnmarshalJSON(b)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	manMap["manifests"] = layerManifests
-
-	b1, err := json.MarshalIndent(manMap, "", "   ")
-	if err != nil {
-		return "", err
-	}
-
-	err = man.UnmarshalJSON(b1)
-	if err != nil {
-		return "", err
-	}
-
-	fmt.Printf("  |-> manifest size: %d\n", len(b1))
+	fmt.Printf("  |-> manifest size: %d\n", len(b))
 	// TODO: this check is needed in order to overcome the aklite's check on the maximum manifest size (2048)
 	// Once the new version of aklite is deployed (max manifest size = 16K) then this check can be removed or MaxArchNumb increased
-	if len(b1) >= MaxManifestBodySize {
-		return "", fmt.Errorf("app manifest size (%d) exceeds the maximum size limit (%d)", len(b1), MaxManifestBodySize)
+	if len(b) >= MaxManifestBodySize {
+		return "", fmt.Errorf("app manifest size (%d) exceeds the maximum size limit (%d)", len(b), MaxManifestBodySize)
 	}
 	svc, err := repo.Manifests(ctx, nil)
 	if err != nil {
