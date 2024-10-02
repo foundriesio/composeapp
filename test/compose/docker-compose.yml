@@ -1,4 +1,10 @@
 services:
+  registry-org:
+    image: registry:2.8.3
+    volumes:
+      - ${REG_CERT_DIR}:/certs
+      - ${REG_DIR}/config.yml:/etc/docker/registry/config.yml
+
   registry:
     image: ghcr.io/foundriesio/docker-distribution:2.8.3-fio
     volumes:
@@ -29,6 +35,7 @@ services:
     working_dir: ${SRC_DIR}
     depends_on:
       - registry
+      - registry-org
       - dockerd
     environment:
       - GOCACHE=${SRC_DIR}/.cache
