@@ -27,27 +27,37 @@ type (
 	}
 )
 
-func NewApp(t *testing.T, composeDef string, appName ...string) *App {
-	var name string
-	if len(appName) > 0 {
-		name = appName[0]
-	} else {
-		name = randomString(5)
+func WithAppName(name string) func(*App) {
+	return func(app *App) {
+		app.Name = name
 	}
-	appDir := path.Join(t.TempDir(), name)
-	err := os.MkdirAll(appDir, 0o755)
+}
+
+func NewApp(t *testing.T, composeDef string, options ...func(*App)) *App {
+	app := &App{}
+	for _, o := range options {
+		o(app)
+	}
+	if len(app.Name) == 0 {
+		app.Name = randomString(5)
+	}
+	if len(app.Dir) == 0 {
+		appDir := path.Join(t.TempDir(), app.Name)
+		err := os.MkdirAll(appDir, 0o755)
+		if err != nil {
+			t.Fatal(err)
+		}
+		app.Dir = appDir
+	}
+	err := os.WriteFile(path.Join(app.Dir, "docker-compose.yml"), []byte(composeDef), 0o640)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.WriteFile(path.Join(appDir, "docker-compose.yml"), []byte(composeDef), 0o640)
-	if err != nil {
-		t.Fatal(err)
+	if len(app.BaseUri) == 0 {
+		app.BaseUri = "registry:5000/factory/"
 	}
-	return &App{
-		Name:    name,
-		BaseUri: "registry:5000/factory/" + name,
-		Dir:     appDir,
-	}
+	app.BaseUri += app.Name
+	return app
 }
 
 func (a *App) Publish(t *testing.T) {
