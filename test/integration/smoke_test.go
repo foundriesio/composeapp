@@ -14,7 +14,7 @@ services:
 `
 	smokeTest := func(registry string, layersManifest bool) {
 		app := fixtures.NewApp(t, appComposeDef, fixtures.WithRegistry(registry))
-		app.Publish(t)
+		app.Publish(t, !layersManifest)
 
 		app.Pull(t)
 		defer app.Remove(t)
