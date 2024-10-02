@@ -108,7 +108,7 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 		fmt.Println("= Getting app layers metadata...")
 		appLayersMetaBytes, err = GetAppLayersMeta(layersMetaFile, appLayers)
 		if err != nil {
-			fmt.Printf("= Failed to get app layers metadata: %s\n", err.Error())
+			return fmt.Errorf("= Failed to get app layers metadata: %s\n", err.Error())
 		}
 	}
 
