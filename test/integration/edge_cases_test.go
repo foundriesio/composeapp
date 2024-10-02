@@ -51,7 +51,7 @@ services:
 	app := f.NewApp(t, appComposeDef)
 	app.Publish(t)
 
-	app02 := f.NewApp(t, appComposeDef02, app.Name)
+	app02 := f.NewApp(t, appComposeDef02, f.WithAppName(app.Name))
 	app02.Publish(t)
 
 	app.Pull(t)
