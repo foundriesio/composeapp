@@ -32,6 +32,18 @@ type (
 	}
 )
 
+func check(t *testing.T, err error) {
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkf(t *testing.T, err error, format string, args ...any) {
+	if err != nil {
+		t.Fatalf(format, args...)
+	}
+}
+
 func WithRegistry(registry string) func(opts *PublishOpts) {
 	return func(opts *PublishOpts) {
 		opts.Registry = registry
@@ -56,13 +68,8 @@ func NewApp(t *testing.T, composeDef string, name ...string) *App {
 		app.Name = randomString(5)
 	}
 	app.Dir = path.Join(t.TempDir(), app.Name)
-	err := os.MkdirAll(app.Dir, 0o755)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path.Join(app.Dir, "docker-compose.yml"), []byte(composeDef), 0o640); err != nil {
-		t.Fatal(err)
-	}
+	check(t, os.MkdirAll(app.Dir, 0o755))
+	check(t, os.WriteFile(path.Join(app.Dir, "docker-compose.yml"), []byte(composeDef), 0o640))
 	return app
 }
 
@@ -79,9 +86,7 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 	t.Run("publish app", func(t *testing.T) {
 		digestFile := path.Join(a.Dir, "digest.sha256")
 		tag, err := randomStringCrypto(7)
-		if err != nil {
-			t.Fatalf("failed to generate a random image tag value: %s\n", err)
-		}
+		check(t, err)
 		args := []string{
 			"publish", "-d", digestFile, baseUri + ":" + tag, "amd64",
 		}
@@ -92,11 +97,9 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 			args = append(args, "--layers-meta", opts.LayersMetaFile)
 		}
 		runCmd(t, a.Dir, args...)
-		if b, err := os.ReadFile(digestFile); err == nil {
-			a.PublishedUri = baseUri + "@" + string(b)
-		} else {
-			t.Fatalf("failed to read the published app digest: %s\n", err)
-		}
+		b, err := os.ReadFile(digestFile)
+		check(t, err)
+		a.PublishedUri = baseUri + "@" + string(b)
 		fmt.Printf("published app uri: %s\n", a.PublishedUri)
 	})
 }
@@ -124,17 +127,13 @@ func (a *App) Run(t *testing.T) {
 func (a *App) Up(t *testing.T) {
 	t.Run("compose up", func(t *testing.T) {
 		homeDir, homeDirErr := os.UserHomeDir()
-		if homeDirErr != nil {
-			t.Errorf("failed to get home directory path: %s\n", homeDirErr)
-		}
+		check(t, homeDirErr)
 		composeRoot := path.Join(homeDir, ".composeapps/projects", a.Name)
 
 		c := exec.Command("docker", "compose", "up", "--remove-orphans", "-d")
 		c.Dir = composeRoot
 		output, err := c.CombinedOutput()
-		if err != nil {
-			t.Errorf("failed to run `docker compose up -d` command: %s\n", output)
-		}
+		checkf(t, err, "failed to run `docker compose up -d` command: %s\n", output)
 	})
 }
 
@@ -146,9 +145,7 @@ func (a *App) CheckFetched(t *testing.T) {
 	t.Run("list app", func(t *testing.T) {
 		output := runCmd(t, a.Dir, "ls", "--format", "json")
 		var lsOutput []composectl.AppJsonOutput
-		if err := json.Unmarshal(output, &lsOutput); err != nil {
-			t.Errorf("failed to unmarshal app list output: %s\n", err)
-		}
+		check(t, json.Unmarshal(output, &lsOutput))
 		if a.PublishedUri != lsOutput[0].URI {
 			t.Errorf("app uri in the list output does not equal to the published app;"+
 				" published app uri: %s, app list uri: %s\n", a.PublishedUri, lsOutput[0].URI)
@@ -157,9 +154,7 @@ func (a *App) CheckFetched(t *testing.T) {
 	t.Run("check app", func(t *testing.T) {
 		output := runCmd(t, a.Dir, "check", "--local", a.PublishedUri, "--format", "json")
 		checkResult := composectl.CheckAndInstallResult{}
-		if err := json.Unmarshal(output, &checkResult); err != nil {
-			t.Errorf("failed to unmarshal check app result: %s\n", err)
-		}
+		check(t, json.Unmarshal(output, &checkResult))
 		if len(checkResult.FetchCheck.MissingBlobs) > 0 {
 			t.Errorf("There are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
 		}
@@ -170,9 +165,7 @@ func (a *App) CheckInstalled(t *testing.T) {
 	t.Run("check if installed", func(t *testing.T) {
 		output := runCmd(t, a.Dir, "check", "--local", "--install", a.PublishedUri, "--format", "json")
 		checkResult := composectl.CheckAndInstallResult{}
-		if err := json.Unmarshal(output, &checkResult); err != nil {
-			t.Errorf("failed to unmarshal check app result: %s\n", err)
-		}
+		check(t, json.Unmarshal(output, &checkResult))
 
 		if len(checkResult.FetchCheck.MissingBlobs) > 0 {
 			t.Errorf("there are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
@@ -194,9 +187,7 @@ func (a *App) CheckRunning(t *testing.T) {
 	t.Run("check if running", func(t *testing.T) {
 		output := runCmd(t, "", "ps", a.PublishedUri, "--format", "json")
 		var psOutput map[string]composectl.App
-		if err := json.Unmarshal(output, &psOutput); err != nil {
-			t.Errorf("failed to unmarshal app ps output: %s\n", err)
-		}
+		check(t, json.Unmarshal(output, &psOutput))
 		if len(psOutput) != 1 {
 			t.Errorf("expected one element in ps output, got: %d\n", len(psOutput))
 		}
@@ -222,9 +213,7 @@ func runCmd(t *testing.T, appDir string, args ...string) []byte {
 		c.Dir = appDir
 	}
 	output, err := c.CombinedOutput()
-	if err != nil {
-		t.Fatalf("failed to run `%s` command: %s\n", args[0], output)
-	}
+	checkf(t, err, "failed to run `%s` command: %s\n", args[0], output)
 	return output
 }
 
