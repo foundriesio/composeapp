@@ -17,6 +17,7 @@ services:
     privileged: true
     volumes:
       - docker-runtime:/var/run/docker
+      - docker-data:/var/lib/docker
       - ${REG_DIR}/daemon.json:/etc/docker/daemon.json:ro
       - reset-apps:/var/sota/reset-apps
 
@@ -31,6 +32,7 @@ services:
       - ${SRC_DIR}:${SRC_DIR}
       - ${BIN_DIR}:${SRC_DIR}/bin
       - docker-runtime:/var/run/docker
+      - docker-data:/var/lib/docker
       - reset-apps:/var/sota/reset-apps
     working_dir: ${SRC_DIR}
     depends_on:
@@ -45,5 +47,6 @@ services:
       - STOREROOT=/var/sota/reset-apps
 
 volumes:
+  docker-data:
   docker-runtime:
   reset-apps:
