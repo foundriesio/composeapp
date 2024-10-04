@@ -21,65 +21,79 @@ var (
 type (
 	App struct {
 		Name         string
-		BaseUri      string
 		PublishedUri string
 		Dir          string
 	}
+
+	PublishOpts struct {
+		PublishLayersManifest bool
+		LayersMetaFile        string
+		Registry              string
+	}
 )
 
-func WithRegistry(registry string) func(*App) {
-	return func(app *App) {
-		app.BaseUri = registry + ":5000/factory/"
+func WithRegistry(registry string) func(opts *PublishOpts) {
+	return func(opts *PublishOpts) {
+		opts.Registry = registry
+	}
+}
+func WithLayersManifest(addLayerManifest bool) func(opts *PublishOpts) {
+	return func(opts *PublishOpts) {
+		opts.PublishLayersManifest = addLayerManifest
+	}
+}
+func WithLayersMeta(layersMetaFile string) func(opts *PublishOpts) {
+	return func(opts *PublishOpts) {
+		opts.LayersMetaFile = layersMetaFile
 	}
 }
 
-func WithAppName(name string) func(*App) {
-	return func(app *App) {
-		app.Name = name
-	}
-}
-
-func NewApp(t *testing.T, composeDef string, options ...func(*App)) *App {
+func NewApp(t *testing.T, composeDef string, name ...string) *App {
 	app := &App{}
-	for _, o := range options {
-		o(app)
-	}
-	if len(app.Name) == 0 {
+	if len(name) > 0 {
+		app.Name = name[0]
+	} else {
 		app.Name = randomString(5)
 	}
-	if len(app.Dir) == 0 {
-		appDir := path.Join(t.TempDir(), app.Name)
-		err := os.MkdirAll(appDir, 0o755)
-		if err != nil {
-			t.Fatal(err)
-		}
-		app.Dir = appDir
-	}
-	err := os.WriteFile(path.Join(app.Dir, "docker-compose.yml"), []byte(composeDef), 0o640)
+	app.Dir = path.Join(t.TempDir(), app.Name)
+	err := os.MkdirAll(app.Dir, 0o755)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(app.BaseUri) == 0 {
-		app.BaseUri = "registry:5000/factory/"
+	if err := os.WriteFile(path.Join(app.Dir, "docker-compose.yml"), []byte(composeDef), 0o640); err != nil {
+		t.Fatal(err)
 	}
-	app.BaseUri += app.Name
 	return app
 }
 
-func (a *App) Publish(t *testing.T, dontPublishLayersManifest ...bool) {
+func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
+	opts := PublishOpts{PublishLayersManifest: true}
+	for _, o := range publishOpts {
+		o(&opts)
+	}
+	if len(opts.Registry) == 0 {
+		opts.Registry = "registry"
+	}
+	baseUri := opts.Registry + ":5000/factory/" + a.Name
+
 	t.Run("publish app", func(t *testing.T) {
 		digestFile := path.Join(a.Dir, "digest.sha256")
 		tag, err := randomStringCrypto(7)
 		if err != nil {
 			t.Fatalf("failed to generate a random image tag value: %s\n", err)
 		}
-		if len(dontPublishLayersManifest) > 0 && dontPublishLayersManifest[0] {
-			runCmd(t, a.Dir, "publish", "--layers-manifest=false", "-d", digestFile, a.BaseUri+":"+tag, "amd64")
-		} else {
-			runCmd(t, a.Dir, "publish", "-d", digestFile, a.BaseUri+":"+tag, "amd64")
+		args := []string{
+			"publish", "-d", digestFile, baseUri + ":" + tag, "amd64",
 		}
+		if !opts.PublishLayersManifest {
+			args = append(args, "--layers-manifest=false")
+		}
+		if len(opts.LayersMetaFile) > 0 {
+			args = append(args, "--layers-meta", opts.LayersMetaFile)
+		}
+		runCmd(t, a.Dir, args...)
 		if b, err := os.ReadFile(digestFile); err == nil {
-			a.PublishedUri = a.BaseUri + "@" + string(b)
+			a.PublishedUri = baseUri + "@" + string(b)
 		} else {
 			t.Fatalf("failed to read the published app digest: %s\n", err)
 		}

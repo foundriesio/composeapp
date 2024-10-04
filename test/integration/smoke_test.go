@@ -1,7 +1,8 @@
 package e2e_tests
 
 import (
-	"github.com/foundriesio/composeapp/test/fixtures"
+	f "github.com/foundriesio/composeapp/test/fixtures"
+	"path/filepath"
 	"testing"
 )
 
@@ -12,9 +13,11 @@ services:
     image: ghcr.io/foundriesio/busybox:1.36
     command: sh -c "while true; do sleep 60; done"
 `
+	app := f.NewApp(t, appComposeDef)
+	layersMetaFile := f.GenerateLayersMetaFile(t, filepath.Dir(app.Dir))
+
 	smokeTest := func(registry string, layersManifest bool) {
-		app := fixtures.NewApp(t, appComposeDef, fixtures.WithRegistry(registry))
-		app.Publish(t, !layersManifest)
+		app.Publish(t, f.WithRegistry(registry), f.WithLayersManifest(layersManifest), f.WithLayersMeta(layersMetaFile))
 
 		app.Pull(t)
 		defer app.Remove(t)
