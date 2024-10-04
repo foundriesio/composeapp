@@ -51,8 +51,8 @@ check_connect_timeout:
 format:
 	@$(GO) fmt ./...
 
-test:
-	@$(GO) test ./...
+test-unit:
+	@$(GO) test -v ./pkg/compose/...
 
 $(bd):
 	@mkdir -p $@
@@ -69,9 +69,12 @@ check: format
 tidy-mod:
 	go mod tidy -go=$(MODVER)
 
+# the followinf targets should be run only in the dev container
 preload-images:
 	test/fixtures/preload-images.sh
 
-# target should be run only in the dev container
 test-e2e: $(exe) preload-images
-	go test -v ./...
+	@$(GO) test -v ./...
+
+test-smoke: $(exe) preload-images
+	@$(GO) test -v -run TestSmoke test/integration/smoke_test.go
