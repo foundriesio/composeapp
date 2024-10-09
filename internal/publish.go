@@ -8,7 +8,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
@@ -274,7 +273,7 @@ func CreateApp(ctx context.Context, config map[string]interface{}, target string
 	}
 	fmt.Println("  |-> app blob: ", desc.Digest.String())
 
-	mb := ocischema.NewManifestBuilder(blobStore, []byte{}, map[string]string{"compose-app": "v1"})
+	mb := NewManifestBuilder(blobStore)
 	if err := mb.AppendReference(desc); err != nil {
 		return "", err
 	}
@@ -291,6 +290,10 @@ func CreateApp(ctx context.Context, config map[string]interface{}, target string
 		}
 	}
 
+	if layerManifests != nil {
+		mb.(*ManifestBuilder).SetLayerMetaManifests(layerManifests)
+	}
+
 	manifest, err := mb.Build(ctx)
 	if err != nil {
 		return "", err
@@ -300,27 +303,9 @@ func CreateApp(ctx context.Context, config map[string]interface{}, target string
 	if !ok {
 		return "", fmt.Errorf("invalid manifest type, expected *ocischema.DeserializedManifest, got: %T", manifest)
 	}
-	b, err := man.MarshalJSON()
+	_, b, err := man.Payload()
 	if err != nil {
 		return "", err
-	}
-
-	if layerManifests != nil {
-		manMap := make(map[string]interface{})
-		err = json.Unmarshal(b, &manMap)
-		if err != nil {
-			return "", err
-		}
-
-		manMap["manifests"] = layerManifests
-		b, err = json.MarshalIndent(manMap, "", "   ")
-		if err != nil {
-			return "", err
-		}
-		err = man.UnmarshalJSON(b)
-		if err != nil {
-			return "", err
-		}
 	}
 
 	fmt.Printf("  |-> manifest size: %d\n", len(b))
