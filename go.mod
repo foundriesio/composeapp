@@ -2,8 +2,6 @@ module github.com/foundriesio/composeapp
 
 go 1.22
 
-replace github.com/docker/distribution => github.com/docker/distribution v2.7.1+incompatible
-
 require (
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/containerd/containerd v1.7.15
