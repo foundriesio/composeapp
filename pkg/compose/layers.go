@@ -288,7 +288,7 @@ func PostAppLayersManifests(ctx context.Context, appRef string, layers map[strin
 			fmt.Printf("  |-> skipping layer manifest publishing for dryrun\n")
 		} else {
 			fmt.Printf("  |-> posting a layer manifest for architecture: %s...", arch)
-			digest, err := manSvc.Put(ctx, manifest)
+			digest, err := manSvc.Put(ctx, manifest, distribution.WithTag(desc.Digest.Hex()))
 			if err != nil {
 				return nil, err
 			}
