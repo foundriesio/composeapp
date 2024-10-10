@@ -237,12 +237,20 @@ func ComposeAppLayersManifest(arch string, layers []distribution.Descriptor) (di
 	if err != nil {
 		return nil, nil, err
 	}
-	man, desc, err := distribution.UnmarshalManifest(v1.MediaTypeImageIndex, manifestJson)
+
+	// Convert the custom manifest that breaks the OCI image specification into the type that the distribution
+	// functionality understands. Use the json unmarshalling functionality for it.
+	dm := manifestlist.DeserializedManifestList{}
+	err = dm.UnmarshalJSON(manifestJson)
 	if err != nil {
 		return nil, nil, err
 	}
-	desc.Platform = &platform
-	return man, &desc, nil
+	return dm, &distribution.Descriptor{
+		MediaType: dm.MediaType,
+		Size:      int64(len(manifestJson)),
+		Digest:    digest.FromBytes(manifestJson),
+		Platform:  manifestDef.Platform,
+	}, nil
 }
 
 func PostAppLayersManifests(ctx context.Context, appRef string, layers map[string][]distribution.Descriptor, dryRun bool) ([]distribution.Descriptor, error) {
