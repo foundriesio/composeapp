@@ -42,7 +42,7 @@ func init() {
 	publishCmd.Flags().StringVarP(&opts.ComposeFile, "file", "f", "docker-compose.yml", "A path to a compose project file")
 	publishCmd.Flags().StringVarP(&opts.DigestFile, "digest-file", "d", "", "A file to store the published app sha256 digest to")
 	publishCmd.Flags().BoolVar(&opts.DryRun, "dryrun", false, "Show what would be done, but don't actually publish")
-	publishCmd.Flags().StringArrayVar(&opts.PinnedImageURIs, "pinned-images", nil, "A list of app images referred through digest URIs to pin app to")
+	publishCmd.Flags().StringSliceVar(&opts.PinnedImageURIs, "pinned-images", nil, "A list of app images referred through digest URIs to pin app to")
 	publishCmd.Flags().StringVarP(&opts.LayersMetaFile, "layers-meta", "l", "", "Json file containing App layers' metadata (size, usage)")
 	publishCmd.Flags().BoolVar(&opts.CreateAppLayersManifest, "layers-manifest", true, "Add app layers manifests to the app manifest")
 
@@ -77,7 +77,7 @@ func publishApp(cmd *cobra.Command, appRef *compose.AppRef, archList []string, o
 	for _, uri := range opts.PinnedImageURIs {
 		named, err := reference.ParseNormalizedNamed(uri)
 		if err != nil {
-			DieNotNil(err, "Invalid image URI specified in `pinned-images`: "+err.Error())
+			DieNotNil(err, fmt.Sprintf("Invalid image URI specified in `pinned-images`; uri: %s, err: %s", uri, err.Error()))
 		}
 		if digested, ok := named.(reference.Digested); ok {
 			pinnedImages[named.Name()] = digested.Digest()
