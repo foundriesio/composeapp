@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	composetypes "github.com/compose-spec/compose-go/types"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/opencontainers/go-digest"
@@ -26,6 +27,7 @@ type (
 		HasLayersMeta(arch string) bool
 		GetBlobRuntimeSize(desc *ocispec.Descriptor, arch string, blockSize int64) int64
 		GetComposeRoot() *TreeNode
+		GetCompose(ctx context.Context, provider BlobProvider) (*composetypes.Project, error)
 	}
 	AppLoader interface {
 		LoadAppTree(context.Context, BlobProvider, platforms.MatchComparer, string) (App, *AppTree, error)
