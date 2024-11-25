@@ -144,7 +144,6 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 
-	var localSrcStore string
 	var blobProvider compose.BlobProvider
 	if len(srcStorePath) > 0 {
 		blobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
@@ -160,8 +159,8 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 
 	for _, appRef := range appRefs {
 		if !quiet {
-			if len(localSrcStore) > 0 {
-				fmt.Printf("Loading %s metadata from %s...\n", appRef, localSrcStore)
+			if len(srcStorePath) > 0 {
+				fmt.Printf("Loading %s metadata from %s...\n", appRef, srcStorePath)
 			} else {
 				fmt.Printf("Loading %s metadata from registry...\n", appRef)
 			}
