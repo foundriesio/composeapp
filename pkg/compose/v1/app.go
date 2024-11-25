@@ -165,6 +165,11 @@ func (a *appCtx) GetComposeRoot() *compose.TreeNode {
 	return nil
 }
 
+func (a *appCtx) GetCompose(ctx context.Context, provider compose.BlobProvider) (project *composetypes.Project, err error) {
+	project, _, err = readAndLoadComposeProject(ctx, provider, a)
+	return
+}
+
 func ReadAppManifest(ctx context.Context, provider compose.BlobProvider, ref string) (*appCtx, *ocispec.Descriptor, error) {
 	appRef, err := parseAndCheckAppRef(ref)
 	if err != nil {
