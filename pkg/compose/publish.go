@@ -45,7 +45,7 @@ func loadProj(ctx context.Context, appName string, file string, content []byte) 
 }
 
 func DoPublish(ctx context.Context, appName string, file, target, digestFile string, dryRun bool, archList []string,
-	pinnedImages map[string]digest.Digest, layersMetaFile string, createAppLayersManifest bool) error {
+	pinnedImages map[string]digest.Digest, layersMetaFile string, createAppLayersManifest bool, appManifestMaxSize int) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -88,12 +88,6 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 		return fmt.Errorf("none of the factory architectures %q are supported by App images", archList)
 	}
 
-	// TODO: this check is needed in order to overcome the aklite's check on the maximum manifest size (2048)
-	// Once the new version of aklite is deployed (max manifest size = 16K) then this check can be removed or MaxArchNumb increased
-	if len(appLayers) > internal.MaxArchNumb {
-		return fmt.Errorf("app cannot support more than %d architectures, found %d", internal.MaxArchNumb, len(appLayers))
-	}
-
 	var layerManifests []distribution.Descriptor
 	if createAppLayersManifest {
 		fmt.Println("= Posting app layers manifests...")
@@ -113,7 +107,7 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 	}
 
 	fmt.Println("= Publishing app...")
-	dgst, err := internal.CreateApp(ctx, config, target, dryRun, layerManifests, appLayersMetaBytes)
+	dgst, err := internal.CreateApp(ctx, config, target, dryRun, layerManifests, appLayersMetaBytes, appManifestMaxSize)
 	if err != nil {
 		return err
 	}
