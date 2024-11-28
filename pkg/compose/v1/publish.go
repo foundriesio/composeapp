@@ -1,17 +1,18 @@
 //go:build publish
 
-package compose
+package v1
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"github.com/docker/distribution"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	"os"
 	"strings"
 
 	"github.com/compose-spec/compose-go/loader"
-	compose "github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/types"
 	"github.com/docker/docker/client"
 	"github.com/foundriesio/composeapp/internal"
 	"github.com/opencontainers/go-digest"
@@ -26,16 +27,16 @@ func getClient() (*client.Client, error) {
 	return cli, nil
 }
 
-func loadProj(ctx context.Context, appName string, file string, content []byte) (*compose.Project, error) {
+func loadProj(ctx context.Context, appName string, file string, content []byte) (*types.Project, error) {
 	env := make(map[string]string)
 	for _, val := range os.Environ() {
 		parts := strings.Split(val, "=")
 		env[parts[0]] = parts[1]
 	}
 
-	var files []compose.ConfigFile
-	files = append(files, compose.ConfigFile{Filename: file, Content: content})
-	return loader.LoadWithContext(ctx, compose.ConfigDetails{
+	var files []types.ConfigFile
+	files = append(files, types.ConfigFile{Filename: file, Content: content})
+	return loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir:  ".",
 		ConfigFiles: files,
 		Environment: env,
@@ -45,7 +46,7 @@ func loadProj(ctx context.Context, appName string, file string, content []byte) 
 }
 
 func DoPublish(ctx context.Context, appName string, file, target, digestFile string, dryRun bool, archList []string,
-	pinnedImages map[string]digest.Digest, layersMetaFile string, createAppLayersManifest bool, appManifestMaxSize int) error {
+	pinnedImages map[string]digest.Digest, layersMetaFile string, createAppLayersManifest bool) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -67,7 +68,7 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 	fmt.Println("= Pinning service images...")
 	svcs, ok := config["services"]
 	if !ok {
-		return errors.New("Unable to find 'services' section of compose file")
+		return errors.New("Unable to find 'services' section of composetypes file")
 	}
 	if err := internal.PinServiceImages(cli, ctx, svcs.(map[string]interface{}), proj, pinnedImages); err != nil {
 		return err
@@ -79,7 +80,7 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 	}
 
 	fmt.Println("= Getting app layers metadata...")
-	appLayers, err := GetLayers(ctx, svcs.(map[string]interface{}), archList)
+	appLayers, err := compose.GetLayers(ctx, svcs.(map[string]interface{}), archList)
 	if err != nil {
 		return err
 	}
@@ -91,7 +92,7 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 	var layerManifests []distribution.Descriptor
 	if createAppLayersManifest {
 		fmt.Println("= Posting app layers manifests...")
-		layerManifests, err = PostAppLayersManifests(ctx, target, appLayers, dryRun)
+		layerManifests, err = compose.PostAppLayersManifests(ctx, target, appLayers, dryRun)
 		if err != nil {
 			return err
 		}
@@ -100,14 +101,14 @@ func DoPublish(ctx context.Context, appName string, file, target, digestFile str
 	var appLayersMetaBytes []byte
 	if len(layersMetaFile) > 0 {
 		fmt.Println("= Getting app layers metadata...")
-		appLayersMetaBytes, err = GetAppLayersMeta(layersMetaFile, appLayers)
+		appLayersMetaBytes, err = compose.GetAppLayersMeta(layersMetaFile, appLayers)
 		if err != nil {
 			return fmt.Errorf("= Failed to get app layers metadata: %s\n", err.Error())
 		}
 	}
 
 	fmt.Println("= Publishing app...")
-	dgst, err := internal.CreateApp(ctx, config, target, dryRun, layerManifests, appLayersMetaBytes, appManifestMaxSize)
+	dgst, err := internal.CreateApp(ctx, config, target, dryRun, layerManifests, appLayersMetaBytes, AppManifestMaxSize)
 	if err != nil {
 		return err
 	}
