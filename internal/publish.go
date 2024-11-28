@@ -16,136 +16,13 @@ import (
 	"path/filepath"
 	"time"
 
-	compose "github.com/compose-spec/compose-go/types"
 	"github.com/docker/distribution"
-	"github.com/docker/distribution/manifest/manifestlist"
 	"github.com/docker/distribution/manifest/ocischema"
-	"github.com/docker/distribution/manifest/schema2"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/moby/patternmatcher/ignorefile"
-	"github.com/opencontainers/go-digest"
 )
 
-func iterateServices(services map[string]interface{}, proj *compose.Project, fn compose.ServiceFunc) error {
-	return proj.WithServices(nil, func(s compose.ServiceConfig) error {
-		obj := services[s.Name]
-		_, ok := obj.(map[string]interface{})
-		if !ok {
-			if s.Name == "extensions" {
-				fmt.Println("Hacking around https://github.com/compose-spec/compose-go/issues/91")
-				return nil
-			}
-			return fmt.Errorf("Service(%s) has invalid format", s.Name)
-		}
-		return fn(s)
-	})
-}
-
-func PinServiceImages(cli *client.Client, ctx context.Context, services map[string]interface{}, proj *compose.Project, pinnedImages map[string]digest.Digest) error {
-	regc := NewRegistryClient()
-
-	return iterateServices(services, proj, func(s compose.ServiceConfig) error {
-		name := s.Name
-		obj := services[name]
-		svc := obj.(map[string]interface{})
-
-		image := s.Image
-		if len(image) == 0 {
-			return fmt.Errorf("Service(%s) missing 'image' attribute", name)
-		}
-		if s.Build != nil {
-			fmt.Printf("Removing service(%s) 'build' stanza\n", name)
-			delete(svc, "build")
-		}
-
-		fmt.Printf("Pinning %s(%s)\n", name, image)
-		named, err := reference.ParseNormalizedNamed(image)
-		if err != nil {
-			return err
-		}
-
-		repo, err := regc.GetRepository(ctx, named)
-		if err != nil {
-			return err
-		}
-
-		var digest digest.Digest
-		switch v := named.(type) {
-		case reference.Tagged:
-			tag := v.Tag()
-			desc, err := repo.Tags(ctx).Get(ctx, tag)
-			if err != nil {
-				return fmt.Errorf("Unable to find image reference(%s): %s", image, err)
-			}
-			digest = desc.Digest
-		case reference.Digested:
-			digest = v.Digest()
-		default:
-			var ok bool
-			if digest, ok = pinnedImages[named.Name()]; !ok {
-				return fmt.Errorf("Invalid reference type for %s: %T. Images must be pinned to a `:<tag>` or `@sha256:<hash>`", named, named)
-			}
-		}
-
-		mansvc, err := repo.Manifests(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("Unable to get image manifests(%s): %s", image, err)
-		}
-		man, err := mansvc.Get(ctx, digest)
-		if err != nil {
-			return fmt.Errorf("Unable to find image manifest(%s): %s", image, err)
-		}
-
-		// TODO - we should find the intersection of platforms so
-		// that we can denote the platforms this app can run on
-		pinned := reference.Domain(named) + "/" + reference.Path(named) + "@" + digest.String()
-
-		switch mani := man.(type) {
-		case *manifestlist.DeserializedManifestList:
-			fmt.Printf("  | ")
-			for i, m := range mani.Manifests {
-				if i != 0 {
-					fmt.Printf(", ")
-				}
-				fmt.Printf(m.Platform.Architecture)
-				if m.Platform.Architecture == "arm" {
-					fmt.Printf(m.Platform.Variant)
-				}
-			}
-		case *schema2.DeserializedManifest:
-			break
-		default:
-			return fmt.Errorf("Unexpected manifest: %v", mani)
-		}
-
-		fmt.Println("\n  |-> ", pinned)
-		svc["image"] = pinned
-		return nil
-	})
-}
-
-func PinServiceConfigs(cli *client.Client, ctx context.Context, services map[string]interface{}, proj *compose.Project) error {
-	return iterateServices(services, proj, func(s compose.ServiceConfig) error {
-		obj := services[s.Name]
-		svc := obj.(map[string]interface{})
-
-		marshalled, err := yaml.Marshal(svc)
-		if err != nil {
-			return err
-		}
-
-		srvh := sha256.Sum256(marshalled)
-		fmt.Printf("   |-> %s : %x\n", s.Name, srvh)
-		if s.Labels == nil {
-			s.Labels = make(map[string]string)
-		}
-		s.Labels["io.compose-spec.config-hash"] = fmt.Sprintf("%x", srvh)
-		svc["labels"] = s.Labels
-		return nil
-	})
-}
 
 func getIgnores(appDir string) []string {
 	file, err := os.Open(filepath.Join(appDir, ".composeappignores"))
