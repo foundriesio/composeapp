@@ -87,6 +87,6 @@ func publishApp(cmd *cobra.Command, appRef *compose.AppRef, archList []string, o
 		}
 	}
 
-	DieNotNil(compose.DoPublish(cmd.Context(), appRef.Name, opts.ComposeFile, appRef.String(), opts.DigestFile,
-		opts.DryRun, archList, pinnedImages, opts.LayersMetaFile, opts.CreateAppLayersManifest, v1.AppManifestMaxSize))
+	DieNotNil(v1.DoPublish(cmd.Context(), appRef.Name, opts.ComposeFile, appRef.String(), opts.DigestFile,
+		opts.DryRun, archList, pinnedImages, opts.LayersMetaFile, opts.CreateAppLayersManifest))
 }
