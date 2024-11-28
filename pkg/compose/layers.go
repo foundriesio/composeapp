@@ -6,20 +6,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"sort"
-
-	"github.com/foundriesio/composeapp/internal"
-
-	"github.com/compose-spec/compose-go/types"
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/manifest/manifestlist"
 	"github.com/docker/distribution/manifest/ocischema"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/docker/distribution/reference"
+	"github.com/foundriesio/composeapp/internal"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"os"
+	"sort"
 )
 
 type (
@@ -50,14 +47,6 @@ func GetBlobService(ctx context.Context, regClient internal.RegistryClient, repo
 		return nil, err
 	}
 	return repo.Blobs(ctx), nil
-}
-
-func GetAppLayers(ctx context.Context, services map[string]types.ServiceConfig, archList []string) (map[string][]distribution.Descriptor, error) {
-	svcImages := make(map[string]string)
-	for svc, svcCfg := range services {
-		svcImages[svc] = svcCfg.Image
-	}
-	return GetAppLayersFromMap(ctx, svcImages, archList)
 }
 
 func GetLayers(ctx context.Context, services map[string]interface{}, archList []string) (map[string][]distribution.Descriptor, error) {
