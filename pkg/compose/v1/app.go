@@ -48,6 +48,9 @@ const (
 	AppLayersMetaVersion   = "v1"
 	AppServiceHashLabelKey = "io.compose-spec.config-hash"
 
+	AnnotationKeyAppBundleIndexDigest = "org.foundries.app.bundle.index.digest"
+	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
+
 	ctxKeyAppRef ctxKeyType = "app:ref"
 )
 
