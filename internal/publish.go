@@ -325,6 +325,7 @@ func CreateApp(ctx context.Context, config map[string]interface{}, target string
 		return "", err
 	}
 	fmt.Println("  |-> manifest: ", digest.String())
+	fmt.Println("  |-> uri: ", named.Name() + "@" + digest.String())
 
 	return digest.String(), err
 }
