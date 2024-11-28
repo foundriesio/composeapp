@@ -17,6 +17,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
 	"os"
+	"strconv"
 )
 
 type (
@@ -139,6 +140,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 	composeTree := compose.TreeNode{
 		Descriptor: composeDesc,
 		Type:       compose.BlobTypeAppBundle,
+	}
+
+	// depth 1, app bundle index/hashes if present
+	if indexNode := getAppIndexNodeIfPresent(app.Ref(), composeDesc); indexNode != nil {
+		appTree.Children = append(appTree.Children, indexNode)
 	}
 
 	// depth 2, compose service images, each is a sub-tree
@@ -315,4 +321,33 @@ func parseAndCheckAppRef(ref string) (*compose.AppRef, error) {
 		return nil, fmt.Errorf("unsupported app reference format; digest is required")
 	}
 	return appRef, nil
+}
+
+func getAppIndexNodeIfPresent(appRef *compose.AppRef, appBundleDesc *ocispec.Descriptor) *compose.TreeNode {
+	indexDigestStr, ok := appBundleDesc.Annotations[AnnotationKeyAppBundleIndexDigest]
+	if !ok {
+		return nil
+	}
+	indexSizeStr, ok := appBundleDesc.Annotations[AnnotationKeyAppBundleIndexSize]
+	if !ok {
+		return nil
+	}
+	indexSize, errConv := strconv.Atoi(indexSizeStr)
+	if errConv != nil {
+		return nil
+	}
+	indexDigest, err := digest.Parse(indexDigestStr)
+	if err != nil {
+		return nil
+	}
+	return &compose.TreeNode{
+		Descriptor: &ocispec.Descriptor{
+			Digest: indexDigest,
+			Size:   int64(indexSize),
+			URLs: []string{
+				appRef.GetBlobRef(indexDigest),
+			},
+		},
+		Type: compose.BlobTypeAppIndex,
+	}
 }
