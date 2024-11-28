@@ -28,12 +28,6 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-const (
-	// MaxArchNumb limits derived from aklite's limitation on an App manifest size
-	MaxArchNumb         = 6
-	MaxManifestBodySize = 2010 // (2048 - 38) just in case
-)
-
 func iterateServices(services map[string]interface{}, proj *compose.Project, fn compose.ServiceFunc) error {
 	return proj.WithServices(nil, func(s compose.ServiceConfig) error {
 		obj := services[s.Name]
@@ -222,7 +216,12 @@ func createTgz(composeContent []byte, appDir string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func CreateApp(ctx context.Context, config map[string]interface{}, target string, dryRun bool, layerManifests []distribution.Descriptor, appLayersMetaData []byte) (string, error) {
+func CreateApp(ctx context.Context,
+config map[string]interface{},
+target string, dryRun bool,
+layerManifests []distribution.Descriptor,
+appLayersMetaData []byte,
+appManifestMaxSize int) (string, error) {
 	pinned, err := yaml.Marshal(config)
 	if err != nil {
 		return "", err
@@ -309,10 +308,8 @@ func CreateApp(ctx context.Context, config map[string]interface{}, target string
 	}
 
 	fmt.Printf("  |-> manifest size: %d\n", len(b))
-	// TODO: this check is needed in order to overcome the aklite's check on the maximum manifest size (2048)
-	// Once the new version of aklite is deployed (max manifest size = 16K) then this check can be removed or MaxArchNumb increased
-	if len(b) >= MaxManifestBodySize {
-		return "", fmt.Errorf("app manifest size (%d) exceeds the maximum size limit (%d)", len(b), MaxManifestBodySize)
+	if len(b) >= appManifestMaxSize {
+		return "", fmt.Errorf("app manifest size (%d) exceeds the maximum size limit (%d)", len(b), appManifestMaxSize)
 	}
 	svc, err := repo.Manifests(ctx, nil)
 	if err != nil {

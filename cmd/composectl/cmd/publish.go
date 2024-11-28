@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/docker/distribution/reference"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
 	"log"
@@ -87,5 +88,5 @@ func publishApp(cmd *cobra.Command, appRef *compose.AppRef, archList []string, o
 	}
 
 	DieNotNil(compose.DoPublish(cmd.Context(), appRef.Name, opts.ComposeFile, appRef.String(), opts.DigestFile,
-		opts.DryRun, archList, pinnedImages, opts.LayersMetaFile, opts.CreateAppLayersManifest))
+		opts.DryRun, archList, pinnedImages, opts.LayersMetaFile, opts.CreateAppLayersManifest, v1.AppManifestMaxSize))
 }
