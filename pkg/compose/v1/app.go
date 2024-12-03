@@ -17,6 +17,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
 	"os"
+	"path"
 	"strconv"
 )
 
@@ -56,6 +57,10 @@ const (
 	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
 
 	ctxKeyAppRef ctxKeyType = "app:ref"
+)
+
+var (
+	ErrAppIndexNotFound = errors.New("app blob index is not found")
 )
 
 func WithAppRef(ctx context.Context, ref *compose.AppRef) context.Context {
@@ -169,12 +174,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 }
 
 func (a *appCtx) GetComposeRoot() *compose.TreeNode {
-	for _, c := range a.tree.Children {
-		if c.Type == compose.BlobTypeAppBundle {
-			return c
-		}
-	}
-	return nil
+	return getChildByType(a.tree.Children, compose.BlobTypeAppBundle)
+}
+
+func (a *appCtx) GetComposeIndex() *compose.TreeNode {
+	return getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 }
 
 func (a *appCtx) GetCompose(ctx context.Context, provider compose.BlobProvider) (project *composetypes.Project, err error) {
@@ -240,6 +244,60 @@ func (a *appCtx) GetLayersMetadataDescriptor() (*ocispec.Descriptor, error) {
 	}
 	desc.URLs = append(desc.URLs, a.Spec.Locator+"@"+desc.Digest.String())
 	return &desc, nil
+}
+
+func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (map[string]error, error) {
+	appIndex, err := a.getAppBundleIndex(ctx, provider)
+	if err != nil && err != ErrAppIndexNotFound {
+		return nil, err
+	}
+	errMap := map[string]error{}
+	for filePath, fileDigest := range appIndex {
+		f, err := os.Open(path.Join(installationRootDir, filePath))
+		if os.IsNotExist(err) {
+			errMap[filePath] = err
+			continue
+		}
+		r, err := compose.NewSecureReadCloser(f, compose.WithExpectedDigest(fileDigest), compose.WithReadLimit(AppBundleFileMaxSize))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := io.ReadAll(r); err != nil {
+			errMap[filePath] = err
+		}
+	}
+	return errMap, nil
+}
+
+func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.BlobProvider) (map[string]digest.Digest, error) {
+	indexNode := getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
+	if indexNode == nil {
+		return nil, ErrAppIndexNotFound
+	}
+	r, err := blobProvider.GetReadCloser(ctx, compose.WithExpectedDigest(indexNode.Descriptor.Digest),
+		compose.WithExpectedSize(indexNode.Descriptor.Size))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read app bundle index: %s", err.Error())
+	}
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read app bundle index: %s", err.Error())
+	}
+
+	var appIndex map[string]digest.Digest
+	if err := json.Unmarshal(b, &appIndex); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal app bundle index: %s", err.Error())
+	}
+	return appIndex, nil
+}
+
+func getChildByType(children []*compose.TreeNode, childType compose.BlobType) *compose.TreeNode {
+	for _, c := range children {
+		if c.Type == childType {
+			return c
+		}
+	}
+	return nil
 }
 
 func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx) ([]byte, *ocispec.Descriptor, error) {
