@@ -44,6 +44,9 @@ type (
 const (
 	AppManifestMediaType   = "application/vnd.oci.image.manifest.v1+json"
 	AppManifestMaxSize     = 50 * 1024
+	AppBundleFileMaxSize   = 1024 * 1024 * 1024
+	AppComposeMaxSize      = 100 * 1024
+	AppBundleMaxSize       = AppComposeMaxSize + AppBundleFileMaxSize
 	AppLayerMediaType      = "application/octet-stream"
 	AppLayersMetaVersion   = "v1"
 	AppServiceHashLabelKey = "io.compose-spec.config-hash"

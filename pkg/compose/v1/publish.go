@@ -261,6 +261,10 @@ func createAndPublishApp(ctx context.Context,
 }
 
 func createTgz(composeContent []byte, appDir string) ([]byte, map[string]string, error) {
+	if len(composeContent) > AppComposeMaxSize {
+		return nil, nil, fmt.Errorf("size of app compose file exceeds the maximum allowed;"+
+			" max allowed: %d, size: %d", AppComposeMaxSize, len(composeContent))
+	}
 	reader, err := archive.TarWithOptions(appDir, &archive.TarOptions{
 		Compression:     archive.Uncompressed,
 		ExcludePatterns: getIgnores(appDir),
@@ -275,6 +279,7 @@ func createTgz(composeContent []byte, appDir string) ([]byte, map[string]string,
 	gzw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gzw)
 	tr := tar.NewReader(reader)
+	var bundleSize int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -289,6 +294,10 @@ func createTgz(composeContent []byte, appDir string) ([]byte, map[string]string,
 		hdr.ChangeTime = time.Time{}
 		hdr.AccessTime = time.Time{}
 		hdr.ModTime = time.Time{}
+		bundleSize += hdr.Size
+		if bundleSize > AppBundleMaxSize {
+			return nil, nil, fmt.Errorf("app bundle size exceeds the maximum allowed: %d", AppBundleMaxSize)
+		}
 		if hdr.Name == "docker-compose.yml" {
 			composeFound = true
 			hdr.Size = int64(len(composeContent))
@@ -307,6 +316,10 @@ func createTgz(composeContent []byte, appDir string) ([]byte, map[string]string,
 			var r io.Reader = tr
 			var h hash.Hash
 			if !hdr.FileInfo().IsDir() {
+				if hdr.Size > AppBundleFileMaxSize {
+					return nil, nil, fmt.Errorf("size of app bundle file exceeds the maximum allowed;"+
+						" file: %s, max allowed: %d, size: %d", hdr.Name, AppBundleFileMaxSize, len(composeContent))
+				}
 				h = sha256.New()
 				r = io.TeeReader(tr, h)
 			}
