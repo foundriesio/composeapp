@@ -28,6 +28,7 @@ type (
 		GetBlobRuntimeSize(desc *ocispec.Descriptor, arch string, blockSize int64) int64
 		GetComposeRoot() *TreeNode
 		GetCompose(ctx context.Context, provider BlobProvider) (*composetypes.Project, error)
+		CheckComposeInstallation(ctx context.Context, provider BlobProvider, installationRootDir string) (map[string]error, error)
 	}
 	AppLoader interface {
 		LoadAppTree(context.Context, BlobProvider, platforms.MatchComparer, string) (App, *AppTree, error)

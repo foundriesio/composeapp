@@ -8,6 +8,8 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/docker/distribution"
@@ -18,9 +20,11 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"gopkg.in/yaml.v3"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -146,7 +150,8 @@ func createAndPublishApp(ctx context.Context,
 	pinnedHash := sha256.Sum256(pinned)
 	fmt.Printf("  |-> pinned content hash: %x\n", pinnedHash)
 
-	buff, err := createTgz(pinned, "./")
+	var appContentHashes map[string]string
+	buff, appContentHashes, err := createTgz(pinned, "./")
 	if err != nil {
 		return "", err
 	}
@@ -187,6 +192,18 @@ func createAndPublishApp(ctx context.Context,
 		return "", err
 	}
 	fmt.Println("  |-> app blob: ", desc.Digest.String())
+
+	if appContentHashes != nil && len(appContentHashes) > 0 {
+		if d, err := publishAppBundleIndexBlob(ctx, blobStore, appContentHashes); err == nil {
+			desc.Annotations = map[string]string{
+				AnnotationKeyAppBundleIndexDigest: d.Digest.String(),
+				AnnotationKeyAppBundleIndexSize:   strconv.Itoa(int(d.Size)),
+			}
+			fmt.Println("  |-> app index: ", d.Digest.String())
+		} else {
+			fmt.Println("  |-> failed to publish app index blob: ", err.Error())
+		}
+	}
 
 	mb := internal.NewManifestBuilder(blobStore)
 	if err := mb.AppendReference(desc); err != nil {
@@ -243,27 +260,33 @@ func createAndPublishApp(ctx context.Context,
 	return digest.String(), err
 }
 
-func createTgz(composeContent []byte, appDir string) ([]byte, error) {
+func createTgz(composeContent []byte, appDir string) ([]byte, map[string]string, error) {
+	if len(composeContent) > AppComposeMaxSize {
+		return nil, nil, fmt.Errorf("size of app compose file exceeds the maximum allowed;"+
+			" max allowed: %d, size: %d", AppComposeMaxSize, len(composeContent))
+	}
 	reader, err := archive.TarWithOptions(appDir, &archive.TarOptions{
 		Compression:     archive.Uncompressed,
 		ExcludePatterns: getIgnores(appDir),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	composeFound := false
 	var buf bytes.Buffer
+	appContentHashes := make(map[string]string)
 	gzw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gzw)
 	tr := tar.NewReader(reader)
+	var bundleSize int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// reset the file's timestamps, otherwise hashes of the resultant
@@ -271,32 +294,51 @@ func createTgz(composeContent []byte, appDir string) ([]byte, error) {
 		hdr.ChangeTime = time.Time{}
 		hdr.AccessTime = time.Time{}
 		hdr.ModTime = time.Time{}
+		bundleSize += hdr.Size
+		if bundleSize > AppBundleMaxSize {
+			return nil, nil, fmt.Errorf("app bundle size exceeds the maximum allowed: %d", AppBundleMaxSize)
+		}
 		if hdr.Name == "docker-compose.yml" {
 			composeFound = true
 			hdr.Size = int64(len(composeContent))
 			if err := tw.WriteHeader(hdr); err != nil {
-				return nil, fmt.Errorf("Unable to add docker-compose.yml header archive: %s", err)
+				return nil, nil, fmt.Errorf("Unable to add docker-compose.yml header archive: %s", err)
 			}
 			if _, err := tw.Write(composeContent); err != nil {
-				return nil, fmt.Errorf("Unable to add docker-compose.yml to archive: %s", err)
+				return nil, nil, fmt.Errorf("Unable to add docker-compose.yml to archive: %s", err)
 			}
+			h := sha256.Sum256(composeContent)
+			appContentHashes[hdr.Name] = "sha256:" + hex.EncodeToString(h[:])
 		} else {
 			if err := tw.WriteHeader(hdr); err != nil {
-				return nil, fmt.Errorf("Unable to add %s header archive: %s", hdr.Name, err)
+				return nil, nil, fmt.Errorf("Unable to add %s header archive: %s", hdr.Name, err)
 			}
-			if _, err := io.Copy(tw, tr); err != nil {
-				return nil, fmt.Errorf("Unable to add %s archive: %s", hdr.Name, err)
+			var r io.Reader = tr
+			var h hash.Hash
+			if !hdr.FileInfo().IsDir() {
+				if hdr.Size > AppBundleFileMaxSize {
+					return nil, nil, fmt.Errorf("size of app bundle file exceeds the maximum allowed;"+
+						" file: %s, max allowed: %d, size: %d", hdr.Name, AppBundleFileMaxSize, len(composeContent))
+				}
+				h = sha256.New()
+				r = io.TeeReader(tr, h)
+			}
+			if _, err := io.Copy(tw, r); err != nil {
+				return nil, nil, fmt.Errorf("Unable to add %s archive: %s", hdr.Name, err)
+			}
+			if h != nil {
+				appContentHashes[hdr.Name] = "sha256:" + hex.EncodeToString(h.Sum(nil))
 			}
 		}
 	}
 
 	if !composeFound {
-		return nil, errors.New("A .composeappignores rule is discarding docker-compose.yml")
+		return nil, nil, errors.New("A .composeappignores rule is discarding docker-compose.yml")
 	}
 
 	tw.Close()
 	gzw.Close()
-	return buf.Bytes(), nil
+	return buf.Bytes(), appContentHashes, nil
 }
 
 func getIgnores(appDir string) []string {
@@ -417,4 +459,15 @@ func pinServiceConfigs(services map[string]interface{}, proj *types.Project) err
 		svc["labels"] = s.Labels
 		return nil
 	})
+}
+
+func publishAppBundleIndexBlob(
+	ctx context.Context,
+	blobStore distribution.BlobStore,
+	appContentHashes map[string]string) (desc distribution.Descriptor, err error) {
+	var b []byte
+	if b, err = json.Marshal(appContentHashes); err == nil {
+		desc, err = blobStore.Put(ctx, "application/json", b)
+	}
+	return
 }

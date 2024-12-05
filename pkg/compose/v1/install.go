@@ -30,6 +30,15 @@ func InstallApp(ctx context.Context, app compose.App, provider compose.BlobProvi
 	if err := installCompose(ctx, app, provider, composeRoot); err != nil {
 		return err
 	}
+	if checkErrMap, err := app.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, app.Name())); err != nil {
+		return err
+	} else if len(checkErrMap) > 0 {
+		fmt.Println("the following app bundle files are not correctly installed")
+		for filePath, fileErr := range checkErrMap {
+			fmt.Printf("\t%s\t%s\n", filePath, fileErr)
+		}
+		return fmt.Errorf("app bundle is not installed completely")
+	}
 	composeTreeRoot := app.GetComposeRoot()
 	if composeTreeRoot == nil {
 		return fmt.Errorf("failed to get app's compose project")

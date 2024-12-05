@@ -38,6 +38,7 @@ const (
 	BlobTypeUnknown          BlobType = "unknown blob type"
 	BlobTypeAppManifest      BlobType = "app manifest"
 	BlobTypeAppBundle        BlobType = "app bundle"
+	BlobTypeAppIndex         BlobType = "app index"
 	BlobTypeAppLayersMeta    BlobType = "app meta"
 	BlobTypeImageIndex       BlobType = "index"
 	BlobTypeSkopeoImageIndex BlobType = "skopeo index"

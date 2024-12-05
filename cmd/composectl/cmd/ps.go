@@ -79,11 +79,10 @@ func psApps(cmd *cobra.Command, args []string, opts *psOptions) {
 }
 
 func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App) map[string]*App {
+	storeBlobProvider := compose.NewStoreBlobProvider(path.Join(config.StoreRoot, "blobs", "sha256"))
 	apps := map[string]compose.App{}
 	for _, appRef := range appRefs {
-		app, _, err := v1.NewAppLoader().LoadAppTree(ctx,
-			compose.NewStoreBlobProvider(path.Join(config.StoreRoot, "blobs", "sha256")),
-			platforms.OnlyStrict(config.Platform), appRef)
+		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, storeBlobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps[appRef] = app
 	}
@@ -170,6 +169,16 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 					Status: "config hash mismatch",
 				})
 				appState = "not running"
+			}
+		}
+		if appState == "running" {
+			errMap, err := app.CheckComposeInstallation(ctx, storeBlobProvider, path.Join(config.ComposeRoot, app.Name()))
+			if err == nil {
+				if len(errMap) > 0 {
+					appState = "running invalid bundle"
+				}
+			} else {
+				fmt.Printf("failed to check whether app bundle is installed")
 			}
 		}
 		appStatuses[appRef] = &App{
