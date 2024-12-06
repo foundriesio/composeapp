@@ -79,7 +79,7 @@ func (s BlobState) String() string {
 
 func ErrToBlobState(err error) BlobState {
 	state := BlobStateUndefined
-	if err != nil && strings.Contains(err.Error(), "blob not found") {
+	if err != nil && strings.Contains(err.Error(), "not found") {
 		return BlobMissing
 	}
 	switch err.(type) {
@@ -99,17 +99,31 @@ func ErrToBlobState(err error) BlobState {
 	return state
 }
 
-func CheckBlob(ctx context.Context, provider BlobProvider, opts ...SecureReadOptions) (BlobState, error) {
-	r, err := provider.GetReadCloser(ctx, opts...)
-	if err == nil {
-		defer r.Close()
-		_, err = io.Copy(io.Discard, r)
+func CheckBlob(ctx context.Context, provider BlobProvider, dgst digest.Digest, opts ...SecureReadOptions) (BlobState, error) {
+	var checkErr error
+	params := GetSecureReadParams(opts...)
+	if len(params.ExpectedDigest) == 0 {
+		info, err := provider.Info(ctx, dgst)
+		if err == nil && info.Size != params.ExpectedSize {
+			err = &ErrBlobSizeMismatch{
+				Expected: params.ExpectedSize,
+				Read:     info.Size,
+			}
+		}
+		checkErr = err
+	} else {
+		r, err := provider.GetReadCloser(ctx, opts...)
+		if err == nil {
+			defer r.Close()
+			_, err = io.Copy(io.Discard, r)
+		}
+		checkErr = err
 	}
-	state := ErrToBlobState(err)
+	state := ErrToBlobState(checkErr)
 	if state != BlobStateUndefined {
-		err = nil
+		checkErr = nil
 	}
-	return state, err
+	return state, checkErr
 }
 
 func CopyBlob(ctx context.Context, resolver remotes.Resolver, ref string, desc ocispec.Descriptor, store content.Store, force bool) error {

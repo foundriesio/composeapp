@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
@@ -222,6 +224,10 @@ func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureRead
 	} else {
 		return f, fileOpenErr
 	}
+}
+
+func (s *appStore) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
+	return s.bp.Info(ctx, dgst)
 }
 
 func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.App, platformMatcher platforms.MatchComparer) error {
