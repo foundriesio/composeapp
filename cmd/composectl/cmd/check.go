@@ -34,6 +34,7 @@ type (
 		Locally        *bool
 		Format         string
 		CheckInstall   bool
+		Quick          bool
 	}
 
 	CheckAppResult struct {
@@ -76,6 +77,8 @@ func init() {
 		"Output format; supported: plain, json")
 	checkCmd.Flags().BoolVar(&opts.CheckInstall, "install", false,
 		"Check both whether app is fetched and installed")
+	checkCmd.Flags().BoolVar(&opts.Quick, "quick", false,
+		"Skip checking hash of app blobs; verify only their presence and size")
 	checkCmd.Run = func(cmd *cobra.Command, args []string) {
 		if opts.Format != "plain" && opts.Format != "json" {
 			DieNotNil(cmd.Usage())
@@ -98,7 +101,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	if opts.Format == "json" {
 		quietCheck = true
 	}
-	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck)
+	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
 	var ir InstallCheckResult
 	var err error
 	if opts.CheckInstall {
@@ -149,7 +152,12 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	}
 }
 
-func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcStorePath string, quiet bool) (*CheckAppResult, *compose.UsageInfo, []compose.App) {
+func checkApps(ctx context.Context,
+	appRefs []string,
+	usageWatermark uint,
+	srcStorePath string,
+	quiet bool,
+	quick bool) (*CheckAppResult, *compose.UsageInfo, []compose.App) {
 	if usageWatermark < MinUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
 	}
@@ -202,8 +210,11 @@ func checkApps(ctx context.Context, appRefs []string, usageWatermark uint, srcSt
 				blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
 				fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
 			}
-			bs, stateCheckErr := compose.CheckBlob(ctx, cs, compose.WithExpectedDigest(node.Descriptor.Digest),
-				compose.WithExpectedSize(node.Descriptor.Size))
+			checkOpts := []compose.SecureReadOptions{compose.WithExpectedSize(node.Descriptor.Size)}
+			if !quick {
+				checkOpts = append(checkOpts, compose.WithExpectedDigest(node.Descriptor.Digest))
+			}
+			bs, stateCheckErr := compose.CheckBlob(ctx, cs, node.Descriptor.Digest, checkOpts...)
 			if stateCheckErr != nil {
 				return stateCheckErr
 			}
