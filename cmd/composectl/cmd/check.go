@@ -13,7 +13,6 @@ import (
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
-	"io/fs"
 	"os"
 	"path"
 )
@@ -50,11 +49,9 @@ type (
 	}
 
 	appInstallCheckResult struct {
-		AppName             string   `json:"app_name"`
-		MissingImages       []string `json:"missing_images"`
-		MissingComposeFiles []string `json:"missing_compose_files"`
-		InvalidComposeFiles []string `json:"invalid_compose_files"`
-		ErrorComposeFiles   []string `json:"error_compose_files"`
+		AppName       string                `json:"app_name"`
+		MissingImages []string              `json:"missing_images"`
+		BundleErrors  compose.AppBundleErrs `json:"bundle_errors"`
 	}
 
 	InstallCheckResult map[string]*appInstallCheckResult
@@ -127,23 +124,18 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		cr.print()
 		if opts.CheckInstall {
 			for appRef, r := range ir {
-				if len(r.InvalidComposeFiles) > 0 || len(r.MissingComposeFiles) > 0 || len(r.MissingImages) > 0 || len(r.ErrorComposeFiles) > 0 {
+				if len(r.MissingImages) > 0 || len(r.BundleErrors) > 0 {
 					fmt.Printf("%s is not installed (%s)\n", r.AppName, appRef)
-					for _, issue := range []struct {
-						issueType   string
-						issueValues []string
-					}{
-						{"missing images", r.MissingImages},
-						{"missing compose files", r.MissingComposeFiles},
-						{"invalid compose files", r.InvalidComposeFiles},
-						{"error compose files", r.ErrorComposeFiles},
-					} {
-						if len(issue.issueValues) == 0 {
-							continue
-						}
-						fmt.Printf("\t%s:\n", issue.issueType)
-						for _, val := range issue.issueValues {
+					if len(r.MissingImages) > 0 {
+						fmt.Println("\tmissing images:")
+						for _, val := range r.MissingImages {
 							fmt.Println("\t\t" + val)
+						}
+					}
+					if len(r.BundleErrors) > 0 {
+						fmt.Println("\tapp bundle errors:")
+						for f, e := range r.BundleErrors {
+							fmt.Printf("\t\t%s:\t%s\n", f, e)
 						}
 					}
 				}
@@ -313,30 +305,10 @@ func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string
 		if err != nil {
 			return nil, err
 		}
-		var missingComposeFiles []string
-		var invalidComposeFiles []string
-		var errComposeFiles []string
-		for filePath, checkErr := range errMap {
-			switch checkErr.(type) {
-			case *compose.ErrBlobDigestMismatch, *compose.ErrBlobSizeMismatch, *compose.ErrBlobSizeLimitExceed:
-				{
-					invalidComposeFiles = append(invalidComposeFiles, filePath)
-				}
-			case *fs.PathError:
-				{
-					missingComposeFiles = append(missingComposeFiles, filePath)
-				}
-			default:
-				errComposeFiles = append(errComposeFiles, fmt.Sprintf("%s: %s", filePath, checkErr.Error()))
-			}
-		}
-
 		checkResult[appRef] = &appInstallCheckResult{
-			AppName:             app.Name(),
-			MissingImages:       missingImages,
-			InvalidComposeFiles: invalidComposeFiles,
-			MissingComposeFiles: missingComposeFiles,
-			ErrorComposeFiles:   errComposeFiles,
+			AppName:       app.Name(),
+			MissingImages: missingImages,
+			BundleErrors:  errMap,
 		}
 	}
 	return checkResult, nil

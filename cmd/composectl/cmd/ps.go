@@ -28,11 +28,13 @@ type (
 		Health string `json:"health,omitempty"`
 	}
 	App struct {
-		URI      string     `json:"uri"`
-		Name     string     `json:"name"`
-		State    string     `json:"state"`
-		Services []*Service `json:"services"`
-		InStore  bool       `json:"in_store"`
+		URI           string                `json:"uri"`
+		Name          string                `json:"name"`
+		State         string                `json:"state"`
+		Services      []*Service            `json:"services"`
+		InStore       bool                  `json:"in_store"`
+		BundleErrors  compose.AppBundleErrs `json:"bundle_errors"`
+		MissingImages []string              `json:"missing_images"`
 	}
 	ServiceStatus struct {
 		URI     string `json:"uri"`
@@ -44,13 +46,15 @@ type (
 	AppStatus []ServiceStatus
 
 	psOptions struct {
-		Format string
+		Format       string
+		CheckInstall bool
 	}
 )
 
 func init() {
 	opts := psOptions{}
 	psCmd.Flags().StringVar(&opts.Format, "format", "table", "Format the output. Values: [table | json]")
+	psCmd.Flags().BoolVar(&opts.CheckInstall, "install", true, "Also check if app is installed")
 	psCmd.Run = func(cmd *cobra.Command, args []string) {
 		if opts.Format != "table" && opts.Format != "json" {
 			DieNotNil(fmt.Errorf("invalid value of `--format` option: %s", opts.Format))
@@ -62,8 +66,8 @@ func init() {
 }
 
 var psCmd = &cobra.Command{
-	Use:   "ps",
-	Short: "ps <ref> [<ref>]",
+	Use:   "ps [<ref>]...",
+	Short: "ps [<ref>]...",
 	Long:  ``,
 }
 
@@ -72,13 +76,13 @@ func psApps(cmd *cobra.Command, args []string, opts *psOptions) {
 	if len(args) == 0 {
 		printAppStatuses(runningApps, opts.Format)
 	} else {
-		appStatuses := getAppsStatus(cmd.Context(), args, runningApps)
+		appStatuses := getAppsStatus(cmd.Context(), args, runningApps, opts.CheckInstall)
 		printAppStatuses(appStatuses, opts.Format)
 	}
 
 }
 
-func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App) map[string]*App {
+func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App, checkInstall bool) map[string]*App {
 	storeBlobProvider := compose.NewStoreBlobProvider(path.Join(config.StoreRoot, "blobs", "sha256"))
 	apps := map[string]compose.App{}
 	for _, appRef := range appRefs {
@@ -173,16 +177,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 				appState = "not running"
 			}
 		}
-		if appState == "running" {
-			errMap, err := app.CheckComposeInstallation(ctx, storeBlobProvider, path.Join(config.ComposeRoot, app.Name()))
-			if err == nil {
-				if len(errMap) > 0 {
-					appState = "running invalid bundle"
-				}
-			} else {
-				fmt.Printf("failed to check whether app bundle is installed")
-			}
-		}
+
 		appStatuses[appRef] = &App{
 			URI:      appRef,
 			Name:     app.Name(),
@@ -192,6 +187,17 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 		}
 	}
 
+	if checkInstall {
+		checkInstallResult, err := checkIfInstalled(ctx, appRefs, config.StoreRoot, config.DockerHost)
+		DieNotNil(err)
+		for app, ir := range checkInstallResult {
+			appStatuses[app].BundleErrors = ir.BundleErrors
+			appStatuses[app].MissingImages = ir.MissingImages
+			if appStatuses[app].State == "running" && len(ir.BundleErrors) > 0 {
+				appStatuses[app].State = "running with an invalid app bundle"
+			}
+		}
+	}
 	return appStatuses
 }
 
