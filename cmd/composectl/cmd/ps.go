@@ -28,17 +28,18 @@ type (
 		Health string `json:"health,omitempty"`
 	}
 	App struct {
-		URI      string     `json:"uri"`
-		Name     string     `json:"name"`
-		State    string     `json:"state"`
-		Services []*Service `json:"services"`
-		InStore  bool       `json:"in_store"`
+		URI          string                `json:"uri"`
+		Name         string                `json:"name"`
+		State        string                `json:"state"`
+		Services     []*Service            `json:"services"`
+		InStore      bool                  `json:"in_store"`
+		BundleErrors compose.AppBundleErrs `json:"bundle_errors,omitempty"`
 	}
 	ServiceStatus struct {
 		URI     string `json:"uri"`
 		ID      string `json:"id"`
 		CfgHash string `json:"cfg-hash"`
-		State   string `json:"state"`
+		State   string `json:"statAe"`
 		Status  string `json:"status"`
 	}
 	AppStatus []ServiceStatus
@@ -171,22 +172,26 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 				appState = "not running"
 			}
 		}
+
+		var bundleErrors compose.AppBundleErrs
 		if appState == "running" {
 			errMap, err := app.CheckComposeInstallation(ctx, storeBlobProvider, path.Join(config.ComposeRoot, app.Name()))
 			if err == nil {
 				if len(errMap) > 0 {
 					appState = "running invalid bundle"
+					bundleErrors = errMap
 				}
 			} else {
 				fmt.Printf("failed to check whether app bundle is installed")
 			}
 		}
 		appStatuses[appRef] = &App{
-			URI:      appRef,
-			Name:     app.Name(),
-			State:    appState,
-			Services: appServices,
-			InStore:  true,
+			URI:          appRef,
+			Name:         app.Name(),
+			State:        appState,
+			Services:     appServices,
+			InStore:      true,
+			BundleErrors: bundleErrors,
 		}
 	}
 

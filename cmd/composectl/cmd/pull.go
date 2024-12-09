@@ -39,7 +39,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 	} else {
 		fmt.Printf("Pulling %s to %s\n", args[0], config.StoreRoot)
 	}
-	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark, *pullSrcStorePath, false)
+	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark, *pullSrcStorePath, false, true)
 	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
 		if ui.Required > ui.Available {
