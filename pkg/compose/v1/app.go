@@ -246,16 +246,16 @@ func (a *appCtx) GetLayersMetadataDescriptor() (*ocispec.Descriptor, error) {
 	return &desc, nil
 }
 
-func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (map[string]error, error) {
+func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (compose.AppBundleErrs, error) {
 	appIndex, err := a.getAppBundleIndex(ctx, provider)
 	if err != nil && err != ErrAppIndexNotFound {
 		return nil, err
 	}
-	errMap := map[string]error{}
+	errMap := compose.AppBundleErrs{}
 	for filePath, fileDigest := range appIndex {
 		f, err := os.Open(path.Join(installationRootDir, filePath))
 		if os.IsNotExist(err) {
-			errMap[filePath] = err
+			errMap[filePath] = err.Error()
 			continue
 		}
 		r, err := compose.NewSecureReadCloser(f, compose.WithExpectedDigest(fileDigest), compose.WithReadLimit(AppBundleFileMaxSize))
@@ -263,7 +263,7 @@ func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.
 			return nil, err
 		}
 		if _, err := io.ReadAll(r); err != nil {
-			errMap[filePath] = err
+			errMap[filePath] = err.Error()
 		}
 	}
 	return errMap, nil
