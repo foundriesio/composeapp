@@ -95,6 +95,8 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 				URI:   appRef,
 				Name:  app.Name(),
 				State: "not running",
+				// app is present in the store because its tree was loaded successfully prior to executing this check
+				InStore: true,
 			}
 			continue
 		}
