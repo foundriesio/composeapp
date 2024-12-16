@@ -24,6 +24,8 @@ if ! check_image; then
     docker pull ${SRC_IMAGE}
     docker tag ${SRC_IMAGE} ${IMAGE_URI}
     docker push ${IMAGE_URI}
+    docker image rm ${SRC_IMAGE}
+    docker image rm ${IMAGE_URI}
 else
     echo "Image ${IMAGE_URI} exists in the registry."
 fi
