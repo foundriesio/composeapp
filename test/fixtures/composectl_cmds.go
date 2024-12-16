@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
+	"gopkg.in/yaml.v3"
 	rand2 "math/rand"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -27,7 +29,7 @@ type (
 
 	PublishOpts struct {
 		PublishLayersManifest bool
-		LayersMetaFile        string
+		PublishLayersMetaFile bool
 		Registry              string
 	}
 )
@@ -54,9 +56,9 @@ func WithLayersManifest(addLayerManifest bool) func(opts *PublishOpts) {
 		opts.PublishLayersManifest = addLayerManifest
 	}
 }
-func WithLayersMeta(layersMetaFile string) func(opts *PublishOpts) {
+func WithLayersMeta(layersMetaFile bool) func(opts *PublishOpts) {
 	return func(opts *PublishOpts) {
-		opts.LayersMetaFile = layersMetaFile
+		opts.PublishLayersMetaFile = layersMetaFile
 	}
 }
 
@@ -73,8 +75,44 @@ func NewApp(t *testing.T, composeDef string, name ...string) *App {
 	return app
 }
 
+func (a *App) pullImages(t *testing.T) error {
+	b, err := os.ReadFile(path.Join(a.Dir, "docker-compose.yml"))
+	check(t, err)
+	var composeProj map[string]interface{}
+	check(t, yaml.Unmarshal(b, &composeProj))
+	services := composeProj["services"]
+	for _, v := range services.(map[string]interface{}) {
+		image := v.(map[string]interface{})["image"]
+		c := exec.Command("docker", "pull", image.(string))
+		output, cmdErr := c.CombinedOutput()
+		checkf(t, cmdErr, "failed to pull app images: %s\n", output)
+	}
+	return err
+}
+
+func (a *App) removeImages(t *testing.T) error {
+	b, err := os.ReadFile(path.Join(a.Dir, "docker-compose.yml"))
+	check(t, err)
+	var composeProj map[string]interface{}
+	check(t, yaml.Unmarshal(b, &composeProj))
+	services := composeProj["services"]
+	removedImages := map[string]bool{}
+	for _, v := range services.(map[string]interface{}) {
+		image := v.(map[string]interface{})["image"]
+		if _, ok := removedImages[image.(string)]; ok {
+			continue
+		}
+		c := exec.Command("docker", "image", "rm", image.(string))
+		output, cmdErr := c.CombinedOutput()
+		checkf(t, cmdErr, "failed to pull app images: %s\n", output)
+		removedImages[image.(string)] = true
+	}
+	return err
+}
+
 func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
-	opts := PublishOpts{PublishLayersManifest: true}
+	check(t, a.pullImages(t))
+	opts := PublishOpts{PublishLayersManifest: true, PublishLayersMetaFile: true}
 	for _, o := range publishOpts {
 		o(&opts)
 	}
@@ -93,8 +131,10 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 		if !opts.PublishLayersManifest {
 			args = append(args, "--layers-manifest=false")
 		}
-		if len(opts.LayersMetaFile) > 0 {
-			args = append(args, "--layers-meta", opts.LayersMetaFile)
+		if opts.PublishLayersMetaFile {
+			layersMetaFile := GenerateLayersMetaFile(t, filepath.Dir(a.Dir))
+			defer os.RemoveAll(layersMetaFile)
+			args = append(args, "--layers-meta", layersMetaFile)
 		}
 		runCmd(t, a.Dir, args...)
 		b, err := os.ReadFile(digestFile)
@@ -102,6 +142,7 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 		a.PublishedUri = baseUri + "@" + string(b)
 		fmt.Printf("published app uri: %s\n", a.PublishedUri)
 	})
+	check(t, a.removeImages(t))
 }
 
 func (a *App) Pull(t *testing.T) {
@@ -166,7 +207,6 @@ func (a *App) CheckInstalled(t *testing.T) {
 		output := runCmd(t, a.Dir, "check", "--local", "--install", a.PublishedUri, "--format", "json")
 		checkResult := composectl.CheckAndInstallResult{}
 		check(t, json.Unmarshal(output, &checkResult))
-
 		if len(checkResult.FetchCheck.MissingBlobs) > 0 {
 			t.Errorf("there are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
 		}

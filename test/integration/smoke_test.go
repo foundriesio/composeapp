@@ -2,7 +2,6 @@ package e2e_tests
 
 import (
 	f "github.com/foundriesio/composeapp/test/fixtures"
-	"path/filepath"
 	"testing"
 )
 
@@ -14,10 +13,9 @@ services:
     command: sh -c "while true; do sleep 60; done"
 `
 	app := f.NewApp(t, appComposeDef)
-	layersMetaFile := f.GenerateLayersMetaFile(t, filepath.Dir(app.Dir))
 
 	smokeTest := func(registry string, layersManifest bool) {
-		app.Publish(t, f.WithRegistry(registry), f.WithLayersManifest(layersManifest), f.WithLayersMeta(layersMetaFile))
+		app.Publish(t, f.WithRegistry(registry), f.WithLayersManifest(layersManifest))
 
 		app.Pull(t)
 		defer app.Remove(t)
