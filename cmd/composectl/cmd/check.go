@@ -48,13 +48,13 @@ type (
 		InstallCheck *InstallCheckResult `json:"install_check"`
 	}
 
-	appInstallCheckResult struct {
+	AppInstallCheckResult struct {
 		AppName       string                `json:"app_name"`
 		MissingImages []string              `json:"missing_images"`
 		BundleErrors  compose.AppBundleErrs `json:"bundle_errors"`
 	}
 
-	InstallCheckResult map[string]*appInstallCheckResult
+	InstallCheckResult map[string]*AppInstallCheckResult
 )
 
 const (
@@ -305,7 +305,7 @@ func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string
 		if err != nil {
 			return nil, err
 		}
-		checkResult[appRef] = &appInstallCheckResult{
+		checkResult[appRef] = &AppInstallCheckResult{
 			AppName:       app.Name(),
 			MissingImages: missingImages,
 			BundleErrors:  errMap,
