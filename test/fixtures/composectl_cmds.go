@@ -158,7 +158,7 @@ func (a *App) Install(t *testing.T) {
 }
 
 func (a *App) Uninstall(t *testing.T) {
-	a.runCmd(t, "uninstall app", "uninstall", a.Name)
+	a.runCmd(t, "uninstall app", "uninstall", "--prune=true", a.Name)
 }
 
 func (a *App) Run(t *testing.T) {
