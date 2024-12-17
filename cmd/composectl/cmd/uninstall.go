@@ -2,6 +2,8 @@ package composectl
 
 import (
 	"fmt"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -17,6 +19,7 @@ var uninstallCmd = &cobra.Command{
 type (
 	uninstallOptions struct {
 		ignoreNonInstalled bool
+		prune              bool
 	}
 )
 
@@ -24,6 +27,7 @@ func init() {
 	opts := uninstallOptions{}
 	uninstallCmd.Flags().BoolVar(&opts.ignoreNonInstalled, "ignore-non-installed", false,
 		"Do not yield error if app installation is not found")
+	uninstallCmd.Flags().BoolVar(&opts.prune, "prune", false, "prune unused images in the docker store")
 	uninstallCmd.Run = func(cmd *cobra.Command, args []string) {
 		uninstallApps(cmd, args, &opts)
 	}
@@ -43,5 +47,11 @@ func uninstallApps(cmd *cobra.Command, args []string, opts *uninstallOptions) {
 			}
 		}
 		DieNotNil(os.RemoveAll(appComposeDir))
+	}
+	if opts.prune {
+		cli, err := compose.GetDockerClient(dockerHost)
+		DieNotNil(err)
+		_, err = cli.ImagesPrune(cmd.Context(), filters.NewArgs(filters.Arg("dangling", "false")))
+		DieNotNil(err)
 	}
 }
