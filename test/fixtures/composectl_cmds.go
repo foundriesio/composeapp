@@ -223,6 +223,26 @@ func (a *App) CheckInstalled(t *testing.T) {
 	})
 }
 
+func (a *App) GetInstallCheckRes(t *testing.T) (checkRes *composectl.AppInstallCheckResult) {
+	t.Run("check if installed", func(t *testing.T) {
+		output := runCmd(t, a.Dir, "check", "--local", "--install", a.PublishedUri, "--format", "json")
+		checkResult := composectl.CheckAndInstallResult{}
+		check(t, json.Unmarshal(output, &checkResult))
+		if len(checkResult.FetchCheck.MissingBlobs) > 0 {
+			t.Errorf("there are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
+		}
+		if checkResult.InstallCheck == nil || len(*checkResult.InstallCheck) != 1 {
+			t.Errorf("invalid install check result: %+v\n", checkResult.InstallCheck)
+		}
+		var ok bool
+		checkRes, ok = (*checkResult.InstallCheck)[a.PublishedUri]
+		if !ok {
+			t.Errorf("no app in the install check result: %+v\n", *checkResult.InstallCheck)
+		}
+	})
+	return
+}
+
 func (a *App) CheckRunning(t *testing.T) {
 	t.Run("check if running", func(t *testing.T) {
 		output := runCmd(t, "", "ps", a.PublishedUri, "--format", "json")
@@ -239,6 +259,23 @@ func (a *App) CheckRunning(t *testing.T) {
 			t.Errorf("app is not running, its state: %+s\n", appStatus.State)
 		}
 	})
+}
+
+func (a *App) GetRunningStatus(t *testing.T) (appStatus *composectl.App) {
+	t.Run("check if running", func(t *testing.T) {
+		output := runCmd(t, "", "ps", a.PublishedUri, "--format", "json")
+		var psOutput map[string]composectl.App
+		check(t, json.Unmarshal(output, &psOutput))
+		if len(psOutput) != 1 {
+			t.Errorf("expected one element in ps output, got: %d\n", len(psOutput))
+		}
+		if appStatusRes, ok := psOutput[a.PublishedUri]; ok {
+			appStatus = &appStatusRes
+		} else {
+			t.Errorf("no app URI in the ps output: %+v\n", psOutput)
+		}
+	})
+	return
 }
 
 func (a *App) runCmd(t *testing.T, desc string, args ...string) {
