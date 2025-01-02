@@ -89,20 +89,31 @@ func init() {
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
-	if *opts.Locally && len(*opts.SrcStorePath) == 0 {
-		// Use the local store as the source store to check whether app is fetched without a need in connection to Registry.
-		// Requires app manifest and app archive presence in the local store, otherwise fails.
-		opts.SrcStorePath = &config.StoreRoot
-	}
 	quietCheck := false
 	if opts.Format == "json" {
 		quietCheck = true
 	}
+
+	var err error
+	var blobProvider compose.BlobProvider
+	if len(*opts.SrcStorePath) > 0 {
+		blobProvider = compose.NewStoreBlobProvider(path.Join(*opts.SrcStorePath, "blobs", "sha256"))
+	} else if *opts.Locally {
+		// Use the local store as the source store to check whether app is fetched without a need in connection to Registry.
+		// Requires app manifest and app archive presence in the local store, otherwise fails.
+		blobProvider, err = v1.NewAppStore(config.StoreRoot, config.Platform)
+		DieNotNil(err)
+		opts.SrcStorePath = &config.StoreRoot
+	} else {
+		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
+		resolver := compose.NewResolver(authorizer, config.ConnectTime)
+		blobProvider = compose.NewRemoteBlobProvider(resolver)
+	}
+
 	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
 	var ir InstallCheckResult
-	var err error
 	if opts.CheckInstall {
-		ir, err = checkIfInstalled(cmd.Context(), args, *opts.SrcStorePath, config.DockerHost)
+		ir, err = checkIfInstalled(cmd.Context(), args, blobProvider, config.DockerHost)
 		DieNotNil(err)
 	}
 	if opts.Format == "json" {
@@ -257,7 +268,7 @@ func (cr *CheckAppResult) print() {
 		len(cr.MissingBlobs), units.BytesSize(float64(cr.TotalPullSize)), units.BytesSize(float64(cr.TotalStoreSize)), units.BytesSize(float64(cr.TotalRuntimeSize)), units.BytesSize(float64(cr.TotalStoreSize+cr.TotalRuntimeSize)))
 }
 
-func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string, dockerHost string) (InstallCheckResult, error) {
+func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compose.BlobProvider, dockerHost string) (InstallCheckResult, error) {
 	cli, err := compose.GetDockerClient(dockerHost)
 	if err != nil {
 		return nil, err
@@ -278,7 +289,6 @@ func checkIfInstalled(ctx context.Context, appRefs []string, srcStorePath string
 	}
 
 	checkResult := InstallCheckResult{}
-	blobProvider := compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
 	for _, appRef := range appRefs {
 		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
