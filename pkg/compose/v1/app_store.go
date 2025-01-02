@@ -116,10 +116,9 @@ func (s *appStore) Prune(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	blobProvider := compose.NewStoreBlobProvider(s.blobsRoot)
 	referencedBlobs := map[string]bool{}
 	for _, a := range apps {
-		_, tree, err := NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(s.platform), a.String())
+		_, tree, err := NewAppLoader().LoadAppTree(ctx, s, platforms.OnlyStrict(s.platform), a.String())
 		if err != nil {
 			return nil, err
 		}
