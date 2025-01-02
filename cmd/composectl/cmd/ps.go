@@ -83,10 +83,11 @@ func psApps(cmd *cobra.Command, args []string, opts *psOptions) {
 }
 
 func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App, checkInstall bool) map[string]*App {
-	storeBlobProvider := compose.NewStoreBlobProvider(path.Join(config.StoreRoot, "blobs", "sha256"))
+	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
+	DieNotNil(err)
 	apps := map[string]compose.App{}
 	for _, appRef := range appRefs {
-		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, storeBlobProvider, platforms.OnlyStrict(config.Platform), appRef)
+		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, store, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps[appRef] = app
 	}
@@ -188,7 +189,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 	}
 
 	if checkInstall {
-		checkInstallResult, err := checkIfInstalled(ctx, appRefs, config.StoreRoot, config.DockerHost)
+		checkInstallResult, err := checkIfInstalled(ctx, appRefs, store, config.DockerHost)
 		DieNotNil(err)
 		for app, ir := range checkInstallResult {
 			appStatuses[app].BundleErrors = ir.BundleErrors
