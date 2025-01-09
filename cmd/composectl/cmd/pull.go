@@ -39,7 +39,12 @@ func pullApps(cmd *cobra.Command, args []string) {
 	} else {
 		fmt.Printf("Pulling %s to %s\n", args[0], config.StoreRoot)
 	}
-	cr, ui, apps := checkApps(cmd.Context(), args, *pullUsageWatermark, *pullSrcStorePath, false, true)
+
+	srcBlobProvider, cs, err := getAppStoreAndDstBlobProvider(*pullSrcStorePath, false)
+	DieNotNil(err)
+
+	cr, ui, apps := checkApps(cmd.Context(), args, cs, srcBlobProvider, *pullUsageWatermark,
+		*pullSrcStorePath, false, true)
 	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
 		if ui.Required > ui.Available {
@@ -74,8 +79,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 			fmt.Println("ok")
 		}
 	}
-	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
-	DieNotNil(err)
+
 	for _, app := range apps {
 		err = v1.MakeAkliteHappy(cmd.Context(), cs, app, platforms.OnlyStrict(config.Platform))
 		DieNotNil(err)
