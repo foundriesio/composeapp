@@ -94,26 +94,16 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		quietCheck = true
 	}
 
-	var err error
-	var blobProvider compose.BlobProvider
-	if len(*opts.SrcStorePath) > 0 {
-		blobProvider = compose.NewStoreBlobProvider(path.Join(*opts.SrcStorePath, "blobs", "sha256"))
-	} else if *opts.Locally {
-		// Use the local store as the source store to check whether app is fetched without a need in connection to Registry.
-		// Requires app manifest and app archive presence in the local store, otherwise fails.
-		blobProvider, err = v1.NewAppStore(config.StoreRoot, config.Platform)
-		DieNotNil(err)
+	blobProvider, cs, err := getAppStoreAndDstBlobProvider(*opts.SrcStorePath, *opts.Locally)
+	DieNotNil(err)
+	if len(*opts.SrcStorePath) == 0 && *opts.Locally {
 		opts.SrcStorePath = &config.StoreRoot
-	} else {
-		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-		resolver := compose.NewResolver(authorizer, config.ConnectTime)
-		blobProvider = compose.NewRemoteBlobProvider(resolver)
 	}
-
-	cr, ui, _ := checkApps(cmd.Context(), args, *opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
+	cr, ui, _ := checkApps(cmd.Context(), args, cs, blobProvider,
+		*opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
 	var ir InstallCheckResult
 	if opts.CheckInstall {
-		ir, err = checkIfInstalled(cmd.Context(), args, blobProvider, config.DockerHost)
+		ir, err = checkIfInstalled(cmd.Context(), args, cs, config.DockerHost)
 		DieNotNil(err)
 	}
 	if opts.Format == "json" {
@@ -157,6 +147,8 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 
 func checkApps(ctx context.Context,
 	appRefs []string,
+	appStore compose.AppStore,
+	srcBlobProvider compose.BlobProvider,
 	usageWatermark uint,
 	srcStorePath string,
 	quiet bool,
@@ -166,18 +158,6 @@ func checkApps(ctx context.Context,
 	}
 	if usageWatermark > MaxUsageWatermark {
 		DieNotNil(fmt.Errorf("the specified usage watermark is higher than the maximum allowed; %d < %d", usageWatermark, MaxUsageWatermark))
-	}
-
-	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
-	DieNotNil(err)
-
-	var blobProvider compose.BlobProvider
-	if len(srcStorePath) > 0 {
-		blobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
-	} else {
-		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-		resolver := compose.NewResolver(authorizer, config.ConnectTime)
-		blobProvider = compose.NewRemoteBlobProvider(resolver)
 	}
 
 	var apps []compose.App
@@ -192,7 +172,7 @@ func checkApps(ctx context.Context,
 				fmt.Printf("Loading %s metadata from registry...\n", appRef)
 			}
 		}
-		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
+		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, srcBlobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps = append(apps, app)
 		if !quiet {
@@ -217,7 +197,7 @@ func checkApps(ctx context.Context,
 			if !quick {
 				checkOpts = append(checkOpts, compose.WithExpectedDigest(node.Descriptor.Digest))
 			}
-			bs, stateCheckErr := compose.CheckBlob(ctx, cs, node.Descriptor.Digest, checkOpts...)
+			bs, stateCheckErr := compose.CheckBlob(ctx, appStore, node.Descriptor.Digest, checkOpts...)
 			if stateCheckErr != nil {
 				return stateCheckErr
 			}
@@ -322,4 +302,23 @@ func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compos
 		}
 	}
 	return checkResult, nil
+}
+
+func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProvider compose.BlobProvider, store compose.AppStore, err error) {
+	store, err = v1.NewAppStore(config.StoreRoot, config.Platform)
+	if err != nil {
+		return
+	}
+	if len(srcStorePath) > 0 {
+		srcBlobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
+	} else if local {
+		// Use the local store as the source blob provider to check whether app is fetched without a need in connection
+		// to Registry. Requires app manifest and app archive presence in the local store, otherwise fails.
+		srcBlobProvider = store
+	} else {
+		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
+		resolver := compose.NewResolver(authorizer, config.ConnectTime)
+		srcBlobProvider = compose.NewRemoteBlobProvider(resolver)
+	}
+	return
 }
