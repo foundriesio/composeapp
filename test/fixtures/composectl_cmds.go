@@ -5,9 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	"gopkg.in/yaml.v3"
+	"io"
 	rand2 "math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -276,6 +280,69 @@ func (a *App) GetRunningStatus(t *testing.T) (appStatus *composectl.App) {
 		}
 	})
 	return
+}
+
+func (a *App) PullAppImagesWithSkopeo(t *testing.T) {
+	storeRoot := "/var/sota/reset-apps"
+	blobsRoot := path.Join(storeRoot, "blobs")
+	appRef, err := compose.ParseAppRef(a.PublishedUri)
+	check(t, err)
+	appRoot := path.Join(storeRoot, "apps", a.Name, appRef.Digest.Encoded())
+	imagesRoot := path.Join(storeRoot, "apps", a.Name, appRef.Digest.Encoded(), "images")
+
+	// Download app manifest
+	check(t, os.MkdirAll(appRoot, 0x777))
+	manifestUri := "https://" + appRef.Spec.Hostname() + "/v2/" + appRef.Repo + "/" + appRef.Name +
+		"/manifests/sha256:" + appRef.Digest.Encoded()
+	r, err := http.NewRequest("GET", manifestUri, nil)
+	check(t, err)
+	r.Header = map[string][]string{"accept": {"application/vnd.oci.image.manifest.v1+json"}}
+	resp, err := http.DefaultClient.Do(r)
+	check(t, err)
+	mb, err := io.ReadAll(resp.Body)
+	check(t, err)
+	check(t, os.WriteFile(path.Join(appRoot, "manifest.json"), mb, 0x644))
+	var appManifest ocischema.Manifest
+	check(t, json.Unmarshal(mb, &appManifest))
+
+	// Download app bundle
+	appBundlerHash := appManifest.Layers[0].Digest.Hex()
+	appBundleUri := "https://" + appRef.Spec.Hostname() + "/v2/" + appRef.Repo + "/" + appRef.Name +
+		"/blobs/sha256:" + appBundlerHash
+	resp, err = http.Get(appBundleUri)
+	check(t, err)
+	bb, err := io.ReadAll(resp.Body)
+	check(t, err)
+	check(t, os.WriteFile(path.Join(appRoot, appBundlerHash+".tgz"), bb, 0x644))
+
+	// Extract docker-compose.yml from the app bundle archive and write it to the app directory
+	c := exec.Command("tar", "-xzf", appBundlerHash+".tgz", "docker-compose.yml")
+	c.Dir = appRoot
+	output, err := c.CombinedOutput()
+	checkf(t, err, "failed to run tar command: %s\n", output)
+
+	// write the app uri into the `uri` file
+	check(t, os.WriteFile(path.Join(appRoot, "uri"), []byte(a.PublishedUri), 0x644))
+
+	// read the app compose project and pull its images by using `skopeo`
+	b, err := os.ReadFile(path.Join(appRoot, "docker-compose.yml"))
+	check(t, err)
+	var composeProj map[string]interface{}
+	check(t, yaml.Unmarshal(b, &composeProj))
+	services := composeProj["services"]
+
+	for _, v := range services.(map[string]interface{}) {
+		image := (v.(map[string]interface{})["image"]).(string)
+		imageRef, err := compose.ParseImageRef(image)
+		check(t, err)
+		imageDir := path.Join(imagesRoot, imageRef.Locator, imageRef.Digest.Encoded())
+		check(t, os.MkdirAll(imageDir, 0x777))
+		c := exec.Command("skopeo", "copy", "--insecure-policy", "-f", "v2s2", "--dest-shared-blob-dir",
+			blobsRoot, "docker://"+image, "oci:.")
+		c.Dir = imageDir
+		output, cmdErr := c.CombinedOutput()
+		checkf(t, cmdErr, "failed to pull app images: %s; %s\n", cmdErr, output)
+	}
 }
 
 func (a *App) runCmd(t *testing.T, desc string, args ...string) {
