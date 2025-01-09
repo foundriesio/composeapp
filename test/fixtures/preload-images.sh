@@ -6,7 +6,7 @@ IMAGE_NAME="factory/runner-image"
 IMAGE_TAG="v0.1"
 IMAGE_URI="${REGISTRY_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-SRC_IMAGE="ghcr.io/foundriesio/busybox:1.36"
+SRC_IMAGE="ghcr.io/foundriesio/busybox:1.36-multiarch"
 
 # Check if the image exists in the registry
 check_image() {
@@ -21,11 +21,7 @@ check_image() {
 }
 
 if ! check_image; then
-    docker pull ${SRC_IMAGE}
-    docker tag ${SRC_IMAGE} ${IMAGE_URI}
-    docker push ${IMAGE_URI}
-    docker image rm ${SRC_IMAGE}
-    docker image rm ${IMAGE_URI}
+    skopeo copy --insecure-policy --all docker://${SRC_IMAGE} docker://${IMAGE_URI}
 else
     echo "Image ${IMAGE_URI} exists in the registry."
 fi
