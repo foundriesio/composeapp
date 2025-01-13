@@ -137,6 +137,7 @@ services:
 
 	app.PullAppImagesWithSkopeo(t)
 	defer app.Remove(t)
+	app.CheckFetched(t)
 
 	app.Install(t)
 	defer app.Uninstall(t)
