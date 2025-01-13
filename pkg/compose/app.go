@@ -36,6 +36,21 @@ type (
 	}
 )
 
+const (
+	ctxKeyAppRef ctxKeyType = "app:ref"
+)
+
+func WithAppRef(ctx context.Context, ref *AppRef) context.Context {
+	return context.WithValue(ctx, ctxKeyAppRef, ref)
+}
+
+func GetAppRef(ctx context.Context) *AppRef {
+	if appRef, ok := ctx.Value(ctxKeyAppRef).(*AppRef); ok {
+		return appRef
+	}
+	return nil
+}
+
 func ParseAppRef(ref string) (*AppRef, error) {
 	s, err := reference.Parse(ref)
 	if err != nil {

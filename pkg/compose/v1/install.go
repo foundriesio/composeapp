@@ -89,7 +89,7 @@ func installCompose(ctx context.Context, app compose.App, provider compose.BlobP
 		return err
 	}
 	appContext := app.(*appCtx)
-	rc, err := provider.GetReadCloser(compose.WithBlobType(WithAppRef(ctx, &appContext.AppRef), compose.BlobTypeAppBundle),
+	rc, err := provider.GetReadCloser(compose.WithBlobType(compose.WithAppRef(ctx, &appContext.AppRef), compose.BlobTypeAppBundle),
 		compose.WithExpectedDigest(composeDesc.Digest), compose.WithExpectedSize(composeDesc.Size))
 	if err != nil {
 		return err

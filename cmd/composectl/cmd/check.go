@@ -147,7 +147,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 
 func checkApps(ctx context.Context,
 	appRefs []string,
-	appStore compose.AppStore,
+	appStoreBlobProvider compose.BlobProvider,
 	srcBlobProvider compose.BlobProvider,
 	usageWatermark uint,
 	srcStorePath string,
@@ -197,7 +197,11 @@ func checkApps(ctx context.Context,
 			if !quick {
 				checkOpts = append(checkOpts, compose.WithExpectedDigest(node.Descriptor.Digest))
 			}
-			bs, stateCheckErr := compose.CheckBlob(ctx, appStore, node.Descriptor.Digest, checkOpts...)
+			if len(node.Descriptor.URLs) > 0 {
+				checkOpts = append(checkOpts, compose.WithRef(node.Descriptor.URLs[0]))
+			}
+			bs, stateCheckErr := compose.CheckBlob(compose.WithAppRef(compose.WithBlobType(ctx, node.Type), app.Ref()),
+				appStoreBlobProvider, node.Descriptor.Digest, checkOpts...)
 			if stateCheckErr != nil {
 				return stateCheckErr
 			}
@@ -305,7 +309,8 @@ func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compos
 }
 
 func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProvider compose.BlobProvider, store compose.AppStore, err error) {
-	store, err = v1.NewAppStore(config.StoreRoot, config.Platform)
+	// Create the skopeo store aware instance only if it is a local check
+	store, err = v1.NewAppStore(config.StoreRoot, config.Platform, local)
 	if err != nil {
 		return
 	}

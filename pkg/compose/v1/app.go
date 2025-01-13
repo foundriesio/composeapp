@@ -31,16 +31,17 @@ type (
 		} `json:"layers"`
 	}
 
+	StoreType string
+
 	appCtx struct {
 		compose.AppRef
 		manifest   ocispec.Manifest
 		layersMeta map[string]layersMeta
 		tree       *compose.AppTree
+		storeType  StoreType
 	}
 
 	appLoader struct{}
-
-	ctxKeyType string
 )
 
 const (
@@ -56,24 +57,14 @@ const (
 	AnnotationKeyAppBundleIndexDigest = "org.foundries.app.bundle.index.digest"
 	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
 
-	ctxKeyAppRef ctxKeyType = "app:ref"
+	StoreTypeSkopeo     = "skopeo store"
+	StoreTypeComposeCtl = "composectl store"
 )
 
 var (
 	ErrAppHasNoIndex    = errors.New("app has no bundle index")
 	ErrAppIndexNotFound = errors.New("app blob index is not found")
 )
-
-func WithAppRef(ctx context.Context, ref *compose.AppRef) context.Context {
-	return context.WithValue(ctx, ctxKeyAppRef, ref)
-}
-
-func GetAppRef(ctx context.Context) *compose.AppRef {
-	if appRef, ok := ctx.Value(ctxKeyAppRef).(*compose.AppRef); ok {
-		return appRef
-	}
-	return nil
-}
 
 func (a *appCtx) Name() string {
 	return a.AppRef.Name
@@ -148,14 +139,16 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 		Type:       compose.BlobTypeAppBundle,
 	}
 
-	// depth 1, app bundle index/hashes if present
-	if indexNode := getAppIndexNodeIfPresent(app.Ref(), composeDesc); indexNode != nil {
-		appTree.Children = append(appTree.Children, indexNode)
+	// depth 1, app bundle index/hashes if present and app is pulled by `composectl`
+	if app.storeType == StoreTypeComposeCtl {
+		if indexNode := getAppIndexNodeIfPresent(app.Ref(), composeDesc); indexNode != nil {
+			appTree.Children = append(appTree.Children, indexNode)
+		}
 	}
 
 	// depth 2, compose service images, each is a sub-tree
 	for _, service := range composeProject.Services {
-		imageTree, err := compose.LoadImageTree(WithAppRef(ctx, &app.AppRef), provider, platform, service.Image)
+		imageTree, err := compose.LoadImageTree(compose.WithAppRef(ctx, &app.AppRef), provider, platform, service.Image)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load app service image (%s): %s", service.Name, err)
 		}
@@ -192,8 +185,8 @@ func ReadAppManifest(ctx context.Context, provider compose.BlobProvider, ref str
 	if err != nil {
 		return nil, nil, err
 	}
-	app := appCtx{AppRef: *appRef}
-	b, err := compose.ReadBlobWithReadLimit(compose.WithBlobType(WithAppRef(ctx, appRef), compose.BlobTypeAppManifest),
+	app := appCtx{AppRef: *appRef, storeType: StoreTypeComposeCtl}
+	b, err := compose.ReadBlobWithReadLimit(compose.WithBlobType(compose.WithAppRef(ctx, appRef), compose.BlobTypeAppManifest),
 		provider, ref, AppManifestMaxSize)
 	if err != nil {
 		return &app, nil, err
@@ -209,6 +202,11 @@ func ReadAppManifest(ctx context.Context, provider compose.BlobProvider, ref str
 		Digest:    appRef.Digest,
 		Size:      int64(len(b)),
 		URLs:      []string{ref},
+	}
+	if _, err := provider.Info(ctx, appRef.Digest); errors.Is(err, errdefs.ErrNotFound) {
+		// If app manifest was successfully read through provided blob provider but is missing in the blob store, then
+		// it indicates that this app was pulled by `aklite+skopeo` but not by `composectl`.
+		app.storeType = StoreTypeSkopeo
 	}
 	return &app, &desc, nil
 }
@@ -324,7 +322,7 @@ func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx
 	}
 
 	// Read and parse App compose project
-	srcReader, err := provider.GetReadCloser(compose.WithBlobType(WithAppRef(ctx, &app.AppRef), compose.BlobTypeAppBundle),
+	srcReader, err := provider.GetReadCloser(compose.WithBlobType(compose.WithAppRef(ctx, &app.AppRef), compose.BlobTypeAppBundle),
 		compose.WithRef(app.GetBlobRef(composeDesc.Digest)),
 		compose.WithExpectedDigest(composeDesc.Digest), compose.WithExpectedSize(composeDesc.Size))
 	if err != nil {

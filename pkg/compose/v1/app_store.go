@@ -24,26 +24,33 @@ import (
 
 type (
 	appStore struct {
-		bp        compose.BlobProvider
-		root      string
-		appsRoot  string
-		blobsRoot string
-		platform  ocispec.Platform
+		bp               compose.BlobProvider
+		root             string
+		appsRoot         string
+		blobsRoot        string
+		platform         ocispec.Platform
+		skopeoStoreAware bool
 	}
 )
 
-func NewAppStore(root string, platform ocispec.Platform) (compose.AppStore, error) {
+func NewAppStore(root string, platform ocispec.Platform, skopeoStoreAware ...bool) (compose.AppStore, error) {
 	cs, err := local.NewStore(root)
 	if err != nil {
 		return nil, err
 	}
 
+	var isSkopeoStoreAware = true
+	if len(skopeoStoreAware) > 0 {
+		isSkopeoStoreAware = skopeoStoreAware[0]
+	}
+
 	return &appStore{
-		bp:        compose.NewLocalBlobProvider(cs),
-		root:      root,
-		appsRoot:  path.Join(root, "apps"),
-		blobsRoot: path.Join(root, "blobs/sha256"),
-		platform:  platform,
+		bp:               compose.NewLocalBlobProvider(cs),
+		root:             root,
+		appsRoot:         path.Join(root, "apps"),
+		blobsRoot:        path.Join(root, "blobs/sha256"),
+		platform:         platform,
+		skopeoStoreAware: isSkopeoStoreAware,
 	}, nil
 }
 
@@ -158,6 +165,9 @@ func (s *appStore) Prune(ctx context.Context) ([]string, error) {
 
 func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureReadOptions) (io.ReadCloser, error) {
 	rc, err := s.bp.GetReadCloser(ctx, opts...)
+	if !s.skopeoStoreAware {
+		return rc, err
+	}
 	if !errors.Is(err, errdefs.ErrNotFound) {
 		return rc, err
 	}
@@ -166,7 +176,7 @@ func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureRead
 	// The following:
 	// 1) checks if the missing blob is one the blobs that skopeo and aklite stores under the apps dir;
 	// 2) if the #1 is true then return read closer for the corresponding item under the `apps` dir.
-	appRef := GetAppRef(ctx)
+	appRef := compose.GetAppRef(ctx)
 	if appRef == nil {
 		return rc, err
 	}
@@ -189,6 +199,17 @@ func (s *appStore) GetReadCloser(ctx context.Context, opts ...compose.SecureRead
 			checkHash = true
 		}
 	case compose.BlobTypeImageIndex:
+		{
+			p := compose.GetSecureReadParams(opts...)
+			imageRef, parseErr := compose.ParseAppRef(p.Ref)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			blobPath = path.Join(s.appsRoot, appRef.Name, appRef.Digest.Encoded(), "images", imageRef.Spec.Hostname(),
+				imageRef.Repo, imageRef.Name, imageRef.Digest.Encoded(), "index.json")
+			checkHash = false
+		}
+	case compose.BlobTypeSkopeoImageIndex:
 		{
 			p := compose.GetSecureReadParams(opts...)
 			imageRef, parseErr := compose.ParseAppRef(p.Ref)
