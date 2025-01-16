@@ -265,7 +265,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 			fmt.Printf("Failed to delete the current app manifest file: %s\n", err.Error())
 		}
 	}
-	if err := syscall.Symlink(blobPath, manifestLink); err != nil {
+	if err := syscall.Link(blobPath, manifestLink); err != nil {
 		return err
 	}
 
@@ -285,7 +285,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		}
 	}
 	if !appBundleLinkExists {
-		if err := syscall.Symlink(path.Join(storeV1.root, "blobs/sha256", appBundleDesc.Digest.Encoded()), appBundleLink); err != nil {
+		if err := syscall.Link(path.Join(storeV1.root, "blobs/sha256", appBundleDesc.Digest.Encoded()), appBundleLink); err != nil {
 			return err
 		}
 	}
