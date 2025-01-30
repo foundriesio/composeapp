@@ -187,10 +187,13 @@ func createAndPublishApp(ctx context.Context,
 	}
 
 	blobStore := repo.Blobs(ctx)
-	desc, err := blobStore.Put(ctx, "application/tar+gzip", buff)
+	desc, err := blobStore.Put(ctx, AppLayerMediaType, buff)
 	if err != nil {
 		return "", err
 	}
+	// enforce App's layer media type to make sure it is the same regardless container registry service
+	// (some container registries changes the media type specified by a client)
+	desc.MediaType = AppLayerMediaType
 	fmt.Println("  |-> app blob: ", desc.Digest.String())
 
 	if appContentHashes != nil && len(appContentHashes) > 0 {
