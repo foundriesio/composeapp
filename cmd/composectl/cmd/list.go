@@ -31,12 +31,12 @@ func init() {
 		if opts.Format != "plain" && opts.Format != "json" {
 			DieNotNil(fmt.Errorf("invalid value of `--format` option: %s", opts.Format))
 		}
-		listApps(cmd, args, &opts)
+		listApps(cmd, &opts)
 	}
 	rootCmd.AddCommand(listCmd)
 }
 
-func listApps(cmd *cobra.Command, args []string, opts *listOptions) {
+func listApps(cmd *cobra.Command, opts *listOptions) {
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	apps, err := cs.ListApps(cmd.Context())
