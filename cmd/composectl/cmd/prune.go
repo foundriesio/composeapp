@@ -27,12 +27,12 @@ func init() {
 		if opts.Format != "plain" && opts.Format != "json" {
 			DieNotNil(fmt.Errorf("invalid value of `--format` option: %s", opts.Format))
 		}
-		pruneApps(cmd, args, &opts)
+		pruneApps(cmd, &opts)
 	}
 	rootCmd.AddCommand(pruneCmd)
 }
 
-func pruneApps(cmd *cobra.Command, args []string, opts *pruneOptions) {
+func pruneApps(cmd *cobra.Command, opts *pruneOptions) {
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	prunedBlobs, err := cs.Prune(cmd.Context())

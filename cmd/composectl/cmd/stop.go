@@ -29,13 +29,13 @@ func init() {
 	opts := stopOptions{}
 	stopCmd.Flags().BoolVar(&opts.All, "all", false, "stop all installed and running apps")
 	stopCmd.Run = func(cmd *cobra.Command, args []string) {
-		stopApps(cmd, args, &opts)
+		stopApps(args, &opts)
 	}
 
 	rootCmd.AddCommand(stopCmd)
 }
 
-func stopApps(cmd *cobra.Command, args []string, opts *stopOptions) {
+func stopApps(args []string, opts *stopOptions) {
 	if len(args) > 0 && opts.All {
 		DieNotNil(fmt.Errorf("`--all` flag cannot be specified if at least one app is specified as parameter"))
 	}

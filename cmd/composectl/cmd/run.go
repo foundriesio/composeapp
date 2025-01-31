@@ -46,12 +46,12 @@ func init() {
 			}
 		}
 
-		runApps(cmd, args, &opts)
+		runApps(cmd, &opts)
 	}
 	rootCmd.AddCommand(runCmd)
 }
 
-func runApps(cmd *cobra.Command, args []string, opts *runOptions) {
+func runApps(cmd *cobra.Command, opts *runOptions) {
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	apps, err := cs.ListApps(cmd.Context())
