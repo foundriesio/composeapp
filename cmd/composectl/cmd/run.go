@@ -69,7 +69,7 @@ func runApps(cmd *cobra.Command, opts *runOptions) {
 
 	checkedApps := map[string]compose.App{}
 	for _, app := range apps {
-		if opts.Apps != nil && len(opts.Apps) > 0 && !opts.Apps[app.Name] {
+		if len(opts.Apps) > 0 && !opts.Apps[app.Name] {
 			fmt.Printf("%s: skipping, not in the shortlist\n", app.Name)
 			continue
 		}
