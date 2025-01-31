@@ -363,9 +363,6 @@ func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx
 			}
 		}
 	}
-	if err != nil {
-		return nil, nil, err
-	}
 	return composeBytes, composeDesc, nil
 }
 
