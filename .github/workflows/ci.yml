@@ -8,6 +8,18 @@ on:
       - main
 
 jobs:
+  lint:
+    name: Run golint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
   test:
     name: Build and run all tests
     runs-on: ubuntu-latest
