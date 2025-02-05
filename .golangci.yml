@@ -1,0 +1,10 @@
+run:
+  timeout: 2m
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - staticcheck
+    - unused
+    - gofmt
+    - gocyclo
