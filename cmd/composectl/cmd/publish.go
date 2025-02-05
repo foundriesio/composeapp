@@ -5,13 +5,14 @@ package composectl
 import (
 	"errors"
 	"fmt"
+	"log"
+	"strings"
+
 	"github.com/docker/distribution/reference"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
-	"log"
-	"strings"
 )
 
 const (
@@ -45,7 +46,7 @@ func init() {
 	publishCmd.Flags().BoolVar(&opts.DryRun, "dryrun", false, "Show what would be done, but don't actually publish")
 	publishCmd.Flags().StringSliceVar(&opts.PinnedImageURIs, "pinned-images", nil, "A list of app images referred through digest URIs to pin app to")
 	publishCmd.Flags().StringVarP(&opts.LayersMetaFile, "layers-meta", "l", "", "Json file containing App layers' metadata (size, usage)")
-	publishCmd.Flags().BoolVar(&opts.CreateAppLayersManifest, "layers-manifest", true, "Add app layers manifests to the app manifest")
+	publishCmd.Flags().BoolVar(&opts.CreateAppLayersManifest, "layers-manifest", false, "Add app layers manifests to the app manifest")
 
 	publishCmd.Run = func(cmd *cobra.Command, args []string) {
 		fmt.Println(banner)
