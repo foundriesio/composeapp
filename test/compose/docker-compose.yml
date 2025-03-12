@@ -1,15 +1,15 @@
 services:
   registry-org:
-    image: registry:2.8.3
+    image: registry:3.0.0-rc.3
     volumes:
       - ${REG_CERT_DIR}:/certs
-      - ${REG_DIR}/config.yml:/etc/docker/registry/config.yml
+      - ${REG_DIR}/config.yml:/etc/distribution/config.yml
 
   registry:
-    image: ghcr.io/foundriesio/docker-distribution:2.8.3-fio
+    image: ghcr.io/foundriesio/docker-distribution:3.0.0-fio
     volumes:
       - ${REG_CERT_DIR}:/certs
-      - ${REG_DIR}/config.yml:/etc/docker/registry/config.yml
+      - ${REG_DIR}/config.yml:/etc/distribution/config.yml
 
   dockerd:
     image: ghcr.io/foundriesio/moby:25.0.3_fio
