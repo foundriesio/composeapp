@@ -24,6 +24,7 @@ type (
 	AppTree       TreeNode
 	App           interface {
 		Name() string
+		Tree() *AppTree
 		Ref() *AppRef
 		HasLayersMeta(arch string) bool
 		GetBlobRuntimeSize(desc *ocispec.Descriptor, arch string, blockSize int64) int64
