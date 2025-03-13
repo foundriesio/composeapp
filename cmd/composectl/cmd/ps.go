@@ -185,13 +185,13 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 	if checkInstall {
 		// TODO: unify configurations of the cmd and pkg.compose packages
 		composeCfg := compose.Config{
-			StoreRoot:   config.StoreRoot,
-			ComposeRoot: config.ComposeRoot,
-			DockerCfg:   config.DockerCfg,
-			DockerHost:  config.DockerHost,
-			Platform:    config.Platform,
-			ConnectTime: config.ConnectTime,
-			AppLoader:   v1.NewAppLoader(),
+			StoreRoot:      config.StoreRoot,
+			ComposeRoot:    config.ComposeRoot,
+			DockerCfg:      config.DockerCfg,
+			DockerHost:     config.DockerHost,
+			Platform:       config.Platform,
+			ConnectTimeout: config.ConnectTimeout,
+			AppLoader:      v1.NewAppLoader(),
 		}
 		checkInstallResult, err := compose.CheckInstallation(ctx, &composeCfg, appRefs, store)
 		DieNotNil(err)

@@ -2,6 +2,7 @@ package e2e_tests
 
 import (
 	"context"
+	"fmt"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/docker/docker/api/types"
@@ -71,10 +72,14 @@ services:
 		t.Fatal(err)
 	}
 	err = loadImages(t, context.Background(), cli, appImages, appImageRefs, layersRoot,
-		docker.WithBlobReadingFromStore(), docker.WithRefWithDigest())
+		docker.WithProgressReporting(progressHandler), docker.WithBlobReadingFromStore(), docker.WithRefWithDigest())
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func progressHandler(progress *docker.LoadImageProgress) {
+	fmt.Printf("Progress: ID: %s -> %d/%d\n", progress.ID, progress.Current, progress.Total)
 }
 
 func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages docker.ImageDescriptions, appImageRefs []string, layersRoot string, opts ...docker.LoadImageOption) error {

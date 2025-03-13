@@ -139,7 +139,7 @@ func LoadImages(ctx context.Context,
 
 	if options.ProgressReporter != nil {
 		options.ProgressReporter.Start(options.ProgressCallback)
-		defer options.ProgressReporter.Stop(true)
+		defer options.ProgressReporter.Stop(ctx.Err() == nil)
 	}
 
 	layersMap := make(map[string]v1.Descriptor)
@@ -226,6 +226,11 @@ func LoadImages(ctx context.Context,
 				// An error occurred while decoding the message, except for EOF
 				err = decodeErr
 			}
+			break
+		}
+
+		if jm.Error != nil {
+			err = fmt.Errorf("image load error: %s", jm.Error.Error())
 			break
 		}
 

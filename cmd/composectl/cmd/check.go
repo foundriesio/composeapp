@@ -95,13 +95,13 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	if opts.CheckInstall {
 		// TODO: unify configurations of the cmd and pkg.compose packages
 		composeCfg := compose.Config{
-			StoreRoot:   config.StoreRoot,
-			ComposeRoot: config.ComposeRoot,
-			DockerCfg:   config.DockerCfg,
-			DockerHost:  config.DockerHost,
-			Platform:    config.Platform,
-			ConnectTime: config.ConnectTime,
-			AppLoader:   v1.NewAppLoader(),
+			StoreRoot:      config.StoreRoot,
+			ComposeRoot:    config.ComposeRoot,
+			DockerCfg:      config.DockerCfg,
+			DockerHost:     config.DockerHost,
+			Platform:       config.Platform,
+			ConnectTimeout: config.ConnectTimeout,
+			AppLoader:      v1.NewAppLoader(),
 		}
 		ir, err = compose.CheckInstallation(cmd.Context(), &composeCfg, args, cs)
 		DieNotNil(err)
