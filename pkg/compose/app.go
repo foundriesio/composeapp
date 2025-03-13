@@ -113,3 +113,7 @@ func (t *AppTree) Print() {
 		fmt.Printf("Failed to print image tree: %s\n", err.Error())
 	}
 }
+
+func (t *AppTree) NodeCount() int {
+	return (*TreeNode)(t).NodeCount()
+}

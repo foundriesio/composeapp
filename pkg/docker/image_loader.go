@@ -139,7 +139,7 @@ func LoadImages(ctx context.Context,
 
 	if options.ProgressReporter != nil {
 		options.ProgressReporter.Start(options.ProgressCallback)
-		defer options.ProgressReporter.Stop(true)
+		defer options.ProgressReporter.Stop(ctx.Err() == nil)
 	}
 
 	layersMap := make(map[string]v1.Descriptor)
