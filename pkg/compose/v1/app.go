@@ -70,6 +70,10 @@ func (a *appCtx) Name() string {
 	return a.AppRef.Name
 }
 
+func (a *appCtx) Tree() *compose.AppTree {
+	return a.tree
+}
+
 func (a *appCtx) Ref() *compose.AppRef {
 	return &a.AppRef
 }
