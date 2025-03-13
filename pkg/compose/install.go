@@ -133,7 +133,19 @@ func Install(ctx context.Context,
 		}))
 	if err != nil {
 		// Try to load images without pinning to digest and reading directly from the store
-		err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot)
+		err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot, docker.WithProgressReporting(func(ilp *docker.LoadImageProgress) {
+			if opts.ProgressReporter != nil {
+				opts.ProgressReporter.Update(InstallProgress{
+					AppInstallState: AppInstallStateImagesLoading,
+					AppID:           app.Ref().String(),
+					ImageLoadState:  ilp.State,
+					ImageID:         ilp.ImageID,
+					ID:              ilp.ID,
+					Current:         ilp.Current,
+					Total:           ilp.Total,
+				})
+			}
+		}))
 	}
 	return err
 }
