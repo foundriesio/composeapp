@@ -73,7 +73,7 @@ func runApps(cmd *cobra.Command, opts *runOptions) {
 			fmt.Printf("%s: skipping, not in the shortlist\n", app.Name)
 			continue
 		}
-		a, _, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), app.String())
+		a, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), app.String())
 		DieNotNil(err)
 		if _, ok := checkedApps[app.Name]; ok {
 			DieNotNil(fmt.Errorf("cannot start %s since there are two or more versions of it found in the store", app.Name))

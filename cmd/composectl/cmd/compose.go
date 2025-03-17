@@ -51,7 +51,7 @@ func doOutputComposeFile(cmd *cobra.Command, args []string, opts *composeOptions
 		resolver := compose.NewResolver(authorizer, config.ConnectTime)
 		blobProvider = compose.NewRemoteBlobProvider(resolver)
 	}
-	app, _, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), blobProvider, platforms.OnlyStrict(config.Platform), args[0])
+	app, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), blobProvider, platforms.OnlyStrict(config.Platform), args[0])
 	DieNotNil(err)
 	composeProject, err := app.GetCompose(cmd.Context(), blobProvider)
 	DieNotNil(err)

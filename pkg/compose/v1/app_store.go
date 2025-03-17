@@ -125,11 +125,11 @@ func (s *appStore) Prune(ctx context.Context) ([]string, error) {
 	}
 	referencedBlobs := map[string]bool{}
 	for _, a := range apps {
-		_, tree, err := NewAppLoader().LoadAppTree(ctx, s, platforms.OnlyStrict(s.platform), a.String())
+		app, err := NewAppLoader().LoadAppTree(ctx, s, platforms.OnlyStrict(s.platform), a.String())
 		if err != nil {
 			return nil, err
 		}
-		if err := tree.Walk(func(node *compose.TreeNode, depth int) error {
+		if err := app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 			referencedBlobs[node.Descriptor.Digest.Encoded()] = true
 			return nil
 		}); err != nil {

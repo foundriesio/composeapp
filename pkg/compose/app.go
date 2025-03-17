@@ -34,7 +34,7 @@ type (
 		CheckComposeInstallation(ctx context.Context, provider BlobProvider, installationRootDir string) (AppBundleErrs, error)
 	}
 	AppLoader interface {
-		LoadAppTree(context.Context, BlobProvider, platforms.MatchComparer, string) (App, *AppTree, error)
+		LoadAppTree(context.Context, BlobProvider, platforms.MatchComparer, string) (App, error)
 	}
 )
 
