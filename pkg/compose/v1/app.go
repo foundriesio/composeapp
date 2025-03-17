@@ -39,6 +39,7 @@ type (
 		layersMeta map[string]layersMeta
 		tree       *compose.AppTree
 		storeType  StoreType
+		nodeCount  int
 	}
 
 	appLoader struct{}
@@ -72,6 +73,13 @@ func (a *appCtx) Name() string {
 
 func (a *appCtx) Tree() *compose.AppTree {
 	return a.tree
+}
+
+func (a *appCtx) NodeCount() int {
+	if a.nodeCount == 0 {
+		a.nodeCount = (*compose.TreeNode)(a.tree).NodeCount()
+	}
+	return a.nodeCount
 }
 
 func (a *appCtx) Ref() *compose.AppRef {

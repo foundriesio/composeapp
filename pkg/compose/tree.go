@@ -37,3 +37,14 @@ func (t *TreeNode) walk(fn NodeProcessor, depth int) error {
 	}
 	return nil
 }
+
+func (t *TreeNode) NodeCount() (counter int) {
+	err := t.Walk(func(node *TreeNode, depth int) error {
+		counter++
+		return nil
+	})
+	if err != nil {
+		panic(err.Error())
+	}
+	return
+}
