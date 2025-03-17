@@ -26,8 +26,9 @@ func inspectApp(cmd *cobra.Command, args []string) {
 	authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
 	resolver := compose.NewResolver(authorizer, config.ConnectTime)
 	fmt.Printf("Inspecting App %s...", appRef)
-	_, tree, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), compose.NewRemoteBlobProvider(resolver), platforms.All, appRef)
+	app, tree, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), compose.NewRemoteBlobProvider(resolver), platforms.All, appRef)
 	DieNotNil(err)
 	fmt.Println("ok")
 	tree.Print()
+	fmt.Printf("App tree node count: %d\n", app.NodeCount())
 }
