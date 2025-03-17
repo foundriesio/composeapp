@@ -172,7 +172,7 @@ func checkApps(ctx context.Context,
 				fmt.Printf("Loading %s metadata from registry...\n", appRef)
 			}
 		}
-		app, tree, err := v1.NewAppLoader().LoadAppTree(ctx, srcBlobProvider, platforms.OnlyStrict(config.Platform), appRef)
+		app, err := v1.NewAppLoader().LoadAppTree(ctx, srcBlobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps = append(apps, app)
 		if !quiet {
@@ -188,7 +188,7 @@ func checkApps(ctx context.Context,
 			blockSize = s.BlockSize
 		}
 
-		err = tree.Walk(func(node *compose.TreeNode, depth int) error {
+		err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 			if !quiet {
 				blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
 				fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
@@ -274,7 +274,7 @@ func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compos
 
 	checkResult := InstallCheckResult{}
 	for _, appRef := range appRefs {
-		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
+		app, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		var missingImages []string
 		appComposeRoot := app.GetComposeRoot()

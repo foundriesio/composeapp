@@ -87,7 +87,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 	DieNotNil(err)
 	apps := map[string]compose.App{}
 	for _, appRef := range appRefs {
-		app, _, err := v1.NewAppLoader().LoadAppTree(ctx, store, platforms.OnlyStrict(config.Platform), appRef)
+		app, err := v1.NewAppLoader().LoadAppTree(ctx, store, platforms.OnlyStrict(config.Platform), appRef)
 		DieNotNil(err)
 		apps[appRef] = app
 	}

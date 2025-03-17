@@ -28,7 +28,7 @@ func installApp(cmd *cobra.Command, args []string) {
 
 	appRef := args[0]
 	fmt.Printf("Loading app metadata from the local store...")
-	app, _, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), appRef)
+	app, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), cs, platforms.OnlyStrict(config.Platform), appRef)
 	DieNotNil(err)
 	fmt.Println("ok")
 	fmt.Printf("Extracting app compose archive to %s and loading its images to docker %s\n", composeRoot, dockerHost)
