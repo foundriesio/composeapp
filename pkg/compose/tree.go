@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"fmt"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -24,7 +25,7 @@ func (t *TreeNode) Walk(fn NodeProcessor) error {
 
 func (t *TreeNode) walk(fn NodeProcessor, depth int) error {
 	if depth > MaxMerkleTreeDepth {
-		panic("the maximum tree depth is reached")
+		return fmt.Errorf("the maximum tree depth is reached; max depth: %d", MaxMerkleTreeDepth)
 	}
 	if err := fn(t, depth); err != nil {
 		return err
