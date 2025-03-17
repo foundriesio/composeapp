@@ -51,13 +51,13 @@ func (r ImageRef) GetBlobRef(digest digest.Digest) string {
 	return r.Locator + "@" + digest.String()
 }
 
-func (t ImageTree) Print(initDepth ...int) {
+func (t *ImageTree) Print(initDepth ...int) {
 	startDepth := 0
 	if len(initDepth) > 0 {
 		startDepth = initDepth[0]
 	}
 	rootType := "unknown"
-	err := TreeNode(t).Walk(func(node *TreeNode, depth int) error {
+	err := (*TreeNode)(t).Walk(func(node *TreeNode, depth int) error {
 		printDepth := (startDepth + depth) * 10
 		if depth == 0 {
 			if images.IsIndexType(node.Descriptor.MediaType) {
