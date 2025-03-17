@@ -87,7 +87,7 @@ func (r *AppRef) GetBlobRef(digest digest.Digest) string {
 }
 
 func (t *AppTree) Walk(fn NodeProcessor) error {
-	return TreeNode(*t).Walk(fn)
+	return (*TreeNode)(t).Walk(fn)
 }
 
 func (t *AppTree) Print() {
@@ -103,7 +103,7 @@ func (t *AppTree) Print() {
 			fmt.Printf("%*s %s: %s, %d\n", 11, "|—>", node.Type, node.Descriptor.Digest.String(), node.Descriptor.Size)
 		} else if depth == 2 {
 			fmt.Printf("%*s\n", 9*depth, "|")
-			ImageTree(*node).Print(depth)
+			(*ImageTree)(node).Print(depth)
 			fmt.Println()
 		}
 		return nil

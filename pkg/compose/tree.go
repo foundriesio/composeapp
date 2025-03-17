@@ -18,15 +18,15 @@ const (
 	MaxMerkleTreeDepth = 10
 )
 
-func (t TreeNode) Walk(fn NodeProcessor) error {
+func (t *TreeNode) Walk(fn NodeProcessor) error {
 	return t.walk(fn, 0)
 }
 
-func (t TreeNode) walk(fn NodeProcessor, depth int) error {
+func (t *TreeNode) walk(fn NodeProcessor, depth int) error {
 	if depth > MaxMerkleTreeDepth {
 		panic("the maximum tree depth is reached")
 	}
-	if err := fn(&t, depth); err != nil {
+	if err := fn(t, depth); err != nil {
 		return err
 	}
 	for _, c := range t.Children {
