@@ -79,43 +79,45 @@ func NewApp(t *testing.T, composeDef string, name ...string) *App {
 	return app
 }
 
-func (a *App) pullImages(t *testing.T) error {
+func (a *App) getAppImages(t *testing.T) []string {
 	b, err := os.ReadFile(path.Join(a.Dir, "docker-compose.yml"))
 	check(t, err)
 	var composeProj map[string]interface{}
 	check(t, yaml.Unmarshal(b, &composeProj))
 	services := composeProj["services"]
+	var images []string
 	for _, v := range services.(map[string]interface{}) {
 		image := v.(map[string]interface{})["image"]
-		c := exec.Command("docker", "pull", image.(string))
-		output, cmdErr := c.CombinedOutput()
-		checkf(t, cmdErr, "failed to pull app images: %s\n", output)
+		images = append(images, image.(string))
 	}
-	return err
+	return images
 }
 
-func (a *App) removeImages(t *testing.T) error {
-	b, err := os.ReadFile(path.Join(a.Dir, "docker-compose.yml"))
-	check(t, err)
-	var composeProj map[string]interface{}
-	check(t, yaml.Unmarshal(b, &composeProj))
-	services := composeProj["services"]
-	removedImages := map[string]bool{}
-	for _, v := range services.(map[string]interface{}) {
-		image := v.(map[string]interface{})["image"]
-		if _, ok := removedImages[image.(string)]; ok {
-			continue
-		}
-		c := exec.Command("docker", "image", "rm", image.(string))
+func (a *App) pullImages(t *testing.T) {
+	images := a.getAppImages(t)
+	for _, image := range images {
+		c := exec.Command("docker", "pull", image)
 		output, cmdErr := c.CombinedOutput()
 		checkf(t, cmdErr, "failed to pull app images: %s\n", output)
-		removedImages[image.(string)] = true
 	}
-	return err
+}
+
+func (a *App) removeImages(t *testing.T) {
+	images := a.getAppImages(t)
+	removedImages := map[string]bool{}
+	for _, image := range images {
+		if _, ok := removedImages[image]; ok {
+			continue
+		}
+		c := exec.Command("docker", "image", "rm", image)
+		output, cmdErr := c.CombinedOutput()
+		checkf(t, cmdErr, "failed to pull app images: %s\n", output)
+		removedImages[image] = true
+	}
 }
 
 func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
-	check(t, a.pullImages(t))
+	a.pullImages(t)
 	opts := PublishOpts{PublishLayersManifest: true, PublishLayersMetaFile: true}
 	for _, o := range publishOpts {
 		o(&opts)
@@ -146,7 +148,7 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 		a.PublishedUri = baseUri + "@" + string(b)
 		fmt.Printf("published app uri: %s\n", a.PublishedUri)
 	})
-	check(t, a.removeImages(t))
+	a.removeImages(t)
 }
 
 func (a *App) Pull(t *testing.T) {
