@@ -20,6 +20,10 @@ import (
 	"time"
 )
 
+const (
+	AppStoreRoot = "/var/sota/reset-apps"
+)
+
 var (
 	composeExec = os.Getenv("COMPOSECTL_EXE")
 )
@@ -79,9 +83,22 @@ func NewApp(t *testing.T, composeDef string, name ...string) *App {
 	return app
 }
 
-func (a *App) getAppImages(t *testing.T) []string {
-	b, err := os.ReadFile(path.Join(a.Dir, "docker-compose.yml"))
+func (a *App) GetAppImages(t *testing.T) []string {
+	return a.getAppImages(t, path.Join(a.Dir, "docker-compose.yml"))
+}
+
+func (a *App) GetAppImagesFromAppStore(t *testing.T) []string {
+	appRef, err := compose.ParseAppRef(a.PublishedUri)
 	check(t, err)
+	appRoot := path.Join(AppStoreRoot, "apps", a.Name, appRef.Digest.Encoded())
+	composeFilePath := path.Join(appRoot, "docker-compose.yml")
+	return a.getAppImages(t, composeFilePath)
+}
+
+func (a *App) getAppImages(t *testing.T, composeFilePath string) []string {
+	b, err := os.ReadFile(composeFilePath)
+	check(t, err)
+
 	var composeProj map[string]interface{}
 	check(t, yaml.Unmarshal(b, &composeProj))
 	services := composeProj["services"]
@@ -94,7 +111,7 @@ func (a *App) getAppImages(t *testing.T) []string {
 }
 
 func (a *App) pullImages(t *testing.T) {
-	images := a.getAppImages(t)
+	images := a.GetAppImages(t)
 	for _, image := range images {
 		c := exec.Command("docker", "pull", image)
 		output, cmdErr := c.CombinedOutput()
@@ -103,7 +120,7 @@ func (a *App) pullImages(t *testing.T) {
 }
 
 func (a *App) removeImages(t *testing.T) {
-	images := a.getAppImages(t)
+	images := a.GetAppImages(t)
 	removedImages := map[string]bool{}
 	for _, image := range images {
 		if _, ok := removedImages[image]; ok {
@@ -285,7 +302,7 @@ func (a *App) GetRunningStatus(t *testing.T) (appStatus *composectl.App) {
 }
 
 func (a *App) PullAppImagesWithSkopeo(t *testing.T) {
-	storeRoot := "/var/sota/reset-apps"
+	storeRoot := AppStoreRoot
 	blobsRoot := path.Join(storeRoot, "blobs")
 	appRef, err := compose.ParseAppRef(a.PublishedUri)
 	check(t, err)
