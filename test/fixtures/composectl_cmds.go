@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/containerd/containerd/images"
+	"github.com/docker/distribution/manifest/manifestlist"
 	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	"github.com/foundriesio/composeapp/pkg/compose"
@@ -362,6 +364,43 @@ func (a *App) PullAppImagesWithSkopeo(t *testing.T) {
 		output, cmdErr := c.CombinedOutput()
 		checkf(t, cmdErr, "failed to pull app images: %s; %s\n", cmdErr, output)
 	}
+}
+
+func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest ocischema.Manifest) {
+	imageRef, err := compose.ParseImageRef(image)
+	check(t, err)
+	manifestPath := path.Join(AppStoreRoot, "blobs", "sha256", imageRef.Digest.Encoded())
+
+	var b []byte
+	b, err = os.ReadFile(manifestPath)
+	check(t, err)
+	var imageRoot compose.ImageRoot
+	check(t, json.Unmarshal(b, &imageRoot))
+
+	if images.IsManifestType(imageRoot.MediaType) {
+		if len(imageRoot.Manifests) != 0 || images.IsIndexType(imageRoot.MediaType) {
+			t.Fatal("image media type: expected manifest but found index")
+		}
+	} else if images.IsIndexType(imageRoot.MediaType) {
+		if len(imageRoot.Config) != 0 || len(imageRoot.Layers) != 0 {
+			t.Fatal("image media type: expected index but found manifest")
+		}
+		var imageManifestList manifestlist.ManifestList
+		check(t, json.Unmarshal(b, &imageManifestList))
+		for _, manifestDescriptor := range imageManifestList.Manifests {
+			if manifestDescriptor.Platform.Architecture == "amd64" {
+				manifestPath = path.Join(AppStoreRoot, "blobs", "sha256", manifestDescriptor.Digest.Encoded())
+				b, err = os.ReadFile(manifestPath)
+				check(t, err)
+				break
+			}
+		}
+	} else {
+		t.Fatalf("unknown image media type: %s", imageRoot.MediaType)
+	}
+
+	check(t, json.Unmarshal(b, &imageManifest))
+	return
 }
 
 func (a *App) runCmd(t *testing.T, desc string, args ...string) {
