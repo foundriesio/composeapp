@@ -65,9 +65,11 @@ func (t *ImageTree) Print(initDepth ...int) {
 			} else if images.IsManifestType(node.Descriptor.MediaType) {
 				rootType = "manifest"
 			}
-			id := node.Descriptor.Digest.String()
-			if len(node.Descriptor.URLs) > 0 {
-				id = node.Descriptor.URLs[0]
+			var id string
+			if node.HasRef() {
+				id = node.Ref()
+			} else {
+				id = node.Descriptor.Digest.String()
 			}
 			fmt.Printf("%*s%s: %s, %d\n", printDepth, "|—>", rootType, id, node.Descriptor.Size)
 		} else if depth == 1 && rootType == "index" {
