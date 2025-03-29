@@ -5,11 +5,13 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/docker"
 	f "github.com/foundriesio/composeapp/test/fixtures"
+	"os"
 	"path"
 	"testing"
 )
@@ -106,4 +108,100 @@ func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages
 		}
 	}
 	return nil
+}
+
+func TestAppInstallation(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8080:80
+  busybox:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	app.Pull(t)
+	defer app.Remove(t)
+	app.CheckFetched(t)
+
+	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	composeRoot := "/var/sota/compose-apps"
+
+	blobProvider := compose.NewStoreBlobProvider(layersRoot)
+	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "",
+		compose.WithInstallProgress(func(p *compose.InstallProgress) {
+			if p.AppID != app.PublishedUri {
+				t.Fatalf("expected app ID %s, got %s", app.PublishedUri, p.AppID)
+			}
+			// TODO: check progress
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(composeRoot)
+		cli, err := compose.GetDockerClient("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+}
+
+func TestAppInstallationWithProgress(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8080:80
+  busybox:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	app.Pull(t)
+	defer app.Remove(t)
+	app.CheckFetched(t)
+
+	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	composeRoot := "/var/sota/compose-apps"
+
+	blobProvider := compose.NewStoreBlobProvider(layersRoot)
+	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(composeRoot)
+		cli, err := compose.GetDockerClient("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
 }
