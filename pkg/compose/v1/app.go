@@ -13,6 +13,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	"github.com/foundriesio/composeapp/pkg/docker"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
@@ -295,6 +296,41 @@ func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.
 		bundleErrs = bundleErrMap
 	}
 	return
+}
+
+func (a *appCtx) Install(ctx context.Context, provider compose.BlobProvider, blobsRoot string, composeRoot string, dockerHost string) error {
+	if err := installCompose(ctx, a, provider, composeRoot); err != nil {
+		return err
+	}
+	if checkErrMap, err := a.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, a.Name())); err != nil {
+		return err
+	} else if len(checkErrMap) > 0 {
+		// TODO: remove prints and return error map
+		fmt.Println("the following app bundle files are not correctly installed")
+		for filePath, fileErr := range checkErrMap {
+			fmt.Printf("\t%s\t%s\n", filePath, fileErr)
+		}
+		return fmt.Errorf("app bundle is not installed completely")
+	}
+
+	cli, err := compose.GetDockerClient(dockerHost)
+	if err != nil {
+		return err
+	}
+
+	appImageURIs := make(docker.ImageDescriptions)
+	err = a.GetComposeRoot().Walk(func(node *compose.TreeNode, depth int) error {
+		if node.Type == compose.BlobTypeImageManifest {
+			nodeURI := node.Descriptor.URLs[0]
+			appImageURIs[nodeURI] = node.Descriptor.URLs
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return docker.LoadImages(ctx, cli, appImageURIs, blobsRoot, docker.WithRefWithDigest(), docker.WithBlobReadingFromStore())
 }
 
 func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.BlobProvider) (map[string]digest.Digest, error) {

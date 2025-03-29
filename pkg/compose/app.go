@@ -32,6 +32,7 @@ type (
 		GetComposeRoot() *TreeNode
 		GetCompose(ctx context.Context, provider BlobProvider) (*composetypes.Project, error)
 		CheckComposeInstallation(ctx context.Context, provider BlobProvider, installationRootDir string) (AppBundleErrs, error)
+		Install(ctx context.Context, provider BlobProvider, blobRoot string, composeRoot string, dockerHost string) error
 	}
 	AppLoader interface {
 		LoadAppTree(context.Context, BlobProvider, platforms.MatchComparer, string) (App, error)
