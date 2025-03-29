@@ -145,6 +145,11 @@ func LoadImageTree(ctx context.Context, provider BlobProvider, platform platform
 			return nil, err
 		}
 		c.URLs = []string{manifestRef}
+		// Add references (URLs) of the index/parent to the list of the given image manifest URLs,
+		// hence the `URLs` field contains both:
+		// 1) URL of this platform specific image manifest
+		// 2) URL of the index that enlists all platform specific manifests including the given one
+		c.URLs = append(c.URLs, rootDesc.URLs...)
 		manifest.Config.URLs = []string{rootRef.GetBlobRef(manifest.Config.Digest)}
 		grandchildren = append(grandchildren, &TreeNode{Descriptor: &manifest.Config, Type: BlobTypeImageConfig, Children: nil})
 		for ii := 0; ii < len(manifest.Layers); ii++ {
