@@ -45,7 +45,7 @@ func InstallApp(ctx context.Context, app compose.App, provider compose.BlobProvi
 	}
 	var lm []imageLoadManifest
 	for _, imageRoot := range composeTreeRoot.Children {
-		imageUri := imageRoot.Descriptor.URLs[0]
+		imageUri := imageRoot.Ref()
 		tags := []string{imageUri}
 		if s, err := reference.Parse(imageUri); err == nil {
 			tags = append(tags, s.Locator+":"+(s.Digest().Encoded())[:7])

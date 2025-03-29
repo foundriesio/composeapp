@@ -197,8 +197,8 @@ func checkApps(ctx context.Context,
 			if !quick {
 				checkOpts = append(checkOpts, compose.WithExpectedDigest(node.Descriptor.Digest))
 			}
-			if len(node.Descriptor.URLs) > 0 {
-				checkOpts = append(checkOpts, compose.WithRef(node.Descriptor.URLs[0]))
+			if node.HasRef() {
+				checkOpts = append(checkOpts, compose.WithRef(node.Ref()))
 			}
 			bs, stateCheckErr := compose.CheckBlob(compose.WithAppRef(compose.WithBlobType(ctx, node.Type), app.Ref()),
 				appStoreBlobProvider, node.Descriptor.Digest, checkOpts...)
@@ -279,7 +279,7 @@ func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compos
 		var missingImages []string
 		appComposeRoot := app.GetComposeRoot()
 		for _, imageNode := range appComposeRoot.Children {
-			imageUri := imageNode.Descriptor.URLs[0]
+			imageUri := imageNode.Ref()
 			if !installedImages[imageUri] {
 				if s, err := reference.Parse(imageUri); err == nil {
 					taggedUri := s.Locator + ":" + (s.Digest().Encoded())[:7]

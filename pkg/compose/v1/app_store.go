@@ -299,7 +299,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 
 	appComposeRoot := app.GetComposeRoot()
 	for _, imageNode := range appComposeRoot.Children {
-		uri, err := reference.Parse(imageNode.Descriptor.URLs[0])
+		uri, err := reference.Parse(imageNode.Ref())
 		if err != nil {
 			return err
 		}

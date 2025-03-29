@@ -131,7 +131,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 		var appServices []*Service
 		appState := "running"
 		for _, imageNode := range composeTree.Children {
-			imageUri := imageNode.Descriptor.URLs[0]
+			imageUri := imageNode.Ref()
 
 			var foundSrvs []*Service
 			for _, srv := range runningApp.Services {

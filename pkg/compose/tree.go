@@ -48,3 +48,14 @@ func (t *TreeNode) NodeCount() (counter int) {
 	}
 	return
 }
+
+func (t *TreeNode) HasRef() bool {
+	return len(t.Descriptor.URLs) > 0
+}
+
+func (t *TreeNode) Ref() string {
+	if t.HasRef() {
+		return t.Descriptor.URLs[0]
+	}
+	return ""
+}
