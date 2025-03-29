@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/reference"
-	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/jsonmessage"
 	units "github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
@@ -27,7 +26,7 @@ type (
 )
 
 func InstallApp(ctx context.Context, app compose.App, provider compose.BlobProvider, blobRoot string, composeRoot string, dockerHost string) error {
-	if err := installCompose(ctx, app, provider, composeRoot); err != nil {
+	if err := compose.InstallCompose(ctx, app, provider, composeRoot); err != nil {
 		return err
 	}
 	if checkErrMap, err := app.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, app.Name())); err != nil {
@@ -74,32 +73,6 @@ func InstallApp(ctx context.Context, app compose.App, provider compose.BlobProvi
 		})
 	}
 	return loadImagesToDockerWithFallback(ctx, lm, dockerHost)
-}
-
-func installCompose(ctx context.Context, app compose.App, provider compose.BlobProvider, composeRoot string) error {
-	appInstallDir := path.Join(composeRoot, app.Name())
-	if err := os.MkdirAll(appInstallDir, 0755); err != nil {
-		return err
-	}
-	tarOptions := archive.TarOptions{
-		NoLchown: true,
-	}
-	composeDesc, err := app.(*appCtx).GetComposeDescriptor()
-	if err != nil {
-		return err
-	}
-	appContext := app.(*appCtx)
-	rc, err := provider.GetReadCloser(compose.WithBlobType(compose.WithAppRef(ctx, &appContext.AppRef), compose.BlobTypeAppBundle),
-		compose.WithExpectedDigest(composeDesc.Digest), compose.WithExpectedSize(composeDesc.Size))
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	if err := archive.Untar(rc, path.Join(composeRoot, app.Name()), &tarOptions); err != nil {
-		return err
-	}
-	return nil
 }
 
 func loadImagesToDockerWithFallback(ctx context.Context, lm []imageLoadManifest, dockerHost string) error {
