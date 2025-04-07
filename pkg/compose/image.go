@@ -110,6 +110,7 @@ func LoadImageTree(ctx context.Context, provider BlobProvider, platform platform
 		}
 	case BlobTypeImageManifest:
 		{
+			layersMap := make(map[digest.Digest]struct{})
 			// parse config and layers and add them as image root children
 			configDesc, layerDescs, err := ParseImageRootAsManifest(imageRoot)
 			if err != nil {
@@ -120,10 +121,14 @@ func LoadImageTree(ctx context.Context, provider BlobProvider, platform platform
 				Descriptor: configDesc, Type: BlobTypeImageConfig, Children: nil,
 			})
 			for _, l := range layerDescs {
+				if _, ok := layersMap[l.Digest]; ok {
+					continue
+				}
 				l.URLs = []string{rootRef.GetBlobRef(l.Digest)}
 				imageTree.Children = append(imageTree.Children, &TreeNode{
 					Descriptor: l, Type: BlobTypeImageLayer, Children: nil,
 				})
+				layersMap[l.Digest] = struct{}{}
 			}
 			return &imageTree, nil
 		}
@@ -154,10 +159,15 @@ func LoadImageTree(ctx context.Context, provider BlobProvider, platform platform
 		c.URLs = append(c.URLs, rootDesc.URLs...)
 		manifest.Config.URLs = []string{rootRef.GetBlobRef(manifest.Config.Digest)}
 		grandchildren = append(grandchildren, &TreeNode{Descriptor: &manifest.Config, Type: BlobTypeImageConfig, Children: nil})
+		layersMap := make(map[digest.Digest]struct{})
 		for ii := 0; ii < len(manifest.Layers); ii++ {
 			l := &manifest.Layers[ii]
+			if _, ok := layersMap[l.Digest]; ok {
+				continue
+			}
 			l.URLs = []string{rootRef.GetBlobRef(l.Digest)}
 			grandchildren = append(grandchildren, &TreeNode{Descriptor: l, Type: BlobTypeImageLayer, Children: nil})
+			layersMap[l.Digest] = struct{}{}
 		}
 		imageTree.Children = append(imageTree.Children, &TreeNode{
 			Descriptor: c, Type: BlobTypeImageManifest, Children: grandchildren,
