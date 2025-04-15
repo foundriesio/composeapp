@@ -183,7 +183,17 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 	}
 
 	if checkInstall {
-		checkInstallResult, err := checkIfInstalled(ctx, appRefs, store, config.DockerHost)
+		// TODO: unify configurations of the cmd and pkg.compose packages
+		composeCfg := compose.Config{
+			StoreRoot:   config.StoreRoot,
+			ComposeRoot: config.ComposeRoot,
+			DockerCfg:   config.DockerCfg,
+			DockerHost:  config.DockerHost,
+			Platform:    config.Platform,
+			ConnectTime: config.ConnectTime,
+			AppLoader:   v1.NewAppLoader(),
+		}
+		checkInstallResult, err := compose.CheckInstallation(ctx, &composeCfg, appRefs, store)
 		DieNotNil(err)
 		for app, ir := range checkInstallResult {
 			appStatuses[app].BundleErrors = ir.BundleErrors

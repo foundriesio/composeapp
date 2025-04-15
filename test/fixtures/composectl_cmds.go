@@ -248,7 +248,7 @@ func (a *App) CheckInstalled(t *testing.T) {
 	})
 }
 
-func (a *App) GetInstallCheckRes(t *testing.T) (checkRes *composectl.AppInstallCheckResult) {
+func (a *App) GetInstallCheckRes(t *testing.T) (checkRes *compose.AppInstallCheckResult) {
 	t.Run("check if installed", func(t *testing.T) {
 		output := runCmd(t, a.Dir, "check", "--local", "--install", a.PublishedUri, "--format", "json")
 		checkResult := composectl.CheckAndInstallResult{}
