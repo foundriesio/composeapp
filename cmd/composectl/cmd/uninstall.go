@@ -35,7 +35,7 @@ func init() {
 }
 
 func uninstallApps(cmd *cobra.Command, args []string, opts *uninstallOptions) {
-	apps := getAllAppStatuses(cmd.Context())
+	apps := getAllAppStatuses(cmd.Context(), false)
 	for _, app := range args {
 		if _, ok := apps[app]; ok {
 			DieNotNil(fmt.Errorf("cannot uninstall running app: %s", app))
