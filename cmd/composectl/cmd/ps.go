@@ -72,17 +72,17 @@ var psCmd = &cobra.Command{
 }
 
 func psApps(cmd *cobra.Command, args []string, opts *psOptions) {
-	runningApps := getAllAppStatuses(cmd.Context())
+	runningApps := getAllAppStatuses(cmd.Context(), opts.Format == "json")
 	if len(args) == 0 {
 		printAppStatuses(runningApps, opts.Format)
 	} else {
-		appStatuses := getAppsStatus(cmd.Context(), args, runningApps, opts.CheckInstall)
+		appStatuses := getAppsStatus(cmd.Context(), args, runningApps, opts.CheckInstall, opts.Format == "json")
 		printAppStatuses(appStatuses, opts.Format)
 	}
 
 }
 
-func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App, checkInstall bool) map[string]*App {
+func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App, checkInstall bool, quiet bool) map[string]*App {
 	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	apps := map[string]compose.App{}
@@ -108,7 +108,9 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 		if !runningApp.InStore {
 			// Since we iterate over apps stored in apps, it is not possible that running app is not in store
 			// in this context/loop.
-			fmt.Printf("ERR: Running app is not found in the store: %s\n", appRef)
+			if !quiet {
+				fmt.Printf("ERR: Running app is not found in the store: %s\n", appRef)
+			}
 			continue
 		}
 		// If the running app URI is empty and the app is found in the store then it
@@ -247,7 +249,7 @@ func checkAppInStore(storeApps []*compose.AppRef, appName string) []*compose.App
 	}
 	return foundApps
 }
-func getAllAppStatuses(ctx context.Context) map[string]*App {
+func getAllAppStatuses(ctx context.Context, quiet bool) map[string]*App {
 	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	storeApps, err := store.ListApps(ctx)
@@ -263,7 +265,9 @@ func getAllAppStatuses(ctx context.Context) map[string]*App {
 		var workDir string
 		var foundProjectWorkDir bool
 		if workDir, foundProjectWorkDir = c.Labels[WorkingDirLabel]; !foundProjectWorkDir {
-			fmt.Printf("container is not part of any compose app; ID: %s, image: %s\n", c.ID, c.Image)
+			if !quiet {
+				fmt.Printf("container is not part of any compose app; ID: %s, image: %s\n", c.ID, c.Image)
+			}
 			continue
 		}
 		var health string
