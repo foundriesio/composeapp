@@ -115,6 +115,9 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 	// root node
 	app, rootDesc, err := ReadAppManifest(ctx, provider, ref)
 	if err != nil {
+		if errors.Is(err, compose.ErrAppNotFound) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to read app manifest: %s", err)
 	}
 	appTree := compose.AppTree{Descriptor: rootDesc, Type: compose.BlobTypeAppManifest}
@@ -210,6 +213,9 @@ func ReadAppManifest(ctx context.Context, provider compose.BlobProvider, ref str
 	b, err := compose.ReadBlobWithReadLimit(compose.WithBlobType(compose.WithAppRef(ctx, appRef), compose.BlobTypeAppManifest),
 		provider, ref, AppManifestMaxSize)
 	if err != nil {
+		if compose.ErrToBlobState(err) == compose.BlobMissing {
+			return &app, nil, compose.ErrAppNotFound
+		}
 		return &app, nil, err
 	}
 	if err := json.Unmarshal(b, &app.manifest); err != nil {
