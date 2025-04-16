@@ -36,6 +36,20 @@ type (
 	}
 )
 
+func (t *ImageTree) GetServiceHash() string {
+	if !(t.Type == BlobTypeImageIndex ||
+		t.Type == BlobTypeSkopeoImageIndex ||
+		t.Type == BlobTypeImageManifest) {
+		return ""
+	}
+	if t.Descriptor != nil {
+		if hash, ok := t.Descriptor.Annotations[AppServiceHashLabelKey]; ok {
+			return hash
+		}
+	}
+	return ""
+}
+
 func ParseImageRef(ref string) (*ImageRef, error) {
 	refSpec, err := reference.Parse(ref)
 	if err != nil {

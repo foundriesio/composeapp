@@ -13,7 +13,6 @@ import (
 	"github.com/foundriesio/composeapp/pkg/docker"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"os"
-	"path"
 	"testing"
 )
 
@@ -42,7 +41,7 @@ services:
 	}
 	defer cli.Close()
 
-	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 
 	appImages := make(docker.ImageDescriptions)
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
@@ -134,7 +133,7 @@ services:
 	defer app.Remove(t)
 	app.CheckFetched(t)
 
-	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 	composeRoot := "/var/sota/compose-apps"
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
@@ -185,7 +184,7 @@ services:
 	defer app.Remove(t)
 	app.CheckFetched(t)
 
-	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 	composeRoot := "/var/sota/compose-apps"
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)

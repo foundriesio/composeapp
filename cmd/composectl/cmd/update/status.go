@@ -2,6 +2,8 @@ package updatectl
 
 import (
 	"errors"
+	"fmt"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
 	"github.com/spf13/cobra"
@@ -17,12 +19,15 @@ var (
 
 type (
 	statusOptions struct {
+		CheckApps bool
 	}
 )
 
 func init() {
 	opts := statusOptions{}
 
+	statusCmd.Flags().BoolVar(&opts.CheckApps, "check", false,
+		"Check update apps' current status")
 	statusCmd.Run = func(cmd *cobra.Command, args []string) {
 		updateStatusCmd(cmd, args, &opts)
 	}
@@ -55,5 +60,16 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 	cmd.Println("URIs:")
 	for _, appURI := range u.URIs {
 		cmd.Printf("\t\t%s\n", appURI)
+	}
+
+	if opts.CheckApps {
+		appsStatus, err := compose.CheckAppsStatus(cmd.Context(), cfg, u.URIs)
+		ExitIfNotNil(err)
+
+		fmt.Println()
+		yesno := map[bool]string{false: "no", true: "yes"}
+		fmt.Printf("Fetched: \t%s\n", yesno[appsStatus.AreFetched()])
+		fmt.Printf("Installed: \t%s\n", yesno[appsStatus.AreInstalled()])
+		fmt.Printf("Running: \t%s\n", yesno[appsStatus.AreRunning()])
 	}
 }

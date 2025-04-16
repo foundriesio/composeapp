@@ -12,7 +12,7 @@ func (u *runnerImpl) cancel(ctx context.Context) (err error) {
 	var errBlobs []string
 	progressStep := int(math.Round(100 / float64(len(u.Blobs))))
 	for _, b := range u.Blobs {
-		p := path.Join(u.config.StoreRoot, "blobs", "sha256", b.Descriptor.Digest.Encoded())
+		p := path.Join(u.config.GetBlobsRoot(), b.Descriptor.Digest.Encoded())
 		if err := os.Remove(p); err != nil {
 			if !os.IsNotExist(err) {
 				// TODO: add debug logging

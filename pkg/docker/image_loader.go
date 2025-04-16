@@ -366,14 +366,16 @@ func generateImageLoadManifest(
 		if err != nil {
 			return nil, err
 		}
-		switch ref.(type) {
+		switch ref := ref.(type) {
 		case reference.NamedTagged:
 			if imageTaggedRef != ref.String() {
 				loadManifest.RepoTags = append(loadManifest.RepoTags, ref.String())
 			}
-		case reference.Digested:
+		case reference.Canonical:
 			if options.RefWithDigest {
 				loadManifest.RepoTags = append(loadManifest.RepoTags, ref.String())
+			} else {
+				loadManifest.RepoTags = append(loadManifest.RepoTags, ref.Name()+":"+ref.Digest().Encoded()[:7])
 			}
 		default:
 			return nil, fmt.Errorf("unsupported image reference type: %s", r)

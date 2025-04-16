@@ -369,7 +369,7 @@ func (a *App) PullAppImagesWithSkopeo(t *testing.T) {
 func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest ocischema.Manifest) {
 	imageRef, err := compose.ParseImageRef(image)
 	check(t, err)
-	manifestPath := path.Join(AppStoreRoot, "blobs", "sha256", imageRef.Digest.Encoded())
+	manifestPath := path.Join(compose.GetBlobsRootFor(AppStoreRoot), imageRef.Digest.Encoded())
 
 	var b []byte
 	b, err = os.ReadFile(manifestPath)
@@ -389,7 +389,7 @@ func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest oci
 		check(t, json.Unmarshal(b, &imageManifestList))
 		for _, manifestDescriptor := range imageManifestList.Manifests {
 			if manifestDescriptor.Platform.Architecture == "amd64" {
-				manifestPath = path.Join(AppStoreRoot, "blobs", "sha256", manifestDescriptor.Digest.Encoded())
+				manifestPath = path.Join(compose.GetBlobsRootFor(AppStoreRoot), manifestDescriptor.Digest.Encoded())
 				b, err = os.ReadFile(manifestPath)
 				check(t, err)
 				break

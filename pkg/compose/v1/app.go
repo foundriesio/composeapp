@@ -46,25 +46,19 @@ type (
 )
 
 const (
-	AppManifestMediaType   = "application/vnd.oci.image.manifest.v1+json"
-	AppManifestMaxSize     = 50 * 1024
-	AppComposeMaxSize      = 1024 * 1024
-	AppBundleFileMaxSize   = 1024*1024*1024 - AppComposeMaxSize
-	AppBundleMaxSize       = AppComposeMaxSize + AppBundleFileMaxSize
-	AppLayerMediaType      = "application/octet-stream"
-	AppLayersMetaVersion   = "v1"
-	AppServiceHashLabelKey = "io.compose-spec.config-hash"
+	AppManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
+	AppManifestMaxSize   = 50 * 1024
+	AppComposeMaxSize    = 1024 * 1024
+	AppBundleFileMaxSize = 1024*1024*1024 - AppComposeMaxSize
+	AppBundleMaxSize     = AppComposeMaxSize + AppBundleFileMaxSize
+	AppLayerMediaType    = "application/octet-stream"
+	AppLayersMetaVersion = "v1"
 
 	AnnotationKeyAppBundleIndexDigest = "org.foundries.app.bundle.index.digest"
 	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
 
 	StoreTypeSkopeo     = "skopeo store"
 	StoreTypeComposeCtl = "composectl store"
-)
-
-var (
-	ErrAppHasNoIndex    = errors.New("app has no bundle index")
-	ErrAppIndexNotFound = errors.New("app blob index is not found")
 )
 
 func (a *appCtx) Name() string {
@@ -177,11 +171,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 			return nil, fmt.Errorf("failed to load app service image (%s): %s", service.Name, err)
 		}
 		if service.Labels != nil {
-			if srvHash, ok := service.Labels[AppServiceHashLabelKey]; ok {
+			if srvHash, ok := service.Labels[compose.AppServiceHashLabelKey]; ok {
 				if imageTree.Descriptor.Annotations == nil {
 					imageTree.Descriptor.Annotations = make(map[string]string)
 				}
-				imageTree.Descriptor.Annotations[AppServiceHashLabelKey] = srvHash
+				imageTree.Descriptor.Annotations[compose.AppServiceHashLabelKey] = srvHash
 			}
 		}
 		composeTree.Children = append(composeTree.Children, imageTree)
@@ -275,7 +269,7 @@ func (a *appCtx) GetLayersMetadataDescriptor() (*ocispec.Descriptor, error) {
 func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (bundleErrs compose.AppBundleErrs, err error) {
 	appIndex, errBundleIndx := a.getAppBundleIndex(ctx, provider)
 	if errBundleIndx != nil {
-		if errBundleIndx == ErrAppHasNoIndex {
+		if errBundleIndx == compose.ErrAppHasNoIndex {
 			// App manifest does not include its bundle index, hence skip the bundle integrity checking
 			return nil, nil
 		} else {
@@ -306,18 +300,18 @@ func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.
 func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.BlobProvider) (map[string]digest.Digest, error) {
 	indexNode := getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 	if indexNode == nil {
-		return nil, ErrAppHasNoIndex
+		return nil, compose.ErrAppHasNoIndex
 	}
 	r, err := blobProvider.GetReadCloser(ctx, compose.WithExpectedDigest(indexNode.Descriptor.Digest),
 		compose.WithExpectedSize(indexNode.Descriptor.Size))
 	if err != nil {
-		if errors.Is(err, errdefs.ErrNotFound) {
+		if errors.Is(err, errdefs.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			if getChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
 				// App and its images are pulled by skopeo, hence we should not expect app bundle index in the store
 				// even if the app manifest contains a reference to the bundle index.
-				return nil, ErrAppHasNoIndex
+				return nil, compose.ErrAppHasNoIndex
 			}
-			return nil, ErrAppIndexNotFound
+			return nil, compose.ErrAppIndexNotFound
 		}
 		return nil, fmt.Errorf("failed to read app bundle index: %s", err.Error())
 	}

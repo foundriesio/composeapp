@@ -63,7 +63,7 @@ func (u *runnerImpl) complete(ctx context.Context) error {
 
 	// remove blobs that are not in the update apps, but are in the store
 	// walk the store and remove any blobs that are not in the app blobs
-	err = filepath.Walk(filepath.Join(u.config.StoreRoot, "blobs", "sha256"), func(path string, f fs.FileInfo, err error) error {
+	err = filepath.Walk(u.config.GetBlobsRoot(), func(path string, f fs.FileInfo, err error) error {
 		if f.IsDir() {
 			return nil
 		}

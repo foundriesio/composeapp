@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/reference"
-	ref1 "github.com/containerd/containerd/reference/docker"
-	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/internal/progress"
 	"github.com/foundriesio/composeapp/pkg/docker"
@@ -35,14 +31,6 @@ type (
 	}
 
 	InstallOption func(*InstallOptions)
-
-	AppInstallCheckResult struct {
-		AppName       string        `json:"app_name"`
-		MissingImages []string      `json:"missing_images"`
-		BundleErrors  AppBundleErrs `json:"bundle_errors"`
-	}
-
-	InstallCheckResult map[string]*AppInstallCheckResult
 )
 
 const (
@@ -171,66 +159,4 @@ func InstallCompose(ctx context.Context, app App, provider BlobProvider, compose
 		return err
 	}
 	return nil
-}
-
-func CheckInstallation(
-	ctx context.Context,
-	cfg *Config,
-	appRefs []string,
-	blobProvider BlobProvider) (InstallCheckResult, error) {
-	cli, err := GetDockerClient(cfg.DockerHost)
-	if err != nil {
-		return nil, err
-	}
-	images, err := cli.ImageList(ctx, dockertypes.ImageListOptions{All: true})
-	if err != nil {
-		return nil, err
-	}
-	installedImages := map[string]bool{}
-	for _, i := range images {
-		if len(i.RepoDigests) > 0 {
-			installedImages[i.RepoDigests[0]] = true
-		}
-		if len(i.RepoTags) > 0 {
-			// unpatch docker won't store the digest URI of loaded image
-			installedImages[i.RepoTags[0]] = true
-		}
-	}
-
-	checkResult := InstallCheckResult{}
-	for _, appRef := range appRefs {
-		app, err := cfg.AppLoader.LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(cfg.Platform), appRef)
-		if err != nil {
-			return nil, err
-		}
-		var missingImages []string
-		appComposeRoot := app.GetComposeRoot()
-		for _, imageNode := range appComposeRoot.Children {
-			imageUri := imageNode.Ref()
-			if !installedImages[imageUri] {
-				if s, err := reference.Parse(imageUri); err == nil {
-					taggedUri := s.Locator + ":" + (s.Digest().Encoded())[:7]
-					if !installedImages[taggedUri] {
-						// Check familiar name
-						if anyRef, err := ref1.ParseAnyReference(imageUri); err == nil {
-							familiarRef := ref1.FamiliarString(anyRef)
-							if !installedImages[familiarRef] {
-								missingImages = append(missingImages, imageUri)
-							}
-						}
-					}
-				}
-			}
-		}
-		errMap, err := app.CheckComposeInstallation(ctx, blobProvider, path.Join(cfg.ComposeRoot, app.Name()))
-		if err != nil {
-			return nil, err
-		}
-		checkResult[appRef] = &AppInstallCheckResult{
-			AppName:       app.Name(),
-			MissingImages: missingImages,
-			BundleErrors:  errMap,
-		}
-	}
-	return checkResult, nil
 }
