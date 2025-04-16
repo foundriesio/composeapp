@@ -88,7 +88,10 @@ func (s *appStore) RemoveApps(ctx context.Context, apps []*compose.AppRef, prune
 	for _, a := range apps {
 		appVerDir := filepath.Join(s.appsRoot, a.Name, a.Digest.Encoded())
 		if _, err := os.Stat(appVerDir); os.IsNotExist(err) {
-			return fmt.Errorf("app dir does not exist: %s", appVerDir)
+			// TODO: add debug level logging instead of just printing message unconditionally
+			fmt.Printf("app dir does not exist in the store's app dir,"+
+				" will check and remove app blobs only from the store's blob dir: %s", appVerDir)
+			continue
 		}
 		err := os.RemoveAll(appVerDir)
 		if err != nil {
