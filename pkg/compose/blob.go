@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
@@ -79,7 +80,7 @@ func (s BlobState) String() string {
 
 func ErrToBlobState(err error) BlobState {
 	state := BlobStateUndefined
-	if err != nil && strings.Contains(err.Error(), "not found") {
+	if err != nil && (strings.Contains(err.Error(), "not found") || errors.Is(err, os.ErrNotExist)) {
 		return BlobMissing
 	}
 	switch err.(type) {
