@@ -36,14 +36,6 @@ type (
 		BundleErrors  compose.AppBundleErrs `json:"bundle_errors"`
 		MissingImages []string              `json:"missing_images"`
 	}
-	ServiceStatus struct {
-		URI     string `json:"uri"`
-		ID      string `json:"id"`
-		CfgHash string `json:"cfg-hash"`
-		State   string `json:"state"`
-		Status  string `json:"status"`
-	}
-	AppStatus []ServiceStatus
 
 	psOptions struct {
 		Format       string
