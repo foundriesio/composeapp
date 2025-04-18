@@ -14,36 +14,18 @@ import (
 
 const (
 	WorkingDirLabel = "com.docker.compose.project.working_dir"
-	ServiceLabel    = "com.docker.compose.service"
 )
 
 type (
-	Service struct {
-		Name   string `json:"name"`
-		Image  string `json:"image"`
-		Hash   string `json:"hash"`
-		CtrID  string `json:"ctr-id"`
-		State  string `json:"state"`
-		Status string `json:"status"`
-		Health string `json:"health,omitempty"`
-	}
 	App struct {
 		URI           string                `json:"uri"`
 		Name          string                `json:"name"`
 		State         string                `json:"state"`
-		Services      []*Service            `json:"services"`
+		Services      []*compose.Service    `json:"services"`
 		InStore       bool                  `json:"in_store"`
 		BundleErrors  compose.AppBundleErrs `json:"bundle_errors"`
 		MissingImages []string              `json:"missing_images"`
 	}
-	ServiceStatus struct {
-		URI     string `json:"uri"`
-		ID      string `json:"id"`
-		CfgHash string `json:"cfg-hash"`
-		State   string `json:"state"`
-		Status  string `json:"status"`
-	}
-	AppStatus []ServiceStatus
 
 	psOptions struct {
 		Format       string
@@ -72,17 +54,17 @@ var psCmd = &cobra.Command{
 }
 
 func psApps(cmd *cobra.Command, args []string, opts *psOptions) {
-	runningApps := getAllAppStatuses(cmd.Context())
+	runningApps := getAllAppStatuses(cmd.Context(), opts.Format == "json")
 	if len(args) == 0 {
 		printAppStatuses(runningApps, opts.Format)
 	} else {
-		appStatuses := getAppsStatus(cmd.Context(), args, runningApps, opts.CheckInstall)
+		appStatuses := getAppsStatus(cmd.Context(), args, runningApps, opts.CheckInstall, opts.Format == "json")
 		printAppStatuses(appStatuses, opts.Format)
 	}
 
 }
 
-func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App, checkInstall bool) map[string]*App {
+func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string]*App, checkInstall bool, quiet bool) map[string]*App {
 	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	apps := map[string]compose.App{}
@@ -108,7 +90,9 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 		if !runningApp.InStore {
 			// Since we iterate over apps stored in apps, it is not possible that running app is not in store
 			// in this context/loop.
-			fmt.Printf("ERR: Running app is not found in the store: %s\n", appRef)
+			if !quiet {
+				fmt.Printf("ERR: Running app is not found in the store: %s\n", appRef)
+			}
 			continue
 		}
 		// If the running app URI is empty and the app is found in the store then it
@@ -128,30 +112,30 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 		if composeTree == nil {
 			panic(fmt.Errorf("failed to get app tree for %s", app.Name()))
 		}
-		var appServices []*Service
+		var appServices []*compose.Service
 		appState := "running"
 		for _, imageNode := range composeTree.Children {
 			imageUri := imageNode.Ref()
 
-			var foundSrvs []*Service
+			var foundSrvs []*compose.Service
 			for _, srv := range runningApp.Services {
 				if srv.Image == imageUri {
 					foundSrvs = append(foundSrvs, srv)
 				}
 			}
 			if len(foundSrvs) == 0 {
-				appServices = append(appServices, &Service{
+				appServices = append(appServices, &compose.Service{
 					Image: imageUri,
 					State: "missing",
 				})
 				appState = "not running"
 				continue
 			}
-			appServiceHash := imageNode.Descriptor.Annotations[v1.AppServiceHashLabelKey]
-			var foundMatchingSrv *Service
+			appServiceHash := imageNode.Descriptor.Annotations[compose.AppServiceHashLabelKey]
+			var foundMatchingSrv *compose.Service
 			for _, fsrv := range foundSrvs {
 				if len(fsrv.Hash) == 0 {
-					appServices = append(appServices, &Service{
+					appServices = append(appServices, &compose.Service{
 						Image:  imageUri,
 						State:  "unknown",
 						Status: "no config hash",
@@ -170,7 +154,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 					appState = "not running"
 				}
 			} else {
-				appServices = append(appServices, &Service{
+				appServices = append(appServices, &compose.Service{
 					Image:  imageUri,
 					State:  "missing",
 					Status: "config hash mismatch",
@@ -189,7 +173,17 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 	}
 
 	if checkInstall {
-		checkInstallResult, err := checkIfInstalled(ctx, appRefs, store, config.DockerHost)
+		// TODO: unify configurations of the cmd and pkg.compose packages
+		composeCfg := compose.Config{
+			StoreRoot:   config.StoreRoot,
+			ComposeRoot: config.ComposeRoot,
+			DockerCfg:   config.DockerCfg,
+			DockerHost:  config.DockerHost,
+			Platform:    config.Platform,
+			ConnectTime: config.ConnectTime,
+			AppLoader:   v1.NewAppLoader(),
+		}
+		checkInstallResult, err := compose.CheckInstallation(ctx, &composeCfg, appRefs, store)
 		DieNotNil(err)
 		for app, ir := range checkInstallResult {
 			appStatuses[app].BundleErrors = ir.BundleErrors
@@ -247,7 +241,7 @@ func checkAppInStore(storeApps []*compose.AppRef, appName string) []*compose.App
 	}
 	return foundApps
 }
-func getAllAppStatuses(ctx context.Context) map[string]*App {
+func getAllAppStatuses(ctx context.Context, quiet bool) map[string]*App {
 	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	storeApps, err := store.ListApps(ctx)
@@ -263,7 +257,9 @@ func getAllAppStatuses(ctx context.Context) map[string]*App {
 		var workDir string
 		var foundProjectWorkDir bool
 		if workDir, foundProjectWorkDir = c.Labels[WorkingDirLabel]; !foundProjectWorkDir {
-			fmt.Printf("container is not part of any compose app; ID: %s, image: %s\n", c.ID, c.Image)
+			if !quiet {
+				fmt.Printf("container is not part of any compose app; ID: %s, image: %s\n", c.ID, c.Image)
+			}
 			continue
 		}
 		var health string
@@ -274,10 +270,10 @@ func getAllAppStatuses(ctx context.Context) map[string]*App {
 		}
 
 		appName := path.Base(workDir)
-		srv := &Service{
-			Name:   c.Labels[ServiceLabel],
+		srv := &compose.Service{
+			Name:   c.Labels[compose.ServiceLabel],
 			Image:  c.Image,
-			Hash:   c.Labels[v1.AppServiceHashLabelKey],
+			Hash:   c.Labels[compose.AppServiceHashLabelKey],
 			CtrID:  c.ID,
 			State:  c.State,
 			Status: c.Status,
@@ -298,7 +294,7 @@ func getAllAppStatuses(ctx context.Context) map[string]*App {
 				URI:      appUri,
 				Name:     appName,
 				State:    c.State,
-				Services: []*Service{srv},
+				Services: []*compose.Service{srv},
 				InStore:  len(appsFoundInStore) > 0,
 			}
 		}

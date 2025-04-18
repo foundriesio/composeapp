@@ -39,18 +39,26 @@ func rmApps(cmd *cobra.Command, args []string, opts *rmOptions) {
 	DieNotNil(err)
 	var appsToRemove []*compose.AppRef
 	for _, arg := range args {
+		foundApp := false
 		if strings.Contains(arg, "/") {
 			ref, err := compose.ParseAppRef(arg)
 			DieNotNil(err)
 			if err := ref.Digest.Validate(); err != nil {
 				DieNotNil(fmt.Errorf("invalid app reference: %s", err.Error()))
 			}
-		}
-		foundApp := false
-		for _, storeApp := range storeApps {
-			if arg == storeApp.Name || arg == storeApp.String() {
-				appsToRemove = append(appsToRemove, storeApp)
+			// Check if the app manifest is present in the store's blobs directory,
+			// if so, then consider it found even if it is missing in the store's apps directory
+			if _, err := cs.Info(cmd.Context(), ref.Digest); err == nil {
+				appsToRemove = append(appsToRemove, ref)
 				foundApp = true
+			}
+		}
+		if !foundApp {
+			for _, storeApp := range storeApps {
+				if arg == storeApp.Name || arg == storeApp.String() {
+					appsToRemove = append(appsToRemove, storeApp)
+					foundApp = true
+				}
 			}
 		}
 		if !foundApp && !opts.Quiet {

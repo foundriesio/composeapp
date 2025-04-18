@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	composetypes "github.com/compose-spec/compose-go/types"
 	"github.com/containerd/containerd/platforms"
@@ -40,6 +41,10 @@ type (
 
 const (
 	ctxKeyAppRef ctxKeyType = "app:ref"
+)
+
+var (
+	ErrAppNotFound = errors.New("app not found")
 )
 
 func WithAppRef(ctx context.Context, ref *AppRef) context.Context {
@@ -112,4 +117,8 @@ func (t *AppTree) Print() {
 	if err != nil {
 		fmt.Printf("Failed to print image tree: %s\n", err.Error())
 	}
+}
+
+func (t *AppTree) NodeCount() int {
+	return (*TreeNode)(t).NodeCount()
 }

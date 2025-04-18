@@ -46,14 +46,13 @@ type (
 )
 
 const (
-	AppManifestMediaType   = "application/vnd.oci.image.manifest.v1+json"
-	AppManifestMaxSize     = 50 * 1024
-	AppComposeMaxSize      = 1024 * 1024
-	AppBundleFileMaxSize   = 1024*1024*1024 - AppComposeMaxSize
-	AppBundleMaxSize       = AppComposeMaxSize + AppBundleFileMaxSize
-	AppLayerMediaType      = "application/octet-stream"
-	AppLayersMetaVersion   = "v1"
-	AppServiceHashLabelKey = "io.compose-spec.config-hash"
+	AppManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
+	AppManifestMaxSize   = 50 * 1024
+	AppComposeMaxSize    = 1024 * 1024
+	AppBundleFileMaxSize = 1024*1024*1024 - AppComposeMaxSize
+	AppBundleMaxSize     = AppComposeMaxSize + AppBundleFileMaxSize
+	AppLayerMediaType    = "application/octet-stream"
+	AppLayersMetaVersion = "v1"
 
 	AnnotationKeyAppBundleIndexDigest = "org.foundries.app.bundle.index.digest"
 	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
@@ -115,6 +114,9 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 	// root node
 	app, rootDesc, err := ReadAppManifest(ctx, provider, ref)
 	if err != nil {
+		if errors.Is(err, compose.ErrAppNotFound) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to read app manifest: %s", err)
 	}
 	appTree := compose.AppTree{Descriptor: rootDesc, Type: compose.BlobTypeAppManifest}
@@ -174,11 +176,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 			return nil, fmt.Errorf("failed to load app service image (%s): %s", service.Name, err)
 		}
 		if service.Labels != nil {
-			if srvHash, ok := service.Labels[AppServiceHashLabelKey]; ok {
+			if srvHash, ok := service.Labels[compose.AppServiceHashLabelKey]; ok {
 				if imageTree.Descriptor.Annotations == nil {
 					imageTree.Descriptor.Annotations = make(map[string]string)
 				}
-				imageTree.Descriptor.Annotations[AppServiceHashLabelKey] = srvHash
+				imageTree.Descriptor.Annotations[compose.AppServiceHashLabelKey] = srvHash
 			}
 		}
 		composeTree.Children = append(composeTree.Children, imageTree)
@@ -210,6 +212,9 @@ func ReadAppManifest(ctx context.Context, provider compose.BlobProvider, ref str
 	b, err := compose.ReadBlobWithReadLimit(compose.WithBlobType(compose.WithAppRef(ctx, appRef), compose.BlobTypeAppManifest),
 		provider, ref, AppManifestMaxSize)
 	if err != nil {
+		if compose.ErrToBlobState(err) == compose.BlobMissing {
+			return &app, nil, compose.ErrAppNotFound
+		}
 		return &app, nil, err
 	}
 	if err := json.Unmarshal(b, &app.manifest); err != nil {
