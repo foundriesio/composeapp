@@ -321,8 +321,8 @@ func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProv
 		// to Registry. Requires app manifest and app archive presence in the local store, otherwise fails.
 		srcBlobProvider = store
 	} else {
-		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg)
-		resolver := compose.NewResolver(authorizer, config.ConnectTime)
+		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
+		resolver := compose.NewResolver(authorizer, config.ConnectTimeout)
 		srcBlobProvider = compose.NewRemoteBlobProvider(resolver)
 	}
 	return

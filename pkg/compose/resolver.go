@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-func NewResolver(authorizer docker.Authorizer, connectTimeout int) remotes.Resolver {
+func NewResolver(authorizer docker.Authorizer, connectTimeout time.Duration) remotes.Resolver {
 	ropts := []docker.RegistryOpt{
 		docker.WithAuthorizer(authorizer),
 		docker.WithClient(&http.Client{
 			Transport: &http.Transport{
 				DialContext: (&net.Dialer{
-					Timeout: time.Duration(connectTimeout) * time.Second,
+					Timeout: connectTimeout,
 				}).DialContext,
 			},
 		}),

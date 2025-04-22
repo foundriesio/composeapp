@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const (
@@ -82,7 +83,7 @@ func init() {
 		composeRoot = path.Join(homeDir, ".composeapps/projects")
 	}
 	var err error
-	defConnectTimeoutValue := 30
+	defConnectTimeoutValue := 30 // The default TCP connection timeout in seconds
 	if len(defConnectTimeout) > 0 {
 		fmt.Println(defConnectTimeout)
 		defConnectTimeoutValue, err = strconv.Atoi(defConnectTimeout)
@@ -93,7 +94,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.ComposeRoot, "compose", "i", composeRoot, "compose projects root path")
 	rootCmd.PersistentFlags().StringVarP(&arch, "arch", "a", "", "architecture of app/images to pull")
 	rootCmd.PersistentFlags().StringVarP(&dockerHost, "host", "H", "", "path to the socket on which the Docker daemon listens")
-	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", defConnectTimeoutValue, "timeout for connecting to a container registry service")
+	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", defConnectTimeoutValue,
+		"timeout in seconds for establishing a connection to a container registry and an authentication service")
 	rootCmd.PersistentFlags().BoolVarP(&showConfigFile, "show-config", "C", false, "print paths of the applied config files")
 	rootCmd.AddCommand(versionCmd)
 }
@@ -153,5 +155,5 @@ func initConfig() {
 	if len(arch) > 0 {
 		config.Platform.Architecture = arch
 	}
-	config.ConnectTime = connectTimeout
+	config.ConnectTimeout = time.Duration(connectTimeout) * time.Second
 }
