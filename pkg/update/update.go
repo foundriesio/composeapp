@@ -168,7 +168,22 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 		defer func() {
 			if err == nil {
 				u.Progress = 100
-				u.State = StateInitialized
+				if len(u.Blobs) == 0 && u.TotalBlobDownloadSize == 0 {
+					if s, err := compose.CheckAppsStatus(ctx, u.config, u.URIs); err == nil {
+						if s.AreFetched() {
+							u.State = StateFetched
+						}
+						if s.AreInstalled() {
+							u.State = StateInstalled
+						}
+						if s.AreRunning() {
+							u.State = StateStarted
+						}
+					}
+
+				} else {
+					u.State = StateInitialized
+				}
 			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 				u.State = StateFailed
 			}
