@@ -10,6 +10,7 @@ import (
 	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"gopkg.in/yaml.v3"
 	"io"
 	rand2 "math/rand"
@@ -43,6 +44,14 @@ type (
 		Registry              string
 	}
 )
+
+func NewTestConfig(t *testing.T) *compose.Config {
+	cfg, err := v1.NewDefaultConfig()
+	check(t, err)
+	cfg.StoreRoot = AppStoreRoot
+	cfg.DBFilePath = path.Join(cfg.StoreRoot, "updates.db")
+	return cfg
+}
 
 func check(t *testing.T, err error) {
 	if err != nil {

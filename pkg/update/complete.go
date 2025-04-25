@@ -87,7 +87,6 @@ func (u *runnerImpl) complete(ctx context.Context) error {
 			return nil
 		}
 		if _, ok := appNames[f.Name()]; !ok {
-			fmt.Printf("removing app compose dir: %s\n", path)
 			if err := os.RemoveAll(path); err != nil {
 				return fmt.Errorf("failed to remove app compose project; path: %s, err: %s", path, err.Error())
 			}

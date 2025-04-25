@@ -21,6 +21,9 @@ type (
 	}
 )
 
+func (c *Config) GetAppComposeDir(appName string) string {
+	return path.Join(c.ComposeRoot, appName)
+}
 func (c *Config) GetBlobsRoot() string {
 	return GetBlobsRootFor(c.StoreRoot)
 }

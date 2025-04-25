@@ -3,16 +3,35 @@ package e2e_tests
 import (
 	"context"
 	"github.com/foundriesio/composeapp/pkg/compose"
-	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
 	f "github.com/foundriesio/composeapp/test/fixtures"
-	"path"
 	"testing"
 )
 
 func check(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func finalizeUpdate(t *testing.T, ctx context.Context, ur update.Runner) {
+	switch ur.Status().State {
+	case update.StateInitializing,
+		update.StateInitialized,
+		update.StateFetching,
+		update.StateFetched,
+		update.StateInstalled,
+		update.StateInstalling:
+		check(t, ur.Cancel(ctx))
+		if ur.Status().State != update.StateCanceled {
+			t.Fatalf("update not cancelled: %s\n", ur.Status().State)
+		}
+	case update.StateStarting,
+		update.StateStarted:
+		check(t, ur.Complete(ctx))
+		if ur.Status().State != update.StateCompleted {
+			t.Fatalf("update not completed: %s\n", ur.Status().State)
+		}
 	}
 }
 
@@ -28,12 +47,7 @@ services:
 	app := f.NewApp(t, appComposeDef)
 	app.Publish(t)
 
-	cfg, err := v1.NewDefaultConfig()
-	check(t, err)
-
-	cfg.StoreRoot = f.AppStoreRoot
-	cfg.DBFilePath = path.Join(cfg.StoreRoot, "updates.db")
-
+	cfg := f.NewTestConfig(t)
 	updateRunner, err := update.NewUpdate(cfg, "target-1")
 	check(t, err)
 
@@ -78,26 +92,7 @@ services:
 		t.Fatalf("update is not started for 100%%: %d\n", updateStatus.Progress)
 	}
 
-	defer func() {
-		switch updateRunner.Status().State {
-		case update.StateInitializing,
-			update.StateInitialized,
-			update.StateFetching,
-			update.StateFetched,
-			update.StateInstalled,
-			update.StateInstalling:
-			check(t, updateRunner.Cancel(ctx))
-			if updateRunner.Status().State != update.StateCanceled {
-				t.Fatalf("update not cancelled: %s\n", updateRunner.Status().State)
-			}
-		case update.StateStarting,
-			update.StateStarted:
-			check(t, updateRunner.Complete(ctx))
-			if updateRunner.Status().State != update.StateCompleted {
-				t.Fatalf("update not completed: %s\n", updateRunner.Status().State)
-			}
-		}
-	}()
+	defer finalizeUpdate(t, ctx, updateRunner)
 }
 
 func TestAppSync(t *testing.T) {
@@ -112,12 +107,7 @@ services:
 	app := f.NewApp(t, appComposeDef)
 	app.Publish(t)
 
-	cfg, err := v1.NewDefaultConfig()
-	check(t, err)
-
-	cfg.StoreRoot = f.AppStoreRoot
-	cfg.DBFilePath = path.Join(cfg.StoreRoot, "updates.db")
-
+	cfg := f.NewTestConfig(t)
 	ctx := context.Background()
 
 	s, err := compose.CheckAppsStatus(ctx, cfg, []string{app.PublishedUri})
@@ -172,24 +162,54 @@ services:
 		t.Fatalf("apps are supposed to be fetched and installed and running")
 	}
 
+	defer finalizeUpdate(t, ctx, updateRunner)
+}
+
+func TestAppControl(t *testing.T) {
+	appComposeDef01 := `
+services:
+ srvs-01:
+   image: registry:5000/factory/runner-image:v0.1
+   command: sh -c "while true; do sleep 60; done"
+   ports:
+   - 8080:80
+`
+	appComposeDef02 := `
+services:
+  busybox:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+`
+	var appURIs []string
+	for _, appDef := range []string{appComposeDef01, appComposeDef02} {
+		app := f.NewApp(t, appDef)
+		app.Publish(t)
+		appURIs = append(appURIs, app.PublishedUri)
+	}
+
+	cfg := f.NewTestConfig(t)
+	ctx := context.Background()
+
+	updateRunner, err := update.NewUpdate(cfg, "target-2")
+	check(t, err)
+
+	check(t, updateRunner.Init(ctx, appURIs))
+	check(t, updateRunner.Fetch(ctx))
 	defer func() {
-		switch updateRunner.Status().State {
-		case update.StateInitializing,
-			update.StateInitialized,
-			update.StateFetching,
-			update.StateFetched,
-			update.StateInstalled,
-			update.StateInstalling:
-			check(t, updateRunner.Cancel(ctx))
-			if updateRunner.Status().State != update.StateCanceled {
-				t.Fatalf("update not cancelled: %s\n", updateRunner.Status().State)
-			}
-		case update.StateStarting,
-			update.StateStarted:
-			check(t, updateRunner.Complete(ctx))
-			if updateRunner.Status().State != update.StateCompleted {
-				t.Fatalf("update not completed: %s\n", updateRunner.Status().State)
-			}
-		}
+		defer func() {
+			check(t, compose.RemoveApps(ctx, cfg, appURIs))
+		}()
 	}()
+
+	check(t, updateRunner.Install(ctx))
+	defer func() {
+		check(t, compose.UninstallApps(ctx, cfg, appURIs))
+	}()
+
+	check(t, updateRunner.Start(ctx))
+	defer func() {
+		check(t, compose.StopApps(ctx, cfg, appURIs))
+	}()
+
+	defer finalizeUpdate(t, ctx, updateRunner)
 }
