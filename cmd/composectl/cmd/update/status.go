@@ -39,13 +39,16 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 	cfg, err := v1.NewDefaultConfig()
 	ExitIfNotNil(err)
 
-	updateCtl, err := update.GetCurrentUpdate(cfg)
-	if errors.Is(err, update.ErrUpdateNotFound) {
-		updateCtl, err = update.GetLastUpdate(cfg)
+	var u *update.Update
+	if updateCtl, err := update.GetCurrentUpdate(cfg); err == nil {
+		curUpdate := updateCtl.Status()
+		u = &curUpdate
+	} else {
+		if errors.Is(err, update.ErrUpdateNotFound) {
+			u, err = update.GetFinalizedUpdate(cfg)
+		}
+		ExitIfNotNil(err)
 	}
-	ExitIfNotNil(err)
-
-	u := updateCtl.Status()
 
 	// TODO: Implement update state output, receiver for update state
 	cmd.Printf("ID: \t\t%s\n", u.ID)

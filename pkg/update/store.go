@@ -95,7 +95,7 @@ func (b *bucket) write(u *Update) error {
 	return b.b.Put(key, data)
 }
 
-func (s *store) getCurrentUpdate() (*Update, error) {
+func (s *store) getLastUpdateWithAnyOfStates(states []State) (*Update, error) {
 	db, err := bbolt.Open(s.path, 0600, &bbolt.Options{ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -106,52 +106,25 @@ func (s *store) getCurrentUpdate() (*Update, error) {
 	err = db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(UpdatesBucketName))
 		cursor := b.Cursor()
-
-		// Iterate over all updates in the database and collect those that are non-completed or non-failed
-		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		for k, v := cursor.Last(); k != nil; k, v = cursor.Prev() {
 			var u Update
 			err := json.Unmarshal(v, &u)
 			if err != nil {
 				return err
 			}
-			// Check if Update is in a non-completed or non-failed state
-			if !(u.State == StateCompleted || u.State == StateFailed || u.State == StateCanceled) {
+			// If there are no any update states are specified then return the last update found in the DB
+			if len(states) == 0 {
 				foundUpdate = &u
 				return nil
 			}
+			// Check if the given update has one of the specified states
+			for _, s := range states {
+				if u.State == s {
+					foundUpdate = &u
+					return nil
+				}
+			}
 		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-	if foundUpdate == nil {
-		return nil, ErrUpdateNotFound
-	}
-
-	return foundUpdate, nil
-}
-
-func (s *store) getLastUpdate() (*Update, error) {
-	db, err := bbolt.Open(s.path, 0600, &bbolt.Options{ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	var foundUpdate *Update
-	err = db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(UpdatesBucketName))
-		cursor := b.Cursor()
-		_, v := cursor.Last()
-		var u Update
-		err := json.Unmarshal(v, &u)
-		if err != nil {
-			return err
-		}
-		foundUpdate = &u
-
 		return nil
 	})
 

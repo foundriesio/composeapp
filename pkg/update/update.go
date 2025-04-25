@@ -68,15 +68,15 @@ func (s State) String() string {
 }
 
 func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
-	s, err := newStore(cfg.DBFilePath)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = s.getCurrentUpdate()
+	_, err := GetCurrentUpdate(cfg)
 	if err == nil {
 		return nil, errors.New("update already in progress")
 	} else if err != nil && !errors.Is(err, ErrUpdateNotFound) {
+		return nil, err
+	}
+
+	s, err := newStore(cfg.DBFilePath)
+	if err != nil {
 		return nil, err
 	}
 
@@ -98,28 +98,46 @@ func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 	return u, nil
 }
 
+func GetFinalizedUpdate(cfg *compose.Config) (*Update, error) {
+	s, err := newStore(cfg.DBFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return s.getLastUpdateWithAnyOfStates([]State{
+		StateCompleted,
+		StateFailed,
+		StateCanceled,
+	})
+}
+
+func GetLastSuccessfulUpdate(cfg *compose.Config) (*Update, error) {
+	s, err := newStore(cfg.DBFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return s.getLastUpdateWithAnyOfStates([]State{
+		StateCompleted,
+	})
+}
+
 func GetCurrentUpdate(cfg *compose.Config) (Runner, error) {
 	s, err := newStore(cfg.DBFilePath)
 	if err != nil {
 		return nil, err
 	}
-	u, err := s.getCurrentUpdate()
-	if err != nil {
-		return nil, err
-	}
-	return &runnerImpl{
-		Update: *u,
-		config: cfg,
-		store:  s,
-	}, nil
-}
-
-func GetLastUpdate(cfg *compose.Config) (Runner, error) {
-	s, err := newStore(cfg.DBFilePath)
-	if err != nil {
-		return nil, err
-	}
-	u, err := s.getLastUpdate()
+	u, err := s.getLastUpdateWithAnyOfStates([]State{
+		StateCreated,
+		StateInitializing,
+		StateInitialized,
+		StateFetching,
+		StateFetched,
+		StateInstalling,
+		StateInstalled,
+		StateStarting,
+		StateStarted,
+		StateCompleting,
+		StateCancelling,
+	})
 	if err != nil {
 		return nil, err
 	}
