@@ -6,9 +6,8 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 )
 
 func (u *runnerImpl) complete(ctx context.Context) error {
@@ -63,36 +62,38 @@ func (u *runnerImpl) complete(ctx context.Context) error {
 
 	// remove blobs that are not in the update apps, but are in the store
 	// walk the store and remove any blobs that are not in the app blobs
-	err = filepath.Walk(u.config.GetBlobsRoot(), func(path string, f fs.FileInfo, err error) error {
-		if f.IsDir() {
+	entries, err := os.ReadDir(u.config.GetBlobsRoot())
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
 			return nil
 		}
-		if _, ok := appBlobs[f.Name()]; !ok {
-			fmt.Printf("removing blob %s\n", path)
-			if err := os.Remove(path); err != nil {
-				return fmt.Errorf("failed to remove blob %s: %w", path, err)
+		if _, ok := appBlobs[entry.Name()]; !ok {
+			blobPath := path.Join(u.config.GetBlobsRoot(), entry.Name())
+			if err := os.Remove(blobPath); err != nil {
+				return fmt.Errorf("failed to remove blob %s: %w", blobPath, err)
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to remove unused blobs from the app store: %w", err)
 	}
 
-	err = filepath.Walk(u.config.ComposeRoot, func(path string, f fs.FileInfo, err error) error {
-		if !f.IsDir() {
-			return nil
+	entries, err = os.ReadDir(u.config.ComposeRoot)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
-		if path == u.config.ComposeRoot {
-			return nil
-		}
-		if _, ok := appNames[f.Name()]; !ok {
-			if err := os.RemoveAll(path); err != nil {
-				return fmt.Errorf("failed to remove app compose project; path: %s, err: %s", path, err.Error())
+		if _, ok := appNames[entry.Name()]; !ok {
+			appDir := u.config.GetAppComposeDir(entry.Name())
+			if err := os.RemoveAll(appDir); err != nil {
+				return fmt.Errorf("failed to remove app compose project; path: %s, err: %s", appDir, err.Error())
 			}
 		}
-		return nil
-	})
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to remove unused app compose projects: %w", err)
 	}

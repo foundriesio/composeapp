@@ -163,7 +163,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 				}
 				u.URIs = appURIs
 			}
-		case StateInitializing, StateInitialized:
+		case StateInitializing, StateInitialized, StateFetching, StateFetched:
 			{
 				// reinitialize the current Update
 				if len(appURIs) > 0 {
