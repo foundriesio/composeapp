@@ -54,6 +54,27 @@ func NewAppStore(root string, platform ocispec.Platform, skopeoStoreAware ...boo
 	}, nil
 }
 
+func (s *appStore) AddApps(appURIs []string) error {
+	var appRefs []*compose.AppRef
+	for _, uri := range appURIs {
+		if ref, err := compose.ParseAppRef(uri); err != nil {
+			return err
+		} else {
+			appRefs = append(appRefs, ref)
+		}
+	}
+	for _, app := range appRefs {
+		appDir := path.Join(s.appsRoot, app.Name, app.Digest.Encoded())
+		if err := os.MkdirAll(appDir, 0777); err != nil {
+			return err
+		}
+		if err := writeAndSync(path.Join(appDir, "uri"), []byte(app.String())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *appStore) ListApps(ctx context.Context) ([]*compose.AppRef, error) {
 	var apps []*compose.AppRef
 	err := filepath.Walk(s.appsRoot, func(path string, fi os.FileInfo, err error) error {

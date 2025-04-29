@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/google/uuid"
 	"time"
 )
@@ -233,6 +234,14 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...FetchOption) error {
 			if err == nil {
 				u.Progress = 100
 				u.State = StateFetched
+				if appStore, err := v1.NewAppStore(u.config.StoreRoot, u.config.Platform, false); err != nil {
+					// log the error but do not return it
+					fmt.Printf("failed to create app store: %v\n", err)
+				} else {
+					if err := appStore.AddApps(u.URIs); err != nil {
+						fmt.Printf("failed to add info about fetched apps to the store: %v\n", err)
+					}
+				}
 			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 				u.State = StateFailed
 			}
