@@ -203,7 +203,7 @@ services:
 
 	check(t, updateRunner.Install(ctx))
 	defer func() {
-		check(t, compose.UninstallApps(ctx, cfg, appURIs))
+		check(t, compose.UninstallApps(ctx, cfg, appURIs, compose.WithImagePruning()))
 	}()
 
 	check(t, updateRunner.Start(ctx))
