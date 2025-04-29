@@ -3,31 +3,50 @@ package compose
 import (
 	"context"
 	"fmt"
-	"github.com/containerd/containerd/content/local"
 )
 
-// RemoveApps removes app blobs from the app blob store.
-// This function does opposite action to the app fetching,
-// it does NOT uninstall app, specifically it does NOT remove
-// the app's compose project nor app's images from the docker store.
-func RemoveApps(ctx context.Context, cfg *Config, appRefs []string) error {
-	status, err := CheckAppsStatus(ctx, cfg, appRefs)
+type (
+	RemoveOpts struct {
+		Prune bool
+	}
+	RemoveOpt func(*RemoveOpts)
+)
+
+func WithBlobPruning() RemoveOpt {
+	return func(opts *RemoveOpts) {
+		opts.Prune = true
+	}
+}
+
+func RemoveApps(ctx context.Context, cfg *Config, appRefs []string, options ...RemoveOpt) error {
+	opts := &RemoveOpts{Prune: true}
+	for _, o := range options {
+		o(opts)
+	}
+	appsStatus, err := CheckAppsStatus(ctx, cfg, appRefs)
 	if err != nil {
 		return err
 	}
-	if !status.AreFetched() {
-		return fmt.Errorf("cannot remove not fully fetched app(s)")
+	if appsStatus.AreRunning() {
+		return fmt.Errorf("cannot remove running apps; stop and uinstall them before removing")
 	}
-	cs, err := local.NewStore(cfg.StoreRoot)
+	if appsStatus.AreInstalled() {
+		return fmt.Errorf("cannot remove installed apps; uinstall them before removing")
+	}
+	if !appsStatus.AreFetched() {
+		return fmt.Errorf("cannot remove not full fetched apps; run the 'prune' to remove unused blobs")
+	}
+	store, err := cfg.AppStoreFactory(cfg)
 	if err != nil {
 		return err
 	}
-	for _, blobs := range status.FetchStatus.BlobsStatus {
-		for d := range blobs.BlobsStatus {
-			if err := cs.Delete(ctx, d); err != nil {
-				return err
-			}
+	var refs []*AppRef
+	for _, uri := range appRefs {
+		if ref, err := ParseAppRef(uri); err == nil {
+			refs = append(refs, ref)
+		} else {
+			return err
 		}
 	}
-	return nil
+	return store.RemoveApps(ctx, refs, opts.Prune)
 }
