@@ -132,11 +132,20 @@ func CheckAppsStatus(
 	ctx context.Context,
 	cfg *Config,
 	appRefs []string) (*AppsStatus, error) {
-
+	var refs []string
 	bp := NewStoreBlobProvider(cfg.GetBlobsRoot())
+	if len(appRefs) > 0 {
+		refs = appRefs
+	} else {
+		if allApps, err := ListApps(ctx, cfg); err == nil {
+			refs = allApps
+		} else {
+			return nil, err
+		}
+	}
 
 	appsStatus := NewAppsStatus()
-	for _, appRef := range appRefs {
+	for _, appRef := range refs {
 		app, err := cfg.AppLoader.LoadAppTree(ctx, bp, platforms.OnlyStrict(cfg.Platform), appRef)
 		if errors.Is(err, ErrAppNotFound) {
 			appTreeRemoteProvider := cfg.NewRemoteBlobProvider()
