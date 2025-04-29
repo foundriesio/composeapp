@@ -9,15 +9,16 @@ import (
 
 type (
 	Config struct {
-		StoreRoot      string
-		ComposeRoot    string
-		DockerCfg      *configfile.ConfigFile
-		DockerHost     string
-		Platform       specs.Platform
-		ConnectTimeout time.Duration
-		BlockSize      int64
-		DBFilePath     string
-		AppLoader      AppLoader
+		StoreRoot       string
+		ComposeRoot     string
+		DockerCfg       *configfile.ConfigFile
+		DockerHost      string
+		Platform        specs.Platform
+		ConnectTimeout  time.Duration
+		BlockSize       int64
+		DBFilePath      string
+		AppLoader       AppLoader
+		AppStoreFactory func(*Config) (AppStore, error)
 	}
 )
 

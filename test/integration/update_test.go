@@ -201,6 +201,20 @@ services:
 		}()
 	}()
 
+	// Make sure the fetched apps are listed among the store apps returned by
+	// the App listing API call
+	foundApps, err := compose.ListApps(ctx, cfg)
+	check(t, err)
+	appsMap := make(map[string]bool)
+	for _, foundApp := range foundApps {
+		appsMap[foundApp] = true
+	}
+	for _, uri := range appURIs {
+		if _, ok := appsMap[uri]; !ok {
+			t.Fatalf("the fetched app is not listed among the store apps: %s", uri)
+		}
+	}
+
 	check(t, updateRunner.Install(ctx))
 	defer func() {
 		check(t, compose.UninstallApps(ctx, cfg, appURIs, compose.WithImagePruning()))

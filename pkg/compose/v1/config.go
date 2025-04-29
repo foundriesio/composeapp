@@ -72,5 +72,8 @@ func NewDefaultConfig() (*compose.Config, error) {
 		BlockSize:   blockSize,
 		DBFilePath:  dbFilePath,
 		AppLoader:   NewAppLoader(),
+		AppStoreFactory: func(cfg *compose.Config) (compose.AppStore, error) {
+			return NewAppStore(cfg.StoreRoot, cfg.Platform, false)
+		},
 	}, nil
 }
