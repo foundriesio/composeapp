@@ -6,12 +6,9 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"os"
-	"path"
 )
 
 func (u *runnerImpl) complete(ctx context.Context) error {
-
 	cs, err := v1.NewAppStore(u.config.StoreRoot, u.config.Platform, false)
 	if err != nil {
 		return err
@@ -62,43 +59,41 @@ func (u *runnerImpl) complete(ctx context.Context) error {
 
 	// remove blobs that are not in the update apps, but are in the store
 	// walk the store and remove any blobs that are not in the app blobs
-	entries, err := os.ReadDir(u.config.GetBlobsRoot())
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return nil
-		}
-		if _, ok := appBlobs[entry.Name()]; !ok {
-			blobPath := path.Join(u.config.GetBlobsRoot(), entry.Name())
-			if err := os.Remove(blobPath); err != nil {
-				return fmt.Errorf("failed to remove blob %s: %w", blobPath, err)
-			}
-		}
-	}
-
-	entries, err = os.ReadDir(u.config.ComposeRoot)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if _, ok := appNames[entry.Name()]; !ok {
-			appDir := u.config.GetAppComposeDir(entry.Name())
-			if err := os.RemoveAll(appDir); err != nil {
-				return fmt.Errorf("failed to remove app compose project; path: %s, err: %s", appDir, err.Error())
-			}
-		}
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to remove unused app compose projects: %w", err)
-	}
-
-	// TODO: prune/remove unused images from the docker store
+	//entries, err := os.ReadDir(u.config.GetBlobsRoot())
+	//if err != nil {
+	//	return err
+	//}
+	//for _, entry := range entries {
+	//	if entry.IsDir() {
+	//		return nil
+	//	}
+	//	if _, ok := appBlobs[entry.Name()]; !ok {
+	//		blobPath := path.Join(u.config.GetBlobsRoot(), entry.Name())
+	//		if err := os.Remove(blobPath); err != nil {
+	//			return fmt.Errorf("failed to remove blob %s: %w", blobPath, err)
+	//		}
+	//	}
+	//}
+	//
+	//entries, err = os.ReadDir(u.config.ComposeRoot)
+	//if err != nil {
+	//	return err
+	//}
+	//for _, entry := range entries {
+	//	if !entry.IsDir() {
+	//		continue
+	//	}
+	//	if _, ok := appNames[entry.Name()]; !ok {
+	//		appDir := u.config.GetAppComposeDir(entry.Name())
+	//		if err := os.RemoveAll(appDir); err != nil {
+	//			return fmt.Errorf("failed to remove app compose project; path: %s, err: %s", appDir, err.Error())
+	//		}
+	//	}
+	//}
+	//
+	//if err != nil {
+	//	return fmt.Errorf("failed to remove unused app compose projects: %w", err)
+	//}
 
 	return err
 }

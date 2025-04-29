@@ -12,9 +12,9 @@ type (
 	RemoveOpt func(*RemoveOpts)
 )
 
-func WithBlobPruning() RemoveOpt {
+func WithoutBlobPruning() RemoveOpt {
 	return func(opts *RemoveOpts) {
-		opts.Prune = true
+		opts.Prune = false
 	}
 }
 

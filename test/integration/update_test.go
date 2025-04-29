@@ -227,3 +227,109 @@ services:
 
 	defer finalizeUpdate(t, ctx, updateRunner)
 }
+
+func TestAppSyncAndRemove(t *testing.T) {
+	appComposeDef01 := `
+services:
+ srvs-01:
+   image: registry:5000/factory/runner-image:v0.1
+   command: sh -c "while true; do sleep 60; done"
+   ports:
+   - 8080:80
+`
+	appComposeDef01v1 := `
+services:
+ srvs-02:
+   image: registry:5000/factory/runner-image:v0.1
+   command: sh -c "while true; do sleep 60; done"
+   ports:
+   - 8081:81
+`
+	appComposeDef02 := `
+services:
+  busybox:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+`
+	var appURIs []string
+	for _, appDef := range []string{appComposeDef01, appComposeDef02} {
+		app := f.NewApp(t, appDef)
+		app.Publish(t)
+		appURIs = append(appURIs, app.PublishedUri)
+	}
+
+	cfg := f.NewTestConfig(t)
+	ctx := context.Background()
+
+	updateRunner, err := update.NewUpdate(cfg, "target-3")
+	check(t, err)
+
+	check(t, updateRunner.Init(ctx, appURIs))
+	check(t, updateRunner.Fetch(ctx))
+	check(t, updateRunner.Install(ctx))
+	check(t, updateRunner.Start(ctx))
+	check(t, updateRunner.Complete(ctx))
+
+	// change app1 and publish it
+	app := f.NewApp(t, appComposeDef01v1)
+	app.Publish(t)
+	appURIs = []string{app.PublishedUri}
+
+	appsStatus, err := compose.CheckAppsStatus(ctx, cfg, nil)
+	check(t, err)
+	var appsToRemove []string
+	for _, a := range appsStatus.Apps {
+		if a.Ref().String() != app.PublishedUri {
+			appsToRemove = append(appsToRemove, a.Ref().String())
+		}
+	}
+
+	updateRunner, err = update.NewUpdate(cfg, "target-4")
+	check(t, err)
+
+	check(t, updateRunner.Init(ctx, appURIs))
+	check(t, updateRunner.Fetch(ctx))
+	defer func() {
+		defer func() {
+			check(t, compose.RemoveApps(ctx, cfg, appURIs))
+		}()
+	}()
+
+	check(t, updateRunner.Install(ctx))
+	defer func() {
+		check(t, compose.UninstallApps(ctx, cfg, appURIs, compose.WithImagePruning()))
+	}()
+
+	// Stop apps to be removed
+	check(t, compose.StopApps(ctx, cfg, appsToRemove))
+
+	check(t, updateRunner.Start(ctx))
+	defer func() {
+		check(t, compose.StopApps(ctx, cfg, appURIs))
+	}()
+
+	// Uninstall apps that are not part of target
+	check(t, compose.UninstallApps(ctx, cfg, appsToRemove, compose.WithImagePruning()))
+	// Complete update
+	check(t, updateRunner.Complete(ctx))
+
+	// Remove apps that are not part of target
+	check(t, compose.RemoveApps(ctx, cfg, appsToRemove))
+
+	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, nil)
+	check(t, err)
+	if !(len(appsStatus.Apps) == 1 && appsStatus.Apps[0].Ref().String() == app.PublishedUri) {
+		t.Fatalf("invalid apps status; expected just one app: %s\n", app.PublishedUri)
+	}
+	if !appsStatus.AreFetched() {
+		t.Fatalf("the update app is not fetched")
+	}
+	if !appsStatus.AreInstalled() {
+		t.Fatalf("the update app is not installed")
+	}
+	if !appsStatus.AreRunning() {
+		t.Fatalf("the update app is not running")
+	}
+
+	defer finalizeUpdate(t, ctx, updateRunner)
+}
