@@ -8,26 +8,43 @@ import (
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 )
 
-func (u *runnerImpl) complete(ctx context.Context) error {
+type (
+	CompleteOpts struct {
+		Prune bool
+	}
+	CompleteOpt func(*CompleteOpts)
+)
+
+func CompleteWithPruning() CompleteOpt {
+	return func(opts *CompleteOpts) {
+		opts.Prune = true
+	}
+}
+
+func (u *runnerImpl) complete(ctx context.Context, options ...CompleteOpt) error {
+	opts := CompleteOpts{}
+	for _, o := range options {
+		o(&opts)
+	}
 	cs, err := v1.NewAppStore(u.config.StoreRoot, u.config.Platform, false)
 	if err != nil {
 		return err
 	}
 
-	apps := map[string]compose.App{}
+	updateApps := map[string]compose.App{}
 	appNames := map[string]struct{}{}
 	for _, appURI := range u.URIs {
 		app, err := u.config.AppLoader.LoadAppTree(ctx, cs, platforms.OnlyStrict(u.config.Platform), appURI)
 		if err != nil {
 			return err
 		}
-		apps[appURI] = app
+		updateApps[appURI] = app
 		appNames[app.Name()] = struct{}{}
 	}
 
 	missingBlobs := map[string]string{}
 	appBlobs := make(map[string]struct{})
-	for appURI, app := range apps {
+	for appURI, app := range updateApps {
 		err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 			// Check if all app blobs are present
 			blobURI := node.Descriptor.URLs[0]
@@ -37,7 +54,7 @@ func (u *runnerImpl) complete(ctx context.Context) error {
 				compose.WithRef(blobURI),
 			}
 			bs, stateCheckErr := compose.CheckBlob(compose.WithAppRef(compose.WithBlobType(ctx, node.Type),
-				apps[appURI].Ref()), cs, node.Descriptor.Digest, checkOpts...)
+				updateApps[appURI].Ref()), cs, node.Descriptor.Digest, checkOpts...)
 			if stateCheckErr != nil {
 				return stateCheckErr
 			}
@@ -57,43 +74,30 @@ func (u *runnerImpl) complete(ctx context.Context) error {
 		return fmt.Errorf("update cannot be completed; missing blobs are found: %d", len(missingBlobs))
 	}
 
-	// remove blobs that are not in the update apps, but are in the store
-	// walk the store and remove any blobs that are not in the app blobs
-	//entries, err := os.ReadDir(u.config.GetBlobsRoot())
-	//if err != nil {
-	//	return err
-	//}
-	//for _, entry := range entries {
-	//	if entry.IsDir() {
-	//		return nil
-	//	}
-	//	if _, ok := appBlobs[entry.Name()]; !ok {
-	//		blobPath := path.Join(u.config.GetBlobsRoot(), entry.Name())
-	//		if err := os.Remove(blobPath); err != nil {
-	//			return fmt.Errorf("failed to remove blob %s: %w", blobPath, err)
-	//		}
-	//	}
-	//}
-	//
-	//entries, err = os.ReadDir(u.config.ComposeRoot)
-	//if err != nil {
-	//	return err
-	//}
-	//for _, entry := range entries {
-	//	if !entry.IsDir() {
-	//		continue
-	//	}
-	//	if _, ok := appNames[entry.Name()]; !ok {
-	//		appDir := u.config.GetAppComposeDir(entry.Name())
-	//		if err := os.RemoveAll(appDir); err != nil {
-	//			return fmt.Errorf("failed to remove app compose project; path: %s, err: %s", appDir, err.Error())
-	//		}
-	//	}
-	//}
-	//
-	//if err != nil {
-	//	return fmt.Errorf("failed to remove unused app compose projects: %w", err)
-	//}
+	if opts.Prune {
+		currentApps, err := compose.ListApps(ctx, u.config)
+		if err != nil {
+			return err
+		}
+		var appsToPrune []string
+		for _, app := range currentApps {
+			if _, ok := updateApps[app]; !ok {
+				appsToPrune = append(appsToPrune, app)
+			}
+		}
+		if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning()); err != nil {
+			return err
+		}
+		if err := compose.RemoveApps(ctx, u.config, appsToPrune, compose.WithoutCheckStatus()); err != nil {
+			return err
+		}
+	}
 
+	// Prune blobs in the app store
+	store, err := u.config.AppStoreFactory(u.config)
+	if err != nil {
+		return err
+	}
+	_, err = store.Prune(ctx)
 	return err
 }

@@ -18,7 +18,7 @@ type (
 		Install(context.Context, ...compose.InstallOption) error
 		Start(context.Context) error
 		Cancel(context.Context) error
-		Complete(context.Context) error
+		Complete(context.Context, ...CompleteOpt) error
 	}
 
 	State string
@@ -353,7 +353,7 @@ func (u *runnerImpl) Cancel(ctx context.Context) error {
 	})
 }
 
-func (u *runnerImpl) Complete(ctx context.Context) error {
+func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error {
 	return u.store.lock(func(db *session) error {
 		var err error
 		if !(u.State == StateStarted || u.State == StateCompleting) {
@@ -380,7 +380,7 @@ func (u *runnerImpl) Complete(ctx context.Context) error {
 			}
 		}()
 
-		err = u.complete(ctx)
+		err = u.complete(ctx, options...)
 		return err
 	})
 }
