@@ -9,8 +9,8 @@ import (
 var (
 	runCmd = &cobra.Command{
 		Use:   "start",
-		Short: "start",
-		Long:  ``,
+		Short: "Start the updated apps",
+		Long:  `Start the fetched and installed applications by launching their compose services`,
 	}
 )
 

@@ -9,7 +9,7 @@ import (
 var (
 	cancelCmd = &cobra.Command{
 		Use:   "cancel",
-		Short: "cancel",
+		Short: "Cancel the current update by uninstalling the applications if installed and removing any fetched blobs",
 		Long:  ``,
 	}
 )

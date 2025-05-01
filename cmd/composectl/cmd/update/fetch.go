@@ -10,8 +10,8 @@ import (
 var (
 	fetchCmd = &cobra.Command{
 		Use:   "fetch",
-		Short: "fetch",
-		Long:  ``,
+		Short: "Download missing blobs for apps being updated",
+		Long:  `Fetch the update by downloading any missing blobs required by the apps being updated`,
 	}
 )
 

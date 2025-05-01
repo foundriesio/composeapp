@@ -13,8 +13,8 @@ import (
 var (
 	installCmd = &cobra.Command{
 		Use:   "install",
-		Short: "install",
-		Long:  ``,
+		Short: "Install the updated apps",
+		Long:  `Install the updated applications by extracting the compose project and loading its images into the docker store`,
 	}
 )
 

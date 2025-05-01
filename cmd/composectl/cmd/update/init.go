@@ -10,8 +10,8 @@ import (
 var (
 	initCmd = &cobra.Command{
 		Use:   "init [app_ref]...",
-		Short: "Initialize or reinitialize an update for the specified apps",
-		Long:  `Initialize a new update for the specified apps or reinitialize an existing update if no app URIs are specified`,
+		Short: "Initialize the update for specified apps by identifying required blobs to fetch",
+		Long:  `Initialize or reinitialize an update for the specified apps by determining which blobs need to be downloaded to fetch the update`,
 	}
 )
 
