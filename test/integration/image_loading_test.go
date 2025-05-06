@@ -9,7 +9,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"github.com/foundriesio/composeapp/pkg/docker"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"os"
 	"path"
@@ -41,7 +40,7 @@ services:
 
 	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
 
-	appImages := make(docker.ImageDescriptions)
+	appImages := make(compose.ImageDescriptions)
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
 	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
 	f.Check(t, err)
@@ -63,12 +62,12 @@ services:
 	err = loadImages(t, context.Background(), cli, appImages, appImageRefs, layersRoot)
 	f.Check(t, err)
 	err = loadImages(t, context.Background(), cli, appImages, appImageRefs, layersRoot,
-		docker.WithBlobReadingFromStore(), docker.WithRefWithDigest())
+		compose.WithBlobReadingFromStore(), compose.WithRefWithDigest())
 	f.Check(t, err)
 }
 
-func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages docker.ImageDescriptions, appImageRefs []string, layersRoot string, opts ...docker.LoadImageOption) error {
-	err := docker.LoadImages(ctx, cli, appImages, layersRoot, opts...)
+func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages compose.ImageDescriptions, appImageRefs []string, layersRoot string, opts ...compose.LoadImageOption) error {
+	err := compose.LoadImages(ctx, cli, appImages, layersRoot, opts...)
 	f.Check(t, err)
 
 	dockerImages, err := cli.ImageList(context.Background(), types.ImageListOptions{All: true})
