@@ -95,7 +95,7 @@ func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages
 	return nil
 }
 
-func TestAppInstallation(t *testing.T) {
+func TestAppInstallationWithProgress(t *testing.T) {
 	appComposeDef := `
 services:
   srvs-01:
@@ -138,7 +138,7 @@ services:
 	}()
 }
 
-func TestAppInstallationWithProgress(t *testing.T) {
+func TestAppInstallationWithoutProgress(t *testing.T) {
 	appComposeDef := `
 services:
   srvs-01:
