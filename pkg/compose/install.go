@@ -102,36 +102,30 @@ func Install(ctx context.Context,
 		return err
 	}
 
-	err = LoadImages(ctx, cli, appImageURIs, blobsRoot, WithRefWithDigest(),
-		WithBlobReadingFromStore(),
-		WithProgressReporting(func(ilp *LoadImageProgress) {
-			if opts.ProgressReporter != nil {
-				opts.ProgressReporter.Update(InstallProgress{
-					AppInstallState: AppInstallStateImagesLoading,
-					AppID:           app.Ref().String(),
-					ImageLoadState:  ilp.State,
-					ImageID:         ilp.ImageID,
-					ID:              ilp.ID,
-					Current:         ilp.Current,
-					Total:           ilp.Total,
-				})
-			}
-		}))
+	var loadImageOptions []LoadImageOption
+	var withProgressOpt LoadImageOption
+	if opts.ProgressReporter != nil {
+		withProgressOpt = WithProgressReporting(func(ilp *LoadImageProgress) {
+			opts.ProgressReporter.Update(InstallProgress{
+				AppInstallState: AppInstallStateImagesLoading,
+				AppID:           app.Ref().String(),
+				ImageLoadState:  ilp.State,
+				ImageID:         ilp.ImageID,
+				ID:              ilp.ID,
+				Current:         ilp.Current,
+				Total:           ilp.Total,
+			})
+		})
+		loadImageOptions = append(loadImageOptions, withProgressOpt)
+	}
+
+	// Try to load app images with reading blobs directly from the store and specifying image digests (URI with hashes)
+	err = LoadImages(ctx, cli, appImageURIs, blobsRoot,
+		append(loadImageOptions, WithRefWithDigest(), WithBlobReadingFromStore())...)
 	if err != nil {
-		// Try to load images without pinning to digest and reading directly from the store
-		err = LoadImages(ctx, cli, appImageURIs, blobsRoot, WithProgressReporting(func(ilp *LoadImageProgress) {
-			if opts.ProgressReporter != nil {
-				opts.ProgressReporter.Update(InstallProgress{
-					AppInstallState: AppInstallStateImagesLoading,
-					AppID:           app.Ref().String(),
-					ImageLoadState:  ilp.State,
-					ImageID:         ilp.ImageID,
-					ID:              ilp.ID,
-					Current:         ilp.Current,
-					Total:           ilp.Total,
-				})
-			}
-		}))
+		// Retry loading images without reading blobs directly from the store and specifying the digest,
+		// in case if the docker daemon is not patch with the Foundries patches
+		err = LoadImages(ctx, cli, appImageURIs, blobsRoot, loadImageOptions...)
 	}
 	return err
 }
