@@ -217,9 +217,8 @@ func LoadImages(ctx context.Context,
 		ImageID: imageURIs[curImageIndex],
 	}
 
-	var jm jsonmessage.JSONMessage
-
 	for {
+		var jm jsonmessage.JSONMessage
 		// Decode the next message from the response body
 		if decodeErr := dec.Decode(&jm); decodeErr != nil {
 			if decodeErr != io.EOF {
