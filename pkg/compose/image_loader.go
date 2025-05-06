@@ -5,20 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/distribution/reference"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/foundriesio/composeapp/internal/progress"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
-	"os"
 	"path"
 )
 
 type (
-	// ImageDescriptions is a map of image canonical URIs (hostname and digest) to their references.
-	ImageDescriptions map[string][]string
-
 	ImageLoadState string
 
 	LoadImageProgress struct {
@@ -128,7 +123,7 @@ func WithRefWithDigest() LoadImageOption {
 
 func LoadImages(ctx context.Context,
 	client *client.Client,
-	images ImageDescriptions,
+	app App,
 	blobsRoot string,
 	opts ...LoadImageOption) error {
 
@@ -142,18 +137,23 @@ func LoadImages(ctx context.Context,
 		defer options.ProgressReporter.Stop(true)
 	}
 
-	layersMap := make(map[string]v1.Descriptor)
+	layersMap := make(map[string]string)
 	var imageLoadManifests []*imageLoadManifest
 	var imageURIs []string
 	// Generate the image load manifests
-	for uri, refs := range images {
+	for _, imageRoot := range app.GetComposeRoot().Children {
 		// Generate the image load manifest
-		manifest, err := generateImageLoadManifest(uri, refs, blobsRoot, layersMap, options)
+		manifest, imageConfig, err := generateImageLoadManifest(ctx, imageRoot, blobsRoot, options)
 		if err != nil {
 			return err
 		}
 		imageLoadManifests = append(imageLoadManifests, manifest)
-		imageURIs = append(imageURIs, uri)
+		imageURIs = append(imageURIs, imageRoot.Ref())
+		for index, diffID := range imageConfig.RootFS.DiffIDs {
+			// The first 12 characters of the diffID are used as a key to the layers map,
+			// the map between the diffID and the layer distribution hash.
+			layersMap[diffID.Encoded()[:12]] = manifest.Layers[index]
+		}
 	}
 
 	var blobPaths []string
@@ -238,11 +238,14 @@ func LoadImages(ctx context.Context,
 					curImageIndex++
 					curLayerID = ""
 					p.State = ImageLoadStateImageWaiting
+					if curImageIndex < len(imageURIs) {
+						p.ImageID = imageURIs[curImageIndex]
+					}
 				} else {
 					curLayerID = jm.ID
 					p.ImageID = imageURIs[curImageIndex]
 					if _, ok := layersMap[curLayerID]; ok {
-						p.ID = layersMap[curLayerID].Digest.Encoded()[:7]
+						p.ID = layersMap[curLayerID][:7]
 					} else {
 						p.ID = "unknown"
 					}
@@ -283,7 +286,7 @@ func LoadImages(ctx context.Context,
 					// Start new image layer loading
 					curLayerID = jm.ID
 					if _, ok := layersMap[curLayerID]; ok {
-						p.ID = layersMap[curLayerID].Digest.Encoded()[:7]
+						p.ID = layersMap[curLayerID][:7]
 					} else {
 						p.ID = "unknown"
 					}
@@ -300,82 +303,6 @@ func LoadImages(ctx context.Context,
 	return err
 }
 
-func generateImageLoadManifest(
-	imageURI string,
-	imageRefs []string,
-	imageBlobsRootDir string,
-	layersMap map[string]v1.Descriptor,
-	options *LoadImageOptions) (*imageLoadManifest, error) {
-	var imageRef reference.Canonical
-	var imageTaggedRef string
-	if ref, err := reference.Parse(imageURI); err == nil {
-		if canonicalRef, ok := ref.(reference.Canonical); ok {
-			imageRef = canonicalRef
-			imageTaggedRef = canonicalRef.Name() + ":" + canonicalRef.Digest().Encoded()[:7]
-		} else {
-			return nil, fmt.Errorf("the specified image reference does not contain"+
-				" registry domain or digest): %s", imageURI)
-		}
-	} else {
-		return nil, err
-	}
-
-	imageManifestPath := path.Join(imageBlobsRootDir, imageRef.Digest().Encoded())
-	b, err := os.ReadFile(imageManifestPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var imageManifest v1.Manifest
-	err = json.Unmarshal(b, &imageManifest)
-	if err != nil {
-		return nil, err
-	}
-
-	imageConfigManifestPath := path.Join(imageBlobsRootDir, imageManifest.Config.Digest.Encoded())
-	b, err = os.ReadFile(imageConfigManifestPath)
-	if err != nil {
-		return nil, err
-	}
-	var imageConfig v1.Image
-	err = json.Unmarshal(b, &imageConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	loadManifest := &imageLoadManifest{
-		Config:   imageManifest.Config.Digest.Encoded(),
-		RepoTags: []string{imageTaggedRef},
-	}
-	for ind, l := range imageManifest.Layers {
-		loadManifest.Layers = append(loadManifest.Layers, l.Digest.Encoded())
-		// map the layer's diff ID to the layer descriptor
-		layersMap[imageConfig.RootFS.DiffIDs[ind].Encoded()[:12]] = l
-	}
-	if options.ReadBlobsFromStore {
-		loadManifest.LayersRoot = imageBlobsRootDir
-	}
-	for _, r := range imageRefs {
-		ref, err := reference.Parse(r)
-		if err != nil {
-			return nil, err
-		}
-		switch ref.(type) {
-		case reference.NamedTagged:
-			if imageTaggedRef != ref.String() {
-				loadManifest.RepoTags = append(loadManifest.RepoTags, ref.String())
-			}
-		case reference.Digested:
-			if options.RefWithDigest {
-				loadManifest.RepoTags = append(loadManifest.RepoTags, ref.String())
-			}
-		default:
-			return nil, fmt.Errorf("unsupported image reference type: %s", r)
-		}
-	}
-	return loadManifest, err
-}
-
 func reportProgressIfEnabled(opts *LoadImageOptions, p *LoadImageProgress) {
 	if opts.ProgressReporter == nil {
 		return
@@ -383,4 +310,69 @@ func reportProgressIfEnabled(opts *LoadImageOptions, p *LoadImageProgress) {
 
 	// TODO: check whether the progress message was dropped and print log message if so
 	opts.ProgressReporter.Update(*p)
+}
+
+func generateImageLoadManifest(
+	ctx context.Context,
+	imageTree *TreeNode,
+	imageBlobsRootDir string,
+	options *LoadImageOptions) (*imageLoadManifest, *v1.Image, error) {
+	loadManifest := &imageLoadManifest{}
+	imageRoot := imageTree
+
+	for {
+		imageRef, err := ParseImageRef(imageRoot.Ref())
+		if err != nil {
+			return nil, nil, err
+		}
+		loadManifest.RepoTags = append(loadManifest.RepoTags, imageRef.GetTagRef())
+		if options.RefWithDigest {
+			loadManifest.RepoTags = append(loadManifest.RepoTags, imageRoot.Ref())
+		}
+		if imageRoot.Type == BlobTypeImageManifest {
+			break
+		}
+
+		if !(imageRoot.Type == BlobTypeImageIndex || imageRoot.Type == BlobTypeSkopeoImageIndex) {
+			return nil, nil, fmt.Errorf("invalid image type is specified: %s", imageRoot.Type)
+		}
+		if len(imageRoot.Children) != 1 {
+			return nil, nil, fmt.Errorf("the specified image index has more than one manifest: %s", imageRoot.Ref())
+		}
+		imageRoot = imageRoot.Children[0]
+	}
+
+	var configNode *TreeNode
+	for _, child := range imageRoot.Children {
+		if child.Type == BlobTypeImageConfig {
+			loadManifest.Config = child.Descriptor.Digest.Encoded()
+			configNode = child
+			continue
+		}
+		if child.Type != BlobTypeImageLayer {
+			return nil, nil, fmt.Errorf("invalid image layer type is found: %s", child.Type)
+		}
+		loadManifest.Layers = append(loadManifest.Layers, child.Descriptor.Digest.Encoded())
+	}
+
+	if loadManifest.Config == "" {
+		return nil, nil, fmt.Errorf("image config is not found")
+	}
+
+	b, err := ReadBlob(ctx, NewStoreBlobProvider(imageBlobsRootDir), configNode.Ref(), configNode.Descriptor.Digest, configNode.Descriptor.Size)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read image config blob: %w", err)
+	}
+
+	var imageConfig v1.Image
+	err = json.Unmarshal(b, &imageConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal image config: %w", err)
+	}
+
+	if options.ReadBlobsFromStore {
+		loadManifest.LayersRoot = imageBlobsRootDir
+	}
+
+	return loadManifest, &imageConfig, nil
 }
