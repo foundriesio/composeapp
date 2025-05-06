@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"github.com/foundriesio/composeapp/pkg/docker"
 	"github.com/foundriesio/composeapp/pkg/update"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
@@ -72,7 +71,7 @@ func getProgressRenderer() compose.InstallProgressFunc {
 
 func renderImageLoadingProgress(ctx *progressRendererCtx, p *compose.InstallProgress) {
 	switch p.ImageLoadState {
-	case docker.ImageLoadStateLayerLoading:
+	case compose.ImageLoadStateLayerLoading:
 		{
 			if ctx.curImageID != p.ImageID {
 				fmt.Printf("  Loading image %s\n", p.ImageID)
@@ -88,23 +87,23 @@ func renderImageLoadingProgress(ctx *progressRendererCtx, p *compose.InstallProg
 				fmt.Printf("Error setting progress bar: %s\n", err.Error())
 			}
 		}
-	case docker.ImageLoadStateLayerSyncing:
+	case compose.ImageLoadStateLayerSyncing:
 		{
 			// TODO: render layer syncing progress
 			//fmt.Print(".")
 		}
-	case docker.ImageLoadStateLayerLoaded:
+	case compose.ImageLoadStateLayerLoaded:
 		{
 			//fmt.Println("ok")
 			ctx.curLayerID = ""
 			ctx.bar.Close()
 			ctx.bar = nil
 		}
-	case docker.ImageLoadStateImageLoaded:
+	case compose.ImageLoadStateImageLoaded:
 		{
 			fmt.Printf("  Image loaded: %s\n", p.ImageID)
 		}
-	case docker.ImageLoadStateImageExist:
+	case compose.ImageLoadStateImageExist:
 		{
 			fmt.Printf("  Already exists: %s\n", p.ImageID)
 		}

@@ -10,7 +10,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"github.com/foundriesio/composeapp/pkg/docker"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"os"
 	"testing"
@@ -43,7 +42,7 @@ services:
 
 	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 
-	appImages := make(docker.ImageDescriptions)
+	appImages := make(compose.ImageDescriptions)
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
 	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
 	if err != nil {
@@ -71,18 +70,18 @@ services:
 		t.Fatal(err)
 	}
 	err = loadImages(t, context.Background(), cli, appImages, appImageRefs, layersRoot,
-		docker.WithProgressReporting(progressHandler), docker.WithBlobReadingFromStore(), docker.WithRefWithDigest())
+		compose.WithProgressReporting(progressHandler), compose.WithBlobReadingFromStore(), compose.WithRefWithDigest())
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func progressHandler(progress *docker.LoadImageProgress) {
+func progressHandler(progress *compose.LoadImageProgress) {
 	fmt.Printf("Progress: ID: %s -> %d/%d\n", progress.ID, progress.Current, progress.Total)
 }
 
-func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages docker.ImageDescriptions, appImageRefs []string, layersRoot string, opts ...docker.LoadImageOption) error {
-	err := docker.LoadImages(ctx, cli, appImages, layersRoot, opts...)
+func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages compose.ImageDescriptions, appImageRefs []string, layersRoot string, opts ...compose.LoadImageOption) error {
+	err := compose.LoadImages(ctx, cli, appImages, layersRoot, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

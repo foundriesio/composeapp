@@ -6,7 +6,6 @@ import (
 
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/internal/progress"
-	"github.com/foundriesio/composeapp/pkg/docker"
 	"os"
 	"path"
 )
@@ -17,7 +16,7 @@ type (
 	InstallProgress struct {
 		AppInstallState AppInstallState
 		AppID           string
-		ImageLoadState  docker.ImageLoadState
+		ImageLoadState  ImageLoadState
 		ImageID         string
 		ID              string
 		Current         int64
@@ -92,7 +91,7 @@ func Install(ctx context.Context,
 		return err
 	}
 
-	appImageURIs := make(docker.ImageDescriptions)
+	appImageURIs := make(ImageDescriptions)
 	err = app.GetComposeRoot().Walk(func(node *TreeNode, depth int) error {
 		if node.Type == BlobTypeImageManifest {
 			nodeURI := node.Descriptor.URLs[0]
@@ -104,9 +103,9 @@ func Install(ctx context.Context,
 		return err
 	}
 
-	err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot, docker.WithRefWithDigest(),
-		docker.WithBlobReadingFromStore(),
-		docker.WithProgressReporting(func(ilp *docker.LoadImageProgress) {
+	err = LoadImages(ctx, cli, appImageURIs, blobsRoot, WithRefWithDigest(),
+		WithBlobReadingFromStore(),
+		WithProgressReporting(func(ilp *LoadImageProgress) {
 			if opts.ProgressReporter != nil {
 				opts.ProgressReporter.Update(InstallProgress{
 					AppInstallState: AppInstallStateImagesLoading,
@@ -121,7 +120,7 @@ func Install(ctx context.Context,
 		}))
 	if err != nil {
 		// Try to load images without pinning to digest and reading directly from the store
-		err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot, docker.WithProgressReporting(func(ilp *docker.LoadImageProgress) {
+		err = LoadImages(ctx, cli, appImageURIs, blobsRoot, WithProgressReporting(func(ilp *LoadImageProgress) {
 			if opts.ProgressReporter != nil {
 				opts.ProgressReporter.Update(InstallProgress{
 					AppInstallState: AppInstallStateImagesLoading,
