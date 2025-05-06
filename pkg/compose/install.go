@@ -64,40 +64,7 @@ func Install(ctx context.Context,
 		})
 	}
 
-	if err := InstallCompose(ctx, app, provider, composeRoot); err != nil {
-		return err
-	}
-	if opts.ProgressReporter != nil {
-		// TODO: Implement progress reporting for app compose installation checking
-		opts.ProgressReporter.Update(InstallProgress{
-			AppInstallState: AppInstallStateComposeChecking,
-			AppID:           app.Ref().String(),
-		})
-	}
-	if checkErrMap, err := app.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, app.Name())); err != nil {
-		return err
-	} else if len(checkErrMap) > 0 {
-		// TODO: remove prints and return error map
-		fmt.Println("the following app bundle files are not correctly installed")
-		for filePath, fileErr := range checkErrMap {
-			fmt.Printf("\t%s\t%s\n", filePath, fileErr)
-		}
-		return fmt.Errorf("app bundle is not installed completely")
-	}
-
 	cli, err := GetDockerClient(dockerHost)
-	if err != nil {
-		return err
-	}
-
-	appImageURIs := make(ImageDescriptions)
-	err = app.GetComposeRoot().Walk(func(node *TreeNode, depth int) error {
-		if node.Type == BlobTypeImageManifest {
-			nodeURI := node.Descriptor.URLs[0]
-			appImageURIs[nodeURI] = node.Descriptor.URLs
-		}
-		return nil
-	})
 	if err != nil {
 		return err
 	}
@@ -119,13 +86,37 @@ func Install(ctx context.Context,
 		loadImageOptions = append(loadImageOptions, withProgressOpt)
 	}
 
+	loadImageOptionsRequiringPatch := append(loadImageOptions, WithRefWithDigest(), WithBlobReadingFromStore())
 	// Try to load app images with reading blobs directly from the store and specifying image digests (URI with hashes)
-	err = LoadImages(ctx, cli, appImageURIs, blobsRoot,
-		append(loadImageOptions, WithRefWithDigest(), WithBlobReadingFromStore())...)
+	err = LoadImages(ctx, cli, app, blobsRoot, loadImageOptionsRequiringPatch...)
 	if err != nil {
 		// Retry loading images without reading blobs directly from the store and specifying the digest,
 		// in case if the docker daemon is not patch with the Foundries patches
-		err = LoadImages(ctx, cli, appImageURIs, blobsRoot, loadImageOptions...)
+		err = LoadImages(ctx, cli, app, blobsRoot, loadImageOptions...)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load images for app %s: %w", app.Ref().String(), err)
+	}
+
+	if err := InstallCompose(ctx, app, provider, composeRoot); err != nil {
+		return err
+	}
+	if opts.ProgressReporter != nil {
+		// TODO: Implement progress reporting for app compose installation checking
+		opts.ProgressReporter.Update(InstallProgress{
+			AppInstallState: AppInstallStateComposeChecking,
+			AppID:           app.Ref().String(),
+		})
+	}
+	if checkErrMap, err := app.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, app.Name())); err != nil {
+		return err
+	} else if len(checkErrMap) > 0 {
+		// TODO: remove prints and return error map
+		fmt.Println("the following app bundle files are not correctly installed")
+		for filePath, fileErr := range checkErrMap {
+			fmt.Printf("\t%s\t%s\n", filePath, fileErr)
+		}
+		return fmt.Errorf("app bundle is not installed completely")
 	}
 	return err
 }
