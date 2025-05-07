@@ -35,12 +35,30 @@ func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options .
 	if status.AreRunning() {
 		return fmt.Errorf("cannot uninstall running app(s)")
 	}
+
+	store, err := cfg.AppStoreFactory(cfg)
+	if err != nil {
+		return err
+	}
+	appInStoreRefs, err := store.ListApps(ctx)
+	if err != nil {
+		return err
+	}
+	appsInStore := make(map[string]int)
+	for _, ref := range appInStoreRefs {
+		appsInStore[ref.Name] += 1
+	}
 	for _, app := range status.Apps {
+		if appsInStore[app.Name()] > 1 {
+			// Cannot remove compose app dir if there is another version of this app in the store
+			continue
+		}
 		err = os.RemoveAll(cfg.GetAppComposeDir(app.Name()))
 		if err != nil {
 			return err
 		}
 	}
+
 	if opts.Prune {
 		// Prune unused images, it should remove app images of stopped apps
 		// from the docker store, unless they are used by some 3rd party containers/apps
