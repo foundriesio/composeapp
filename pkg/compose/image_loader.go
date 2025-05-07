@@ -152,7 +152,10 @@ func LoadImages(ctx context.Context,
 		for index, diffID := range imageConfig.RootFS.DiffIDs {
 			// The first 12 characters of the diffID are used as a key to the layers map,
 			// the map between the diffID and the layer distribution hash.
-			layersMap[diffID.Encoded()[:12]] = manifest.Layers[index]
+			layerID := diffID.Encoded()[:12]
+			if _, ok := layersMap[layerID]; !ok {
+				layersMap[layerID] = manifest.Layers[index]
+			}
 		}
 	}
 
@@ -342,6 +345,17 @@ func generateImageLoadManifest(
 		imageRoot = imageRoot.Children[0]
 	}
 
+	b, err := ReadBlob(ctx, NewStoreBlobProvider(imageBlobsRootDir), imageRoot.Ref(), imageRoot.Descriptor.Digest, imageRoot.Descriptor.Size)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read image manifest blob: %w", err)
+	}
+
+	var imageManifest v1.Manifest
+	err = json.Unmarshal(b, &imageManifest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal image manifest: %w", err)
+	}
+
 	var configNode *TreeNode
 	for _, child := range imageRoot.Children {
 		if child.Type == BlobTypeImageConfig {
@@ -349,17 +363,16 @@ func generateImageLoadManifest(
 			configNode = child
 			continue
 		}
-		if child.Type != BlobTypeImageLayer {
-			return nil, nil, fmt.Errorf("invalid image layer type is found: %s", child.Type)
-		}
-		loadManifest.Layers = append(loadManifest.Layers, child.Descriptor.Digest.Encoded())
+	}
+	for _, layer := range imageManifest.Layers {
+		loadManifest.Layers = append(loadManifest.Layers, layer.Digest.Encoded())
 	}
 
 	if loadManifest.Config == "" {
 		return nil, nil, fmt.Errorf("image config is not found")
 	}
 
-	b, err := ReadBlob(ctx, NewStoreBlobProvider(imageBlobsRootDir), configNode.Ref(), configNode.Descriptor.Digest, configNode.Descriptor.Size)
+	b, err = ReadBlob(ctx, NewStoreBlobProvider(imageBlobsRootDir), configNode.Ref(), configNode.Descriptor.Digest, configNode.Descriptor.Size)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read image config blob: %w", err)
 	}
