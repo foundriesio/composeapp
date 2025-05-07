@@ -38,6 +38,7 @@ type (
 		URIs                  []string               `json:"uris"`
 		Blobs                 map[string]*BlobStatus `json:"blobs"`
 		TotalBlobDownloadSize int64                  `json:"total_blob_download_size"`
+		LoadedImages          map[string]struct{}    `json:"loaded_images"`
 	}
 
 	runnerImpl struct {

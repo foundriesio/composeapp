@@ -27,6 +27,10 @@ func (u *runnerImpl) install(
 		apps[appURI] = app
 	}
 
+	if u.LoadedImages == nil {
+		u.LoadedImages = make(map[string]struct{})
+	}
+	options = append(options, compose.WithLoadedImages(u.LoadedImages))
 	for _, app := range apps {
 		err = compose.Install(ctx, app, cs, path.Join(u.config.StoreRoot, "blobs/sha256"), u.config.ComposeRoot,
 			u.config.DockerHost, options...)

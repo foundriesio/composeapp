@@ -163,7 +163,9 @@ services:
 		t.Fatal(err)
 	}
 
+	loadedImages := make(map[string]struct{})
 	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "",
+		compose.WithLoadedImages(loadedImages),
 		compose.WithInstallProgress(func(p *compose.InstallProgress) {
 			if p.AppID != app.PublishedUri {
 				t.Fatalf("expected app ID %s, got %s", app.PublishedUri, p.AppID)
@@ -172,6 +174,11 @@ services:
 		}))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, imageNode := range composeApp.GetComposeRoot().Children {
+		if _, ok := loadedImages[imageNode.Ref()]; !ok {
+			t.Fatalf("image %s was not loaded", imageNode.Ref())
+		}
 	}
 	defer func() {
 		os.RemoveAll(composeRoot)
@@ -214,10 +221,18 @@ services:
 		t.Fatal(err)
 	}
 
-	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "")
+	loadedImages := make(map[string]struct{})
+	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "",
+		compose.WithLoadedImages(loadedImages))
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, imageNode := range composeApp.GetComposeRoot().Children {
+		if _, ok := loadedImages[imageNode.Ref()]; !ok {
+			t.Fatalf("image %s was not loaded", imageNode.Ref())
+		}
+	}
+
 	defer func() {
 		os.RemoveAll(composeRoot)
 		cli, err := compose.GetDockerClient("")

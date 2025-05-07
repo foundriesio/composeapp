@@ -207,9 +207,11 @@ func LoadImages(ctx context.Context,
 		return err
 	}
 	defer r.Body.Close()
-	// TODO: Read and process the image load progress messages from the response body `r.Body`
-	dec := json.NewDecoder(r.Body)
+	return processLoadImageResponse(r.Body, options, imageURIs, layersMap)
+}
 
+func processLoadImageResponse(reader io.ReadCloser, options *LoadImageOptions, imageURIs []string, layersMap map[string]string) (err error) {
+	dec := json.NewDecoder(reader)
 	curImageIndex := 0
 	curLayerID := ""
 	p := &LoadImageProgress{
@@ -231,6 +233,10 @@ func LoadImages(ctx context.Context,
 		if jm.Error != nil {
 			err = fmt.Errorf("image load error: %s", jm.Error.Error())
 			break
+		}
+		if curImageIndex >= len(imageURIs) {
+			// All images have been loaded, continue reading the response body
+			continue
 		}
 
 		switch p.State {
@@ -304,8 +310,7 @@ func LoadImages(ctx context.Context,
 			}
 		}
 	}
-
-	return err
+	return
 }
 
 func reportProgressIfEnabled(opts *LoadImageOptions, p *LoadImageProgress) {
