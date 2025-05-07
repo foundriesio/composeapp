@@ -434,3 +434,44 @@ services:
 
 	defer finalizeUpdate(t, ctx, updateRunner)
 }
+
+func TestAppUpdateAndRemove(t *testing.T) {
+	appComposeDef01 := `
+services:
+ srvs-01:
+   image: registry:5000/factory/runner-image:v0.1
+   command: sh -c "while true; do sleep 60; done"
+   ports:
+   - 8080:80
+`
+	appComposeDef02 := `
+services:
+  busybox:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+`
+	var appURIs []string
+	for _, appDef := range []string{appComposeDef01, appComposeDef02} {
+		app := f.NewApp(t, appDef)
+		app.Publish(t)
+		appURIs = append(appURIs, app.PublishedUri)
+	}
+
+	cfg := f.NewTestConfig(t)
+	ctx := context.Background()
+
+	updateRunner, err := update.NewUpdate(cfg, "target-10")
+	check(t, err)
+
+	// do update
+	check(t, updateRunner.Init(ctx, appURIs))
+	check(t, updateRunner.Fetch(ctx))
+	check(t, updateRunner.Install(ctx))
+	check(t, updateRunner.Start(ctx))
+	check(t, updateRunner.Complete(ctx))
+
+	// stop, uninstall, and remove all apps
+	check(t, compose.StopApps(ctx, cfg, appURIs))
+	check(t, compose.UninstallApps(ctx, cfg, appURIs, compose.WithImagePruning()))
+	check(t, compose.RemoveApps(ctx, cfg, appURIs))
+}
