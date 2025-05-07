@@ -25,6 +25,9 @@ func WithoutCheckStatus() RemoveOpt {
 }
 
 func RemoveApps(ctx context.Context, cfg *Config, appRefs []string, options ...RemoveOpt) error {
+	if len(appRefs) == 0 {
+		return nil
+	}
 	opts := &RemoveOpts{Prune: true, CheckStatus: true}
 	for _, o := range options {
 		o(opts)

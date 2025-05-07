@@ -21,6 +21,9 @@ func WithImagePruning() UninstallOpt {
 }
 
 func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options ...UninstallOpt) error {
+	if len(appRefs) == 0 {
+		return nil
+	}
 	opts := &UninstallOpts{}
 	for _, o := range options {
 		o(opts)

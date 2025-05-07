@@ -85,11 +85,13 @@ func (u *runnerImpl) complete(ctx context.Context, options ...CompleteOpt) error
 				appsToPrune = append(appsToPrune, app)
 			}
 		}
-		if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning()); err != nil {
-			return err
-		}
-		if err := compose.RemoveApps(ctx, u.config, appsToPrune, compose.WithoutCheckStatus()); err != nil {
-			return err
+		if len(appsToPrune) > 0 {
+			if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning()); err != nil {
+				return err
+			}
+			if err := compose.RemoveApps(ctx, u.config, appsToPrune, compose.WithoutCheckStatus()); err != nil {
+				return err
+			}
 		}
 	}
 
