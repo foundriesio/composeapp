@@ -43,6 +43,12 @@ type (
 	}
 
 	appLoader struct{}
+
+	fileInfo struct {
+		name   string
+		size   int64
+		digest digest.Digest
+	}
 )
 
 const (
@@ -276,12 +282,12 @@ func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.
 	appIndex, errBundleIndx := a.getAppBundleIndex(ctx, provider)
 	if errBundleIndx != nil {
 		if errBundleIndx == ErrAppHasNoIndex {
-			// App manifest does not include its bundle index, hence skip the bundle integrity checking
-			return nil, nil
+			return a.checkAppBundleInstallation(ctx, provider, installationRootDir)
 		} else {
 			return nil, errBundleIndx
 		}
 	}
+
 	bundleErrMap := compose.AppBundleErrs{}
 	for filePath, fileDigest := range appIndex {
 		f, err := os.Open(path.Join(installationRootDir, filePath))
@@ -296,6 +302,46 @@ func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.
 		if _, err := io.ReadAll(r); err != nil {
 			bundleErrMap[filePath] = err.Error()
 		}
+	}
+	if len(bundleErrMap) > 0 {
+		bundleErrs = bundleErrMap
+	}
+	return
+}
+
+func (a *appCtx) checkAppBundleInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (bundleErrs compose.AppBundleErrs, err error) {
+	appBundleDescriptor, err := a.GetComposeDescriptor()
+	if err != nil {
+		return nil, err
+	}
+	appBundleFiles, err := a.indexAppBundle(ctx, provider, appBundleDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	bundleErrMap := compose.AppBundleErrs{}
+	for _, bundleFile := range appBundleFiles {
+		func() {
+			filePath := path.Join(installationRootDir, bundleFile.name)
+			f, err := os.Open(filePath)
+			if err != nil {
+				bundleErrMap[filePath] = err.Error()
+				return
+			}
+			defer f.Close()
+			r, err := compose.NewSecureReadCloser(f, compose.WithExpectedDigest(bundleFile.digest),
+				compose.WithExpectedSize(bundleFile.size))
+			if err != nil {
+				bundleErrMap[filePath] = err.Error()
+				return
+			}
+			defer r.Close()
+			// It produces ErrBlobSizeMismatch or ErrBlobDigestMismatch error if the file is bigger than expected
+			// or a hash mismatch is detected after reading all file data
+			_, err = io.ReadAll(r)
+			if err != nil {
+				bundleErrMap[filePath] = err.Error()
+			}
+		}()
 	}
 	if len(bundleErrMap) > 0 {
 		bundleErrs = bundleErrMap
@@ -331,6 +377,48 @@ func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.Blo
 		return nil, fmt.Errorf("failed to unmarshal app bundle index: %s", err.Error())
 	}
 	return appIndex, nil
+}
+
+func (a *appCtx) indexAppBundle(ctx context.Context, provider compose.BlobProvider, appArchiveDesc *ocispec.Descriptor) ([]fileInfo, error) {
+	srcReader, err := provider.GetReadCloser(compose.WithBlobType(compose.WithAppRef(ctx, &a.AppRef), compose.BlobTypeAppBundle),
+		compose.WithRef(a.GetBlobRef(appArchiveDesc.Digest)),
+		compose.WithExpectedDigest(appArchiveDesc.Digest), compose.WithExpectedSize(appArchiveDesc.Size))
+	if err != nil {
+		return nil, err
+	}
+	defer srcReader.Close()
+
+	r, err := archive.DecompressStream(srcReader)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	tr := tar.NewReader(r)
+
+	var bundleFiles []fileInfo
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue // Skip non-regular files
+		}
+		digester := digest.Canonical.Digester()
+		_, err = io.Copy(digester.Hash(), tr)
+		if err != nil {
+			return nil, err
+		}
+		bundleFiles = append(bundleFiles, fileInfo{
+			name:   hdr.Name,
+			size:   hdr.Size,
+			digest: digester.Digest(),
+		})
+	}
+	return bundleFiles, nil
 }
 
 func getChildByType(children []*compose.TreeNode, childType compose.BlobType) *compose.TreeNode {
