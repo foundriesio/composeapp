@@ -59,3 +59,12 @@ func (t *TreeNode) Ref() string {
 	}
 	return ""
 }
+
+func GetChildByType(children []*TreeNode, childType BlobType) *TreeNode {
+	for _, c := range children {
+		if c.Type == childType {
+			return c
+		}
+	}
+	return nil
+}

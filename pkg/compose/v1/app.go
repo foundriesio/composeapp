@@ -191,11 +191,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 }
 
 func (a *appCtx) GetComposeRoot() *compose.TreeNode {
-	return getChildByType(a.tree.Children, compose.BlobTypeAppBundle)
+	return compose.GetChildByType(a.tree.Children, compose.BlobTypeAppBundle)
 }
 
 func (a *appCtx) GetComposeIndex() *compose.TreeNode {
-	return getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
+	return compose.GetChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 }
 
 func (a *appCtx) GetCompose(ctx context.Context, provider compose.BlobProvider) (project *composetypes.Project, err error) {
@@ -330,7 +330,7 @@ func (a *appCtx) checkAppBundleInstallation(ctx context.Context, provider compos
 }
 
 func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.BlobProvider) (map[string]digest.Digest, error) {
-	indexNode := getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
+	indexNode := compose.GetChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 	if indexNode == nil {
 		return nil, compose.ErrAppHasNoIndex
 	}
@@ -338,7 +338,7 @@ func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.Blo
 		compose.WithExpectedSize(indexNode.Descriptor.Size))
 	if err != nil {
 		if errors.Is(err, errdefs.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-			if getChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
+			if compose.GetChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
 				// App and its images are pulled by skopeo, hence we should not expect app bundle index in the store
 				// even if the app manifest contains a reference to the bundle index.
 				return nil, compose.ErrAppHasNoIndex
@@ -398,15 +398,6 @@ func (a *appCtx) indexAppBundle(ctx context.Context, provider compose.BlobProvid
 		}
 	}
 	return bundleFiles, nil
-}
-
-func getChildByType(children []*compose.TreeNode, childType compose.BlobType) *compose.TreeNode {
-	for _, c := range children {
-		if c.Type == childType {
-			return c
-		}
-	}
-	return nil
 }
 
 func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx) ([]byte, *ocispec.Descriptor, error) {
