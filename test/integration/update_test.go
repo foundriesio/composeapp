@@ -360,7 +360,7 @@ services:
 	var appURIs []string
 	for _, appDef := range []string{appComposeDef01, appComposeDef02} {
 		app := f.NewApp(t, appDef)
-		app.Publish(t)
+		app.Publish(t, f.WithAppBundleIndexes(false))
 		appURIs = append(appURIs, app.PublishedUri)
 	}
 
@@ -378,7 +378,7 @@ services:
 
 	// change app1 and publish it
 	app := f.NewApp(t, appComposeDef01v1)
-	app.Publish(t)
+	app.Publish(t, f.WithAppBundleIndexes(false))
 	appURIs = []string{app.PublishedUri}
 
 	appsStatus, err := compose.CheckAppsStatus(ctx, cfg, nil)
@@ -414,8 +414,11 @@ services:
 		check(t, compose.StopApps(ctx, cfg, appURIs))
 	}()
 
-	// Complete update
-	check(t, updateRunner.Complete(ctx, update.CompleteWithPruning()))
+	check(t, updateRunner.Complete(ctx))
+
+	// Remove and uninstall apps that are not part of target/update
+	check(t, compose.UninstallApps(ctx, cfg, appsToRemove))
+	check(t, compose.RemoveApps(ctx, cfg, appsToRemove))
 
 	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, nil)
 	check(t, err)
