@@ -38,9 +38,10 @@ type (
 	}
 
 	PublishOpts struct {
-		PublishLayersManifest bool
-		PublishLayersMetaFile bool
-		Registry              string
+		PublishLayersManifest   bool
+		PublishLayersMetaFile   bool
+		Registry                string
+		PublishAppBundleIndexes bool
 	}
 )
 
@@ -55,6 +56,12 @@ func Checkf(t *testing.T, err error, format string, args ...any) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf(format, args...)
+	}
+}
+
+func WithAppBundleIndexes(enableAppBundleIndexes bool) func(opts *PublishOpts) {
+	return func(opts *PublishOpts) {
+		opts.PublishAppBundleIndexes = enableAppBundleIndexes
 	}
 }
 
@@ -134,7 +141,7 @@ func (a *App) removeImages(t *testing.T) {
 
 func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 	a.pullImages(t)
-	opts := PublishOpts{PublishLayersManifest: true, PublishLayersMetaFile: true}
+	opts := PublishOpts{PublishLayersManifest: true, PublishLayersMetaFile: true, PublishAppBundleIndexes: true}
 	for _, o := range publishOpts {
 		o(&opts)
 	}
@@ -158,6 +165,14 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 			defer os.RemoveAll(layersMetaFile)
 			args = append(args, "--layers-meta", layersMetaFile)
 		}
+		if !opts.PublishAppBundleIndexes {
+			os.Setenv("APP_BUNDLE_INDEX_OFF", "1")
+		}
+		defer func() {
+			if !opts.PublishAppBundleIndexes {
+				os.Unsetenv("APP_BUNDLE_INDEX_OFF")
+			}
+		}()
 		runCmd(t, a.Dir, args...)
 		b, err := os.ReadFile(digestFile)
 		Check(t, err)

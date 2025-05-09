@@ -196,7 +196,7 @@ func createAndPublishApp(ctx context.Context,
 	desc.MediaType = AppLayerMediaType
 	fmt.Println("  |-> app blob: ", desc.Digest.String())
 
-	if appContentHashes != nil && len(appContentHashes) > 0 {
+	if os.Getenv("APP_BUNDLE_INDEX_OFF") != "1" && appContentHashes != nil && len(appContentHashes) > 0 {
 		if d, err := publishAppBundleIndexBlob(ctx, blobStore, appContentHashes); err == nil {
 			desc.Annotations = map[string]string{
 				AnnotationKeyAppBundleIndexDigest: d.Digest.String(),
