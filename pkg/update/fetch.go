@@ -98,25 +98,24 @@ func (u *runnerImpl) fetch(
 		}(stopChan)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(u.Blobs))
-	for _, blobInfo := range u.Blobs {
-		go func(bi *BlobStatus) {
-			defer wg.Done()
-			if err := compose.CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, ls, true); err != nil {
-				// TODO: log this error and handle the fetch failure
-				fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
-				return
-			}
-		}(blobInfo)
+	for _, bi := range u.Blobs {
+		err = compose.CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, ls, true)
+		if err != nil {
+			// TODO: log this error and do retry
+			fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
+			break
+		}
 	}
-	wg.Wait()
+
 	if opts.ProgressReporter != nil {
-		stopChan <- struct{}{}
+		if ctx.Err() == nil {
+			// stop the progress reporter if it wasn't stopped yet through the context cancel
+			stopChan <- struct{}{}
+		}
 		progressWg.Wait()
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 func checkAndUpdateBlobStatus(ctx context.Context, b *session, u *runnerImpl, ls content.Store, sr progress.Reporter[FetchProgress]) {
