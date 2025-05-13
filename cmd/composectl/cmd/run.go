@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
-	"path"
 	"strings"
 )
 
@@ -83,11 +82,11 @@ func runApps(cmd *cobra.Command, opts *runOptions) {
 
 	for _, app := range checkedApps {
 		fmt.Printf("Installing %s --> %s\n", app.Name(), app.Ref().String())
-		err = v1.InstallApp(cmd.Context(), app, cs, path.Join(config.StoreRoot, "blobs/sha256"), config.ComposeRoot, config.DockerHost)
+		err = v1.InstallApp(cmd.Context(), app, cs, config.GetBlobsRoot(), config.ComposeRoot, config.DockerHost)
 		DieNotNil(err)
 		fmt.Printf("Starting %s --> %s\n", app.Name(), app.Ref().String())
 		cmd := exec.Command("docker", "compose", "up", "-d", "--remove-orphans")
-		cmd.Dir = path.Join(config.ComposeRoot, app.Name())
+		cmd.Dir = config.GetAppComposeDir(app.Name())
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
 		DieNotNil(cmd.Run())

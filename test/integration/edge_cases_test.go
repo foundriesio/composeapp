@@ -94,7 +94,7 @@ services:
 	defer app.Uninstall(t)
 	app.CheckInstalled(t)
 
-	composeFilePath := path.Join(composectl.GetConfig().ComposeRoot, app.Name, "docker-compose.yml")
+	composeFilePath := path.Join(composectl.GetConfig().GetAppComposeDir(app.Name), "docker-compose.yml")
 	if err := os.WriteFile(composeFilePath, []byte("foo bar"), 0x644); err != nil {
 		t.Fatal(err)
 	}
