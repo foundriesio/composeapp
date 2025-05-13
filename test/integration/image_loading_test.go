@@ -36,9 +36,7 @@ services:
 	app.CheckFetched(t)
 
 	cli, err := compose.GetDockerClient("")
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 	defer cli.Close()
 
 	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
@@ -46,18 +44,14 @@ services:
 	appImages := make(docker.ImageDescriptions)
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
 	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 	err = composeApp.GetComposeRoot().Walk(func(node *compose.TreeNode, depth int) error {
 		if node.Type == compose.BlobTypeImageManifest {
 			appImages[node.Ref()] = node.Descriptor.URLs
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 
 	var appImageRefs []string
 	for uri := range appImages {
@@ -67,26 +61,18 @@ services:
 	}
 
 	err = loadImages(t, context.Background(), cli, appImages, appImageRefs, layersRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 	err = loadImages(t, context.Background(), cli, appImages, appImageRefs, layersRoot,
 		docker.WithBlobReadingFromStore(), docker.WithRefWithDigest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 }
 
 func loadImages(t *testing.T, ctx context.Context, cli *client.Client, appImages docker.ImageDescriptions, appImageRefs []string, layersRoot string, opts ...docker.LoadImageOption) error {
 	err := docker.LoadImages(ctx, cli, appImages, layersRoot, opts...)
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 
 	dockerImages, err := cli.ImageList(context.Background(), types.ImageListOptions{All: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 	var dockerImageMap = make(map[string]string)
 	for _, di := range dockerImages {
 		for _, tag := range di.RepoTags {
@@ -134,9 +120,7 @@ services:
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
 	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 
 	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "",
 		compose.WithInstallProgress(func(p *compose.InstallProgress) {
@@ -145,19 +129,13 @@ services:
 			}
 			// TODO: check progress
 		}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 	defer func() {
 		os.RemoveAll(composeRoot)
 		cli, err := compose.GetDockerClient("")
-		if err != nil {
-			t.Fatal(err)
-		}
+		f.Check(t, err)
 		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
-		if err != nil {
-			t.Fatal(err)
-		}
+		f.Check(t, err)
 	}()
 }
 
@@ -185,23 +163,15 @@ services:
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
 	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 
 	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	f.Check(t, err)
 	defer func() {
 		os.RemoveAll(composeRoot)
 		cli, err := compose.GetDockerClient("")
-		if err != nil {
-			t.Fatal(err)
-		}
+		f.Check(t, err)
 		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
-		if err != nil {
-			t.Fatal(err)
-		}
+		f.Check(t, err)
 	}()
 }
