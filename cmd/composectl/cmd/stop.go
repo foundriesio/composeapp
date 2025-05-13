@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 )
 
@@ -64,7 +63,7 @@ func stopApps(args []string, opts *stopOptions) {
 
 	for _, app := range appsToStop {
 		cmd := exec.Command("docker", "compose", "down")
-		cmd.Dir = path.Join(config.ComposeRoot, app)
+		cmd.Dir = config.GetAppComposeDir(app)
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
 		DieNotNil(cmd.Run())

@@ -11,7 +11,6 @@ import (
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"os"
-	"path"
 	"testing"
 )
 
@@ -38,7 +37,7 @@ services:
 	f.Check(t, err)
 	defer cli.Close()
 
-	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
 	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
@@ -143,7 +142,7 @@ services:
 	defer app.Remove(t)
 	app.CheckFetched(t)
 
-	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 	composeRoot := "/var/sota/compose-apps"
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)
@@ -186,7 +185,7 @@ services:
 	defer app.Remove(t)
 	app.CheckFetched(t)
 
-	layersRoot := path.Join(f.AppStoreRoot, "blobs", "sha256")
+	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
 	composeRoot := "/var/sota/compose-apps"
 
 	blobProvider := compose.NewStoreBlobProvider(layersRoot)

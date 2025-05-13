@@ -5,7 +5,6 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
-	"path"
 )
 
 var (
@@ -44,7 +43,7 @@ func doOutputManifest(cmd *cobra.Command, args []string, opts *manifestOptions) 
 	}
 	var blobProvider compose.BlobProvider
 	if len(*opts.SrcStorePath) > 0 {
-		blobProvider = compose.NewStoreBlobProvider(path.Join(*opts.SrcStorePath, "blobs", "sha256"))
+		blobProvider = compose.NewStoreBlobProvider(compose.GetBlobsRootFor(*opts.SrcStorePath))
 	} else {
 		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
 		resolver := compose.NewResolver(authorizer, config.ConnectTimeout)

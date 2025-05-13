@@ -70,7 +70,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 			fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
 			var copyErr error
 			if len(*pullSrcStorePath) > 0 {
-				blobPath := path.Join(*pullSrcStorePath, "blobs/sha256", b.Descriptor.Digest.Encoded())
+				blobPath := path.Join(compose.GetBlobsRootFor(*pullSrcStorePath), b.Descriptor.Digest.Encoded())
 				copyErr = compose.CopyLocalBlob(cmd.Context(), blobPath, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
 			} else {
 				copyErr = compose.CopyBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
