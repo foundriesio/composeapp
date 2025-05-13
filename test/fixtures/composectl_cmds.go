@@ -10,6 +10,7 @@ import (
 	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"gopkg.in/yaml.v3"
 	"io"
 	rand2 "math/rand"
@@ -38,11 +39,20 @@ type (
 	}
 
 	PublishOpts struct {
-		PublishLayersManifest bool
-		PublishLayersMetaFile bool
-		Registry              string
+		PublishLayersManifest   bool
+		PublishLayersMetaFile   bool
+		Registry                string
+		PublishAppBundleIndexes bool
 	}
 )
+
+func NewTestConfig(t *testing.T) *compose.Config {
+	cfg, err := v1.NewDefaultConfig()
+	check(t, err)
+	cfg.StoreRoot = AppStoreRoot
+	cfg.DBFilePath = path.Join(cfg.StoreRoot, "updates.db")
+	return cfg
+}
 
 func check(t *testing.T, err error) {
 	if err != nil {
@@ -53,6 +63,12 @@ func check(t *testing.T, err error) {
 func checkf(t *testing.T, err error, format string, args ...any) {
 	if err != nil {
 		t.Fatalf(format, args...)
+	}
+}
+
+func WithAppBundleIndexes(enableAppBundleIndexes bool) func(opts *PublishOpts) {
+	return func(opts *PublishOpts) {
+		opts.PublishAppBundleIndexes = enableAppBundleIndexes
 	}
 }
 
@@ -137,7 +153,7 @@ func (a *App) removeImages(t *testing.T) {
 
 func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 	a.pullImages(t)
-	opts := PublishOpts{PublishLayersManifest: true, PublishLayersMetaFile: true}
+	opts := PublishOpts{PublishLayersManifest: true, PublishLayersMetaFile: true, PublishAppBundleIndexes: true}
 	for _, o := range publishOpts {
 		o(&opts)
 	}
@@ -161,6 +177,14 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 			defer os.RemoveAll(layersMetaFile)
 			args = append(args, "--layers-meta", layersMetaFile)
 		}
+		if !opts.PublishAppBundleIndexes {
+			os.Setenv("APP_BUNDLE_INDEX_OFF", "1")
+		}
+		defer func() {
+			if !opts.PublishAppBundleIndexes {
+				os.Unsetenv("APP_BUNDLE_INDEX_OFF")
+			}
+		}()
 		runCmd(t, a.Dir, args...)
 		b, err := os.ReadFile(digestFile)
 		check(t, err)
@@ -248,7 +272,7 @@ func (a *App) CheckInstalled(t *testing.T) {
 	})
 }
 
-func (a *App) GetInstallCheckRes(t *testing.T) (checkRes *composectl.AppInstallCheckResult) {
+func (a *App) GetInstallCheckRes(t *testing.T) (checkRes *compose.AppInstallCheckResult) {
 	t.Run("check if installed", func(t *testing.T) {
 		output := runCmd(t, a.Dir, "check", "--local", "--install", a.PublishedUri, "--format", "json")
 		checkResult := composectl.CheckAndInstallResult{}
@@ -369,7 +393,7 @@ func (a *App) PullAppImagesWithSkopeo(t *testing.T) {
 func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest ocischema.Manifest) {
 	imageRef, err := compose.ParseImageRef(image)
 	check(t, err)
-	manifestPath := path.Join(AppStoreRoot, "blobs", "sha256", imageRef.Digest.Encoded())
+	manifestPath := path.Join(compose.GetBlobsRootFor(AppStoreRoot), imageRef.Digest.Encoded())
 
 	var b []byte
 	b, err = os.ReadFile(manifestPath)
@@ -389,7 +413,7 @@ func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest oci
 		check(t, json.Unmarshal(b, &imageManifestList))
 		for _, manifestDescriptor := range imageManifestList.Manifests {
 			if manifestDescriptor.Platform.Architecture == "amd64" {
-				manifestPath = path.Join(AppStoreRoot, "blobs", "sha256", manifestDescriptor.Digest.Encoded())
+				manifestPath = path.Join(compose.GetBlobsRootFor(AppStoreRoot), manifestDescriptor.Digest.Encoded())
 				b, err = os.ReadFile(manifestPath)
 				check(t, err)
 				break

@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/reference"
-	"github.com/containerd/containerd/reference/docker"
-	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
 	"os"
-	"path"
 )
 
 var (
@@ -44,17 +40,9 @@ type (
 	}
 
 	CheckAndInstallResult struct {
-		FetchCheck   *CheckAppResult     `json:"fetch_check"`
-		InstallCheck *InstallCheckResult `json:"install_check"`
+		FetchCheck   *CheckAppResult             `json:"fetch_check"`
+		InstallCheck *compose.InstallCheckResult `json:"install_check"`
 	}
-
-	AppInstallCheckResult struct {
-		AppName       string                `json:"app_name"`
-		MissingImages []string              `json:"missing_images"`
-		BundleErrors  compose.AppBundleErrs `json:"bundle_errors"`
-	}
-
-	InstallCheckResult map[string]*AppInstallCheckResult
 )
 
 const (
@@ -101,16 +89,27 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	}
 	cr, ui, _ := checkApps(cmd.Context(), args, cs, blobProvider,
 		*opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
-	var ir InstallCheckResult
+
+	var ir compose.InstallCheckResult
 	if opts.CheckInstall {
-		ir, err = checkIfInstalled(cmd.Context(), args, cs, config.DockerHost)
+		// TODO: unify configurations of the cmd and pkg.compose packages
+		composeCfg := compose.Config{
+			StoreRoot:      config.StoreRoot,
+			ComposeRoot:    config.ComposeRoot,
+			DockerCfg:      config.DockerCfg,
+			DockerHost:     config.DockerHost,
+			Platform:       config.Platform,
+			ConnectTimeout: config.ConnectTimeout,
+			AppLoader:      v1.NewAppLoader(),
+		}
+		ir, err = compose.CheckInstallation(cmd.Context(), &composeCfg, args, cs)
 		DieNotNil(err)
 	}
 	if opts.Format == "json" {
 		aggregatedCheckRes :=
 			struct {
-				FetchCheck   *CheckAppResult     `json:"fetch_check"`
-				InstallCheck *InstallCheckResult `json:"install_check"`
+				FetchCheck   *CheckAppResult             `json:"fetch_check"`
+				InstallCheck *compose.InstallCheckResult `json:"install_check"`
 			}{
 				FetchCheck:   cr,
 				InstallCheck: &ir,
@@ -252,62 +251,6 @@ func (cr *CheckAppResult) print() {
 		len(cr.MissingBlobs), units.BytesSize(float64(cr.TotalPullSize)), units.BytesSize(float64(cr.TotalStoreSize)), units.BytesSize(float64(cr.TotalRuntimeSize)), units.BytesSize(float64(cr.TotalStoreSize+cr.TotalRuntimeSize)))
 }
 
-func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compose.BlobProvider, dockerHost string) (InstallCheckResult, error) {
-	cli, err := compose.GetDockerClient(dockerHost)
-	if err != nil {
-		return nil, err
-	}
-	images, err := cli.ImageList(ctx, dockertypes.ImageListOptions{All: true})
-	if err != nil {
-		return nil, err
-	}
-	installedImages := map[string]bool{}
-	for _, i := range images {
-		if len(i.RepoDigests) > 0 {
-			installedImages[i.RepoDigests[0]] = true
-		}
-		if len(i.RepoTags) > 0 {
-			// unpatch docker won't store the digest URI of loaded image
-			installedImages[i.RepoTags[0]] = true
-		}
-	}
-
-	checkResult := InstallCheckResult{}
-	for _, appRef := range appRefs {
-		app, err := v1.NewAppLoader().LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(config.Platform), appRef)
-		DieNotNil(err)
-		var missingImages []string
-		appComposeRoot := app.GetComposeRoot()
-		for _, imageNode := range appComposeRoot.Children {
-			imageUri := imageNode.Ref()
-			if !installedImages[imageUri] {
-				if s, err := reference.Parse(imageUri); err == nil {
-					taggedUri := s.Locator + ":" + (s.Digest().Encoded())[:7]
-					if !installedImages[taggedUri] {
-						// Check familiar name
-						if anyRef, err := docker.ParseAnyReference(imageUri); err == nil {
-							familiarRef := docker.FamiliarString(anyRef)
-							if !installedImages[familiarRef] {
-								missingImages = append(missingImages, imageUri)
-							}
-						}
-					}
-				}
-			}
-		}
-		errMap, err := app.CheckComposeInstallation(ctx, blobProvider, path.Join(config.ComposeRoot, app.Name()))
-		if err != nil {
-			return nil, err
-		}
-		checkResult[appRef] = &AppInstallCheckResult{
-			AppName:       app.Name(),
-			MissingImages: missingImages,
-			BundleErrors:  errMap,
-		}
-	}
-	return checkResult, nil
-}
-
 func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProvider compose.BlobProvider, store compose.AppStore, err error) {
 	// Create the skopeo store aware instance only if it is a local check
 	store, err = v1.NewAppStore(config.StoreRoot, config.Platform, local)
@@ -315,7 +258,7 @@ func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProv
 		return
 	}
 	if len(srcStorePath) > 0 {
-		srcBlobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
+		srcBlobProvider = compose.NewStoreBlobProvider(compose.GetBlobsRootFor(srcStorePath))
 	} else if local {
 		// Use the local store as the source blob provider to check whether app is fetched without a need in connection
 		// to Registry. Requires app manifest and app archive presence in the local store, otherwise fails.

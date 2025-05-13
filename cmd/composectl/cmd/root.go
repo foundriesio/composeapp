@@ -6,6 +6,7 @@ import (
 	dockercfg "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
 	"github.com/docker/cli/cli/config/credentials"
+	updatectl "github.com/foundriesio/composeapp/cmd/composectl/cmd/update"
 	"github.com/spf13/cobra"
 	"os"
 	"path"
@@ -97,6 +98,7 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", defConnectTimeoutValue,
 		"timeout in seconds for establishing a connection to a container registry and an authentication service")
 	rootCmd.PersistentFlags().BoolVarP(&showConfigFile, "show-config", "C", false, "print paths of the applied config files")
+	rootCmd.AddCommand(updatectl.UpdateCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 

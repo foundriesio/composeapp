@@ -43,28 +43,27 @@ type (
 	}
 
 	appLoader struct{}
+
+	fileInfo struct {
+		name string
+		size int64
+	}
 )
 
 const (
-	AppManifestMediaType   = "application/vnd.oci.image.manifest.v1+json"
-	AppManifestMaxSize     = 50 * 1024
-	AppComposeMaxSize      = 1024 * 1024
-	AppBundleFileMaxSize   = 1024*1024*1024 - AppComposeMaxSize
-	AppBundleMaxSize       = AppComposeMaxSize + AppBundleFileMaxSize
-	AppLayerMediaType      = "application/octet-stream"
-	AppLayersMetaVersion   = "v1"
-	AppServiceHashLabelKey = "io.compose-spec.config-hash"
+	AppManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
+	AppManifestMaxSize   = 50 * 1024
+	AppComposeMaxSize    = 1024 * 1024
+	AppBundleFileMaxSize = 1024*1024*1024 - AppComposeMaxSize
+	AppBundleMaxSize     = AppComposeMaxSize + AppBundleFileMaxSize
+	AppLayerMediaType    = "application/octet-stream"
+	AppLayersMetaVersion = "v1"
 
 	AnnotationKeyAppBundleIndexDigest = "org.foundries.app.bundle.index.digest"
 	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
 
 	StoreTypeSkopeo     = "skopeo store"
 	StoreTypeComposeCtl = "composectl store"
-)
-
-var (
-	ErrAppHasNoIndex    = errors.New("app has no bundle index")
-	ErrAppIndexNotFound = errors.New("app blob index is not found")
 )
 
 func (a *appCtx) Name() string {
@@ -177,11 +176,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 			return nil, fmt.Errorf("failed to load app service image (%s): %s", service.Name, err)
 		}
 		if service.Labels != nil {
-			if srvHash, ok := service.Labels[AppServiceHashLabelKey]; ok {
+			if srvHash, ok := service.Labels[compose.AppServiceHashLabelKey]; ok {
 				if imageTree.Descriptor.Annotations == nil {
 					imageTree.Descriptor.Annotations = make(map[string]string)
 				}
-				imageTree.Descriptor.Annotations[AppServiceHashLabelKey] = srvHash
+				imageTree.Descriptor.Annotations[compose.AppServiceHashLabelKey] = srvHash
 			}
 		}
 		composeTree.Children = append(composeTree.Children, imageTree)
@@ -192,11 +191,11 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 }
 
 func (a *appCtx) GetComposeRoot() *compose.TreeNode {
-	return getChildByType(a.tree.Children, compose.BlobTypeAppBundle)
+	return compose.GetChildByType(a.tree.Children, compose.BlobTypeAppBundle)
 }
 
 func (a *appCtx) GetComposeIndex() *compose.TreeNode {
-	return getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
+	return compose.GetChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 }
 
 func (a *appCtx) GetCompose(ctx context.Context, provider compose.BlobProvider) (project *composetypes.Project, err error) {
@@ -275,13 +274,13 @@ func (a *appCtx) GetLayersMetadataDescriptor() (*ocispec.Descriptor, error) {
 func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (bundleErrs compose.AppBundleErrs, err error) {
 	appIndex, errBundleIndx := a.getAppBundleIndex(ctx, provider)
 	if errBundleIndx != nil {
-		if errBundleIndx == ErrAppHasNoIndex {
-			// App manifest does not include its bundle index, hence skip the bundle integrity checking
-			return nil, nil
+		if errBundleIndx == compose.ErrAppHasNoIndex {
+			return a.checkAppBundleInstallation(ctx, provider, installationRootDir)
 		} else {
 			return nil, errBundleIndx
 		}
 	}
+
 	bundleErrMap := compose.AppBundleErrs{}
 	for filePath, fileDigest := range appIndex {
 		f, err := os.Open(path.Join(installationRootDir, filePath))
@@ -303,21 +302,48 @@ func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.
 	return
 }
 
+func (a *appCtx) checkAppBundleInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (bundleErrs compose.AppBundleErrs, err error) {
+	appBundleDescriptor, err := a.GetComposeDescriptor()
+	if err != nil {
+		return nil, err
+	}
+	appBundleFiles, err := a.indexAppBundle(ctx, provider, appBundleDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	bundleErrMap := compose.AppBundleErrs{}
+	for _, bundleFile := range appBundleFiles {
+		filePath := path.Join(installationRootDir, bundleFile.name)
+		fi, err := os.Stat(filePath)
+		if os.IsNotExist(err) {
+			bundleErrMap[filePath] = err.Error()
+			continue
+		}
+		if bundleFile.size != fi.Size() {
+			bundleErrMap[filePath] = fmt.Sprintf("expected size: %d, got: %d", bundleFile.size, fi.Size())
+		}
+	}
+	if len(bundleErrMap) > 0 {
+		bundleErrs = bundleErrMap
+	}
+	return
+}
+
 func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.BlobProvider) (map[string]digest.Digest, error) {
-	indexNode := getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
+	indexNode := compose.GetChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 	if indexNode == nil {
-		return nil, ErrAppHasNoIndex
+		return nil, compose.ErrAppHasNoIndex
 	}
 	r, err := blobProvider.GetReadCloser(ctx, compose.WithExpectedDigest(indexNode.Descriptor.Digest),
 		compose.WithExpectedSize(indexNode.Descriptor.Size))
 	if err != nil {
-		if errors.Is(err, errdefs.ErrNotFound) {
-			if getChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
+		if errors.Is(err, errdefs.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			if compose.GetChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
 				// App and its images are pulled by skopeo, hence we should not expect app bundle index in the store
 				// even if the app manifest contains a reference to the bundle index.
-				return nil, ErrAppHasNoIndex
+				return nil, compose.ErrAppHasNoIndex
 			}
-			return nil, ErrAppIndexNotFound
+			return nil, compose.ErrAppIndexNotFound
 		}
 		return nil, fmt.Errorf("failed to read app bundle index: %s", err.Error())
 	}
@@ -333,13 +359,45 @@ func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.Blo
 	return appIndex, nil
 }
 
-func getChildByType(children []*compose.TreeNode, childType compose.BlobType) *compose.TreeNode {
-	for _, c := range children {
-		if c.Type == childType {
-			return c
+func (a *appCtx) indexAppBundle(ctx context.Context, provider compose.BlobProvider, appArchiveDesc *ocispec.Descriptor) ([]fileInfo, error) {
+	srcReader, err := provider.GetReadCloser(compose.WithBlobType(compose.WithAppRef(ctx, &a.AppRef), compose.BlobTypeAppBundle),
+		compose.WithRef(a.GetBlobRef(appArchiveDesc.Digest)),
+		compose.WithExpectedDigest(appArchiveDesc.Digest), compose.WithExpectedSize(appArchiveDesc.Size))
+	if err != nil {
+		return nil, err
+	}
+	defer srcReader.Close()
+
+	r, err := archive.DecompressStream(srcReader)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	tr := tar.NewReader(r)
+
+	var bundleFiles []fileInfo
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue // Skip non-regular files
+		}
+		bundleFiles = append(bundleFiles, fileInfo{
+			name: hdr.Name,
+			size: hdr.Size,
+			// TODO: consider adding digest, however it can impact performance
+		})
+		_, err = io.Copy(io.Discard, tr)
+		if err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return bundleFiles, nil
 }
 
 func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx) ([]byte, *ocispec.Descriptor, error) {
