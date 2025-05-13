@@ -10,6 +10,7 @@ import (
 	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"gopkg.in/yaml.v3"
 	"io"
 	rand2 "math/rand"
@@ -23,7 +24,8 @@ import (
 )
 
 const (
-	AppStoreRoot = "/var/sota/reset-apps"
+	AppStoreRoot       = "/var/sota/reset-apps"
+	AppComposeRootRoot = "/var/sota/compose-apps"
 )
 
 var (
@@ -44,6 +46,12 @@ type (
 		PublishAppBundleIndexes bool
 	}
 )
+
+func NewTestConfig(t *testing.T) *compose.Config {
+	cfg, err := v1.NewDefaultConfig(v1.WithStoreRoot(AppStoreRoot), v1.WithComposeRoot(AppComposeRootRoot))
+	Check(t, err)
+	return cfg
+}
 
 func Check(t *testing.T, err error) {
 	t.Helper()
@@ -204,9 +212,7 @@ func (a *App) Run(t *testing.T) {
 
 func (a *App) Up(t *testing.T) {
 	t.Run("compose up", func(t *testing.T) {
-		homeDir, homeDirErr := os.UserHomeDir()
-		Check(t, homeDirErr)
-		composeRoot := path.Join(homeDir, ".composeapps/projects", a.Name)
+		composeRoot := path.Join(AppComposeRootRoot, a.Name)
 
 		c := exec.Command("docker", "compose", "up", "--remove-orphans", "-d")
 		c.Dir = composeRoot
