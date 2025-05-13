@@ -66,11 +66,6 @@ func WithLayersManifest(addLayerManifest bool) func(opts *PublishOpts) {
 		opts.PublishLayersManifest = addLayerManifest
 	}
 }
-func WithLayersMeta(layersMetaFile bool) func(opts *PublishOpts) {
-	return func(opts *PublishOpts) {
-		opts.PublishLayersMetaFile = layersMetaFile
-	}
-}
 
 func NewApp(t *testing.T, composeDef string, name ...string) *App {
 	app := &App{}
