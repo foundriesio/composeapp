@@ -6,7 +6,6 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/spf13/cobra"
 	"os"
-	"path/filepath"
 )
 
 var uninstallCmd = &cobra.Command{
@@ -40,7 +39,7 @@ func uninstallApps(cmd *cobra.Command, args []string, opts *uninstallOptions) {
 		if _, ok := apps[app]; ok {
 			DieNotNil(fmt.Errorf("cannot uninstall running app: %s", app))
 		}
-		appComposeDir := filepath.Join(config.ComposeRoot, app)
+		appComposeDir := config.GetAppComposeDir(app)
 		if !opts.ignoreNonInstalled {
 			if _, err := os.Stat(appComposeDir); os.IsNotExist(err) {
 				DieNotNil(fmt.Errorf("app is not installed: %s", app))

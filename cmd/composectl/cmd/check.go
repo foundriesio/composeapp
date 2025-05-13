@@ -14,7 +14,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
 	"os"
-	"path"
 )
 
 var (
@@ -295,7 +294,7 @@ func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compos
 				}
 			}
 		}
-		errMap, err := app.CheckComposeInstallation(ctx, blobProvider, path.Join(config.ComposeRoot, app.Name()))
+		errMap, err := app.CheckComposeInstallation(ctx, blobProvider, config.GetAppComposeDir(app.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -315,7 +314,7 @@ func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProv
 		return
 	}
 	if len(srcStorePath) > 0 {
-		srcBlobProvider = compose.NewStoreBlobProvider(path.Join(srcStorePath, "blobs", "sha256"))
+		srcBlobProvider = compose.NewStoreBlobProvider(compose.GetBlobsRootFor(srcStorePath))
 	} else if local {
 		// Use the local store as the source blob provider to check whether app is fetched without a need in connection
 		// to Registry. Requires app manifest and app archive presence in the local store, otherwise fails.
