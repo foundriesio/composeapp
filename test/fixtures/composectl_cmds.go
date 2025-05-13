@@ -10,6 +10,7 @@ import (
 	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"gopkg.in/yaml.v3"
 	"io"
 	rand2 "math/rand"
@@ -23,7 +24,8 @@ import (
 )
 
 const (
-	AppStoreRoot = "/var/sota/reset-apps"
+	AppStoreRoot       = "/var/sota/reset-apps"
+	AppComposeRootRoot = "/var/sota/compose-apps"
 )
 
 var (
@@ -43,6 +45,12 @@ type (
 		Registry              string
 	}
 )
+
+func NewTestConfig(t *testing.T) *compose.Config {
+	cfg, err := v1.NewDefaultConfig(v1.WithStoreRoot(AppStoreRoot), v1.WithComposeRoot(AppComposeRootRoot))
+	Check(t, err)
+	return cfg
+}
 
 func Check(t *testing.T, err error) {
 	t.Helper()
