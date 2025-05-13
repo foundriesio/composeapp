@@ -6,6 +6,7 @@ import (
 	dockercfg "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
 	"github.com/docker/cli/cli/config/credentials"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/spf13/cobra"
 	"os"
 	"path"
@@ -47,10 +48,11 @@ var (
 			}
 		},
 	}
+	config compose.Config
 )
 
-func GetConfig() Config {
-	return config
+func GetConfig() *compose.Config {
+	return &config
 }
 
 func Execute() {
