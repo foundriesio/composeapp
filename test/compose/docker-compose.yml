@@ -45,6 +45,7 @@ services:
       - COMPOSECTL_EXE=${BIN_DIR}/composectl
       - SRC_DIR=${SRC_DIR}
       - STOREROOT=/var/sota/reset-apps
+      - COMPOSEROOT=/var/sota/compose-apps
 
 volumes:
   docker-data:
