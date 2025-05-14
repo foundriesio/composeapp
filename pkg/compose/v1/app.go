@@ -68,11 +68,6 @@ const (
 	StoreTypeComposeCtl = "composectl store"
 )
 
-var (
-	ErrAppHasNoIndex    = errors.New("app has no bundle index")
-	ErrAppIndexNotFound = errors.New("app blob index is not found")
-)
-
 func (a *appCtx) Name() string {
 	return a.AppRef.Name
 }
@@ -281,7 +276,7 @@ func (a *appCtx) GetLayersMetadataDescriptor() (*ocispec.Descriptor, error) {
 func (a *appCtx) CheckComposeInstallation(ctx context.Context, provider compose.BlobProvider, installationRootDir string) (bundleErrs compose.AppBundleErrs, err error) {
 	appIndex, errBundleIndx := a.getAppBundleIndex(ctx, provider)
 	if errBundleIndx != nil {
-		if errBundleIndx == ErrAppHasNoIndex {
+		if errBundleIndx == compose.ErrAppHasNoIndex {
 			return a.checkAppBundleInstallation(ctx, provider, installationRootDir)
 		} else {
 			return nil, errBundleIndx
@@ -352,7 +347,7 @@ func (a *appCtx) checkAppBundleInstallation(ctx context.Context, provider compos
 func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.BlobProvider) (map[string]digest.Digest, error) {
 	indexNode := getChildByType(a.tree.Children, compose.BlobTypeAppIndex)
 	if indexNode == nil {
-		return nil, ErrAppHasNoIndex
+		return nil, compose.ErrAppHasNoIndex
 	}
 	r, err := blobProvider.GetReadCloser(ctx, compose.WithExpectedDigest(indexNode.Descriptor.Digest),
 		compose.WithExpectedSize(indexNode.Descriptor.Size))
@@ -361,9 +356,9 @@ func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.Blo
 			if getChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
 				// App and its images are pulled by skopeo, hence we should not expect app bundle index in the store
 				// even if the app manifest contains a reference to the bundle index.
-				return nil, ErrAppHasNoIndex
+				return nil, compose.ErrAppHasNoIndex
 			}
-			return nil, ErrAppIndexNotFound
+			return nil, compose.ErrAppIndexNotFound
 		}
 		return nil, fmt.Errorf("failed to read app bundle index: %s", err.Error())
 	}
