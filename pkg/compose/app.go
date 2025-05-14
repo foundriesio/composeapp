@@ -44,7 +44,9 @@ const (
 )
 
 var (
-	ErrAppNotFound = errors.New("app not found")
+	ErrAppNotFound      = errors.New("app not found")
+	ErrAppHasNoIndex    = errors.New("app has no bundle index")
+	ErrAppIndexNotFound = errors.New("app blob index is not found")
 )
 
 func WithAppRef(ctx context.Context, ref *AppRef) context.Context {
