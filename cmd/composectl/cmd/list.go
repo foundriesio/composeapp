@@ -3,7 +3,7 @@ package composectl
 import (
 	"encoding/json"
 	"fmt"
-	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/spf13/cobra"
 )
 
@@ -37,16 +37,14 @@ func init() {
 }
 
 func listApps(cmd *cobra.Command, opts *listOptions) {
-	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
-	DieNotNil(err)
-	apps, err := cs.ListApps(cmd.Context())
+	apps, err := compose.ListApps(cmd.Context(), config)
 	DieNotNil(err)
 	if opts.Format == "json" {
 		var lsOutput []AppJsonOutput
 		for _, app := range apps {
 			lsOutput = append(lsOutput, AppJsonOutput{
-				Name: app.Name,
-				URI:  app.String(),
+				Name: app.Name(),
+				URI:  app.Ref().String(),
 			})
 		}
 		if b, err := json.MarshalIndent(lsOutput, "", "  "); err == nil {
@@ -54,7 +52,7 @@ func listApps(cmd *cobra.Command, opts *listOptions) {
 		}
 	} else {
 		for _, a := range apps {
-			fmt.Printf("%s -> %s\n", a.Name, a.String())
+			fmt.Printf("%s -> %s\n", a.Name(), a.Ref())
 		}
 	}
 }
