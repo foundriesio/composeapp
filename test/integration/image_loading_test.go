@@ -142,14 +142,8 @@ services:
 	defer app.Remove(t)
 	app.CheckFetched(t)
 
-	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
-	composeRoot := "/var/sota/compose-apps"
-
-	blobProvider := compose.NewStoreBlobProvider(layersRoot)
-	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
-	f.Check(t, err)
-
-	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "",
+	cfg := f.NewTestConfig(t)
+	err := compose.Install(context.Background(), cfg, app.PublishedUri,
 		compose.WithInstallProgress(func(p *compose.InstallProgress) {
 			if p.AppID != app.PublishedUri {
 				t.Fatalf("expected app ID %s, got %s", app.PublishedUri, p.AppID)
@@ -158,7 +152,7 @@ services:
 		}))
 	f.Check(t, err)
 	defer func() {
-		os.RemoveAll(composeRoot)
+		os.RemoveAll(cfg.ComposeRoot)
 		cli, err := compose.GetDockerClient("")
 		f.Check(t, err)
 		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
@@ -185,17 +179,11 @@ services:
 	defer app.Remove(t)
 	app.CheckFetched(t)
 
-	layersRoot := compose.GetBlobsRootFor(f.AppStoreRoot)
-	composeRoot := "/var/sota/compose-apps"
-
-	blobProvider := compose.NewStoreBlobProvider(layersRoot)
-	composeApp, err := v1.NewAppLoader().LoadAppTree(context.Background(), blobProvider, platforms.Default(), app.PublishedUri)
-	f.Check(t, err)
-
-	err = compose.Install(context.Background(), composeApp, blobProvider, layersRoot, composeRoot, "")
+	cfg := f.NewTestConfig(t)
+	err := compose.Install(context.Background(), cfg, app.PublishedUri)
 	f.Check(t, err)
 	defer func() {
-		os.RemoveAll(composeRoot)
+		os.RemoveAll(cfg.ComposeRoot)
 		cli, err := compose.GetDockerClient("")
 		f.Check(t, err)
 		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))

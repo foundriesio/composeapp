@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/internal/progress"
 	"os"
@@ -45,15 +46,21 @@ func WithInstallProgress(pf InstallProgressFunc) InstallOption {
 }
 
 func Install(ctx context.Context,
-	app App,
-	provider BlobProvider,
-	blobsRoot string,
-	composeRoot string,
-	dockerHost string,
+	cfg *Config,
+	appURI string,
 	options ...InstallOption) error {
 	opts := InstallOptions{}
 	for _, o := range options {
 		o(&opts)
+	}
+
+	cs, err := cfg.AppStoreFactory()
+	if err != nil {
+		return fmt.Errorf("failed to create app store instance: %w", err)
+	}
+	app, err := cfg.AppLoader.LoadAppTree(ctx, cs, platforms.OnlyStrict(cfg.Platform), appURI)
+	if err != nil {
+		return fmt.Errorf("failed to load app %s: %w", app, err)
 	}
 
 	if opts.ProgressReporter != nil {
@@ -64,7 +71,7 @@ func Install(ctx context.Context,
 		})
 	}
 
-	cli, err := GetDockerClient(dockerHost)
+	cli, err := GetDockerClient(cfg.DockerHost)
 	if err != nil {
 		return err
 	}
@@ -88,17 +95,17 @@ func Install(ctx context.Context,
 
 	loadImageOptionsRequiringPatch := append(loadImageOptions, WithRefWithDigest(), WithBlobReadingFromStore())
 	// Try to load app images with reading blobs directly from the store and specifying image digests (URI with hashes)
-	err = LoadImages(ctx, cli, app, blobsRoot, loadImageOptionsRequiringPatch...)
+	err = LoadImages(ctx, cli, app, cfg.GetBlobsRoot(), loadImageOptionsRequiringPatch...)
 	if err != nil {
 		// Retry loading images without reading blobs directly from the store and specifying the digest,
 		// in case if the docker daemon is not patch with the Foundries patches
-		err = LoadImages(ctx, cli, app, blobsRoot, loadImageOptions...)
+		err = LoadImages(ctx, cli, app, cfg.GetBlobsRoot(), loadImageOptions...)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to load images for app %s: %w", app.Ref().String(), err)
 	}
 
-	if err := InstallCompose(ctx, app, provider, composeRoot); err != nil {
+	if err := InstallCompose(ctx, app, cs, cfg.ComposeRoot); err != nil {
 		return err
 	}
 	if opts.ProgressReporter != nil {
@@ -108,7 +115,7 @@ func Install(ctx context.Context,
 			AppID:           app.Ref().String(),
 		})
 	}
-	if checkErrMap, err := app.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, app.Name())); err != nil {
+	if checkErrMap, err := app.CheckComposeInstallation(ctx, cs, cfg.GetAppComposeDir(app.Name())); err != nil {
 		return err
 	} else if len(checkErrMap) > 0 {
 		// TODO: remove prints and return error map
