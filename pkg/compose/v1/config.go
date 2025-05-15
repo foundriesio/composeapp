@@ -7,6 +7,7 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 )
 
@@ -89,6 +90,12 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		}
 	}
 
+	// Get file system block size
+	s, err := compose.GetFsStat(filepath.Dir(opts.StoreRoot))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file system stat; path: %s, err: %s", opts.StoreRoot, err.Error())
+	}
+
 	// Load docker config
 	dockerCfg, err := dockercfg.Load("")
 	if err != nil {
@@ -107,5 +114,6 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		AppStoreFactory: func() (compose.AppStore, error) {
 			return NewAppStore(opts.StoreRoot, platform, opts.SkopeoSupport)
 		},
+		BlockSize: s.BlockSize,
 	}, nil
 }

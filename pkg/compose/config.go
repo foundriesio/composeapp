@@ -17,6 +17,7 @@ type (
 		ConnectTimeout  time.Duration
 		AppLoader       AppLoader
 		AppStoreFactory func() (AppStore, error)
+		BlockSize       int64
 	}
 )
 
