@@ -10,6 +10,7 @@ import (
 	"github.com/docker/distribution/manifest/ocischema"
 	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"gopkg.in/yaml.v3"
 	"io"
 	rand2 "math/rand"
@@ -23,7 +24,8 @@ import (
 )
 
 const (
-	AppStoreRoot = "/var/sota/reset-apps"
+	AppStoreRoot       = "/var/sota/reset-apps"
+	AppComposeRootRoot = "/var/sota/compose-apps"
 )
 
 var (
@@ -43,6 +45,12 @@ type (
 		Registry              string
 	}
 )
+
+func NewTestConfig(t *testing.T) *compose.Config {
+	cfg, err := v1.NewDefaultConfig(v1.WithStoreRoot(AppStoreRoot), v1.WithComposeRoot(AppComposeRootRoot))
+	Check(t, err)
+	return cfg
+}
 
 func Check(t *testing.T, err error) {
 	t.Helper()
@@ -366,7 +374,7 @@ func (a *App) PullAppImagesWithSkopeo(t *testing.T) {
 func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest ocischema.Manifest) {
 	imageRef, err := compose.ParseImageRef(image)
 	Check(t, err)
-	manifestPath := path.Join(AppStoreRoot, "blobs", "sha256", imageRef.Digest.Encoded())
+	manifestPath := path.Join(compose.GetBlobsRootFor(AppStoreRoot), imageRef.Digest.Encoded())
 
 	var b []byte
 	b, err = os.ReadFile(manifestPath)
@@ -386,7 +394,7 @@ func (a *App) GetAppImageManifest(t *testing.T, image string) (imageManifest oci
 		Check(t, json.Unmarshal(b, &imageManifestList))
 		for _, manifestDescriptor := range imageManifestList.Manifests {
 			if manifestDescriptor.Platform.Architecture == "amd64" {
-				manifestPath = path.Join(AppStoreRoot, "blobs", "sha256", manifestDescriptor.Digest.Encoded())
+				manifestPath = path.Join(compose.GetBlobsRootFor(AppStoreRoot), manifestDescriptor.Digest.Encoded())
 				b, err = os.ReadFile(manifestPath)
 				Check(t, err)
 				break

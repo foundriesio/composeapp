@@ -59,3 +59,15 @@ func (t *TreeNode) Ref() string {
 	}
 	return ""
 }
+
+func (t *TreeNode) GetServiceHash() string {
+	if !(t.Type == BlobTypeImageIndex ||
+		t.Type == BlobTypeSkopeoImageIndex ||
+		t.Type == BlobTypeImageManifest) {
+		return ""
+	}
+	if t.Descriptor == nil {
+		return ""
+	}
+	return t.Descriptor.Annotations[AppServiceHashLabelKey]
+}

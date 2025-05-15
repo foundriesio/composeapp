@@ -48,7 +48,7 @@ func NewAppStore(root string, platform ocispec.Platform, skopeoStoreAware ...boo
 		bp:               compose.NewLocalBlobProvider(cs),
 		root:             root,
 		appsRoot:         path.Join(root, "apps"),
-		blobsRoot:        path.Join(root, "blobs/sha256"),
+		blobsRoot:        compose.GetBlobsRootFor(root),
 		platform:         platform,
 		skopeoStoreAware: isSkopeoStoreAware,
 	}, nil
@@ -260,7 +260,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 	if err := os.MkdirAll(appDir, 0777); err != nil {
 		return err
 	}
-	blobPath := path.Join(storeV1.root, "blobs/sha256", appV1.Digest.Encoded())
+	blobPath := path.Join(compose.GetBlobsRootFor(storeV1.root), appV1.Digest.Encoded())
 	manifestLink := path.Join(appDir, "manifest.json")
 	if _, err := os.Stat(manifestLink); err == nil {
 		if err := syscall.Unlink(manifestLink); err != nil {
@@ -288,7 +288,7 @@ func MakeAkliteHappy(ctx context.Context, store compose.AppStore, app compose.Ap
 		}
 	}
 	if !appBundleLinkExists {
-		if err := syscall.Link(path.Join(storeV1.root, "blobs/sha256", appBundleDesc.Digest.Encoded()), appBundleLink); err != nil {
+		if err := syscall.Link(path.Join(compose.GetBlobsRootFor(storeV1.root), appBundleDesc.Digest.Encoded()), appBundleLink); err != nil {
 			return err
 		}
 	}

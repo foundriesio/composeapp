@@ -3,9 +3,9 @@ package compose
 import (
 	"context"
 	"fmt"
+	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/internal/progress"
-	"github.com/foundriesio/composeapp/pkg/docker"
 	"os"
 	"path"
 )
@@ -16,7 +16,7 @@ type (
 	InstallProgress struct {
 		AppInstallState AppInstallState
 		AppID           string
-		ImageLoadState  docker.ImageLoadState
+		ImageLoadState  ImageLoadState
 		ImageID         string
 		ID              string
 		Current         int64
@@ -46,15 +46,21 @@ func WithInstallProgress(pf InstallProgressFunc) InstallOption {
 }
 
 func Install(ctx context.Context,
-	app App,
-	provider BlobProvider,
-	blobsRoot string,
-	composeRoot string,
-	dockerHost string,
+	cfg *Config,
+	appURI string,
 	options ...InstallOption) error {
 	opts := InstallOptions{}
 	for _, o := range options {
 		o(&opts)
+	}
+
+	cs, err := cfg.AppStoreFactory()
+	if err != nil {
+		return fmt.Errorf("failed to create app store instance: %w", err)
+	}
+	app, err := cfg.AppLoader.LoadAppTree(ctx, cs, platforms.OnlyStrict(cfg.Platform), appURI)
+	if err != nil {
+		return fmt.Errorf("failed to load app %s: %w", app, err)
 	}
 
 	if opts.ProgressReporter != nil {
@@ -65,7 +71,41 @@ func Install(ctx context.Context,
 		})
 	}
 
-	if err := InstallCompose(ctx, app, provider, composeRoot); err != nil {
+	cli, err := GetDockerClient(cfg.DockerHost)
+	if err != nil {
+		return err
+	}
+
+	var loadImageOptions []LoadImageOption
+	var withProgressOpt LoadImageOption
+	if opts.ProgressReporter != nil {
+		withProgressOpt = WithProgressReporting(func(ilp *LoadImageProgress) {
+			opts.ProgressReporter.Update(InstallProgress{
+				AppInstallState: AppInstallStateImagesLoading,
+				AppID:           app.Ref().String(),
+				ImageLoadState:  ilp.State,
+				ImageID:         ilp.ImageID,
+				ID:              ilp.ID,
+				Current:         ilp.Current,
+				Total:           ilp.Total,
+			})
+		})
+		loadImageOptions = append(loadImageOptions, withProgressOpt)
+	}
+
+	loadImageOptionsRequiringPatch := append(loadImageOptions, WithRefWithDigest(), WithBlobReadingFromStore())
+	// Try to load app images with reading blobs directly from the store and specifying image digests (URI with hashes)
+	err = LoadImages(ctx, cli, app, cfg.GetBlobsRoot(), loadImageOptionsRequiringPatch...)
+	if err != nil {
+		// Retry loading images without reading blobs directly from the store and specifying the digest,
+		// in case if the docker daemon is not patch with the Foundries patches
+		err = LoadImages(ctx, cli, app, cfg.GetBlobsRoot(), loadImageOptions...)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load images for app %s: %w", app.Ref().String(), err)
+	}
+
+	if err := InstallCompose(ctx, app, cs, cfg.ComposeRoot); err != nil {
 		return err
 	}
 	if opts.ProgressReporter != nil {
@@ -75,7 +115,7 @@ func Install(ctx context.Context,
 			AppID:           app.Ref().String(),
 		})
 	}
-	if checkErrMap, err := app.CheckComposeInstallation(ctx, provider, path.Join(composeRoot, app.Name())); err != nil {
+	if checkErrMap, err := app.CheckComposeInstallation(ctx, cs, cfg.GetAppComposeDir(app.Name())); err != nil {
 		return err
 	} else if len(checkErrMap) > 0 {
 		// TODO: remove prints and return error map
@@ -84,43 +124,6 @@ func Install(ctx context.Context,
 			fmt.Printf("\t%s\t%s\n", filePath, fileErr)
 		}
 		return fmt.Errorf("app bundle is not installed completely")
-	}
-
-	cli, err := GetDockerClient(dockerHost)
-	if err != nil {
-		return err
-	}
-
-	appImageURIs := make(docker.ImageDescriptions)
-	err = app.GetComposeRoot().Walk(func(node *TreeNode, depth int) error {
-		if node.Type == BlobTypeImageManifest {
-			nodeURI := node.Descriptor.URLs[0]
-			appImageURIs[nodeURI] = node.Descriptor.URLs
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot, docker.WithRefWithDigest(),
-		docker.WithBlobReadingFromStore(),
-		docker.WithProgressReporting(func(ilp *docker.LoadImageProgress) {
-			if opts.ProgressReporter != nil {
-				opts.ProgressReporter.Update(InstallProgress{
-					AppInstallState: AppInstallStateImagesLoading,
-					AppID:           app.Ref().String(),
-					ImageLoadState:  ilp.State,
-					ImageID:         ilp.ImageID,
-					ID:              ilp.ID,
-					Current:         ilp.Current,
-					Total:           ilp.Total,
-				})
-			}
-		}))
-	if err != nil {
-		// Try to load images without pinning to digest and reading directly from the store
-		err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot)
 	}
 	return err
 }
