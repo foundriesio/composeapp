@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/foundriesio/composeapp/internal/progress"
-	"github.com/foundriesio/composeapp/pkg/docker"
 	"os"
 	"path"
 )
@@ -16,7 +15,7 @@ type (
 	InstallProgress struct {
 		AppInstallState AppInstallState
 		AppID           string
-		ImageLoadState  docker.ImageLoadState
+		ImageLoadState  ImageLoadState
 		ImageID         string
 		ID              string
 		Current         int64
@@ -65,6 +64,40 @@ func Install(ctx context.Context,
 		})
 	}
 
+	cli, err := GetDockerClient(dockerHost)
+	if err != nil {
+		return err
+	}
+
+	var loadImageOptions []LoadImageOption
+	var withProgressOpt LoadImageOption
+	if opts.ProgressReporter != nil {
+		withProgressOpt = WithProgressReporting(func(ilp *LoadImageProgress) {
+			opts.ProgressReporter.Update(InstallProgress{
+				AppInstallState: AppInstallStateImagesLoading,
+				AppID:           app.Ref().String(),
+				ImageLoadState:  ilp.State,
+				ImageID:         ilp.ImageID,
+				ID:              ilp.ID,
+				Current:         ilp.Current,
+				Total:           ilp.Total,
+			})
+		})
+		loadImageOptions = append(loadImageOptions, withProgressOpt)
+	}
+
+	loadImageOptionsRequiringPatch := append(loadImageOptions, WithRefWithDigest(), WithBlobReadingFromStore())
+	// Try to load app images with reading blobs directly from the store and specifying image digests (URI with hashes)
+	err = LoadImages(ctx, cli, app, blobsRoot, loadImageOptionsRequiringPatch...)
+	if err != nil {
+		// Retry loading images without reading blobs directly from the store and specifying the digest,
+		// in case if the docker daemon is not patch with the Foundries patches
+		err = LoadImages(ctx, cli, app, blobsRoot, loadImageOptions...)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load images for app %s: %w", app.Ref().String(), err)
+	}
+
 	if err := InstallCompose(ctx, app, provider, composeRoot); err != nil {
 		return err
 	}
@@ -84,43 +117,6 @@ func Install(ctx context.Context,
 			fmt.Printf("\t%s\t%s\n", filePath, fileErr)
 		}
 		return fmt.Errorf("app bundle is not installed completely")
-	}
-
-	cli, err := GetDockerClient(dockerHost)
-	if err != nil {
-		return err
-	}
-
-	appImageURIs := make(docker.ImageDescriptions)
-	err = app.GetComposeRoot().Walk(func(node *TreeNode, depth int) error {
-		if node.Type == BlobTypeImageManifest {
-			nodeURI := node.Descriptor.URLs[0]
-			appImageURIs[nodeURI] = node.Descriptor.URLs
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot, docker.WithRefWithDigest(),
-		docker.WithBlobReadingFromStore(),
-		docker.WithProgressReporting(func(ilp *docker.LoadImageProgress) {
-			if opts.ProgressReporter != nil {
-				opts.ProgressReporter.Update(InstallProgress{
-					AppInstallState: AppInstallStateImagesLoading,
-					AppID:           app.Ref().String(),
-					ImageLoadState:  ilp.State,
-					ImageID:         ilp.ImageID,
-					ID:              ilp.ID,
-					Current:         ilp.Current,
-					Total:           ilp.Total,
-				})
-			}
-		}))
-	if err != nil {
-		// Try to load images without pinning to digest and reading directly from the store
-		err = docker.LoadImages(ctx, cli, appImageURIs, blobsRoot)
 	}
 	return err
 }
