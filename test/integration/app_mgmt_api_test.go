@@ -75,4 +75,25 @@ services:
 	if !appsStatus.AreFetched() {
 		t.Fatalf("apps are supposed to be fetched, but they are not according to the status checking")
 	}
+
+	// install apps
+	for _, appURI := range appURIs {
+		f.Check(t, compose.Install(ctx, cfg, appURI))
+	}
+	defer func() {
+		for _, app := range apps {
+			// TODO: replace it with the API call `Uninstall` once it is implemented
+			app.Uninstall(t)
+		}
+	}()
+
+	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, appURIs)
+	f.Check(t, err)
+	if !appsStatus.AreFetched() {
+		t.Fatalf("apps are supposed to be fetched, but they are not according to the status checking")
+	}
+	if !appsStatus.AreInstalled() {
+		t.Fatalf("apps are supposed to be installed, but they are not according to the status checking")
+	}
+
 }
