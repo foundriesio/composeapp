@@ -31,10 +31,12 @@ services:
     command: sh -c "while true; do sleep 60; done"
 `
 	var apps []*f.App
+	var appURIs []string
 	for _, appDef := range []string{appComposeDef01, appComposeDef02} {
 		app := f.NewApp(t, appDef)
 		app.Publish(t)
 		apps = append(apps, app)
+		appURIs = append(appURIs, app.PublishedUri)
 	}
 	for _, a := range apps {
 		a.Pull(t)
@@ -67,5 +69,10 @@ services:
 				appsMap[app.Ref().String()] = true
 			}
 		}
+	}
+	appsStatus, err := compose.CheckAppsStatus(ctx, cfg, appURIs)
+	f.Check(t, err)
+	if !appsStatus.AreFetched() {
+		t.Fatalf("apps are supposed to be fetched, but they are not according to the status checking")
 	}
 }
