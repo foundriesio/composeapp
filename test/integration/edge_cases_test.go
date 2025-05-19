@@ -1,7 +1,6 @@
 package e2e_tests
 
 import (
-	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"os"
 	"path"
@@ -94,7 +93,8 @@ services:
 	defer app.Uninstall(t)
 	app.CheckInstalled(t)
 
-	composeFilePath := path.Join(composectl.GetConfig().GetAppComposeDir(app.Name), "docker-compose.yml")
+	cfg := f.NewTestConfig(t)
+	composeFilePath := path.Join(cfg.GetAppComposeDir(app.Name), "docker-compose.yml")
 	if err := os.WriteFile(composeFilePath, []byte("foo bar"), 0x644); err != nil {
 		t.Fatal(err)
 	}
