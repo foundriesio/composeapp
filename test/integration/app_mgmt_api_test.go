@@ -38,21 +38,20 @@ services:
 		apps = append(apps, app)
 		appURIs = append(appURIs, app.PublishedUri)
 	}
+
+	ctx := context.Background()
+	cfg := f.NewTestConfig(t)
+
 	for _, a := range apps {
 		a.Pull(t)
 	}
 	defer func() {
-		for _, a := range apps {
-			a.Remove(t)
-		}
+		f.Check(t, compose.RemoveApps(ctx, cfg, appURIs))
 	}()
 	appsMap := make(map[string]bool)
 	for _, a := range apps {
 		appsMap[a.PublishedUri] = false
 	}
-
-	ctx := context.Background()
-	cfg := f.NewTestConfig(t)
 
 	listedApps, err := compose.ListApps(ctx, cfg)
 	f.Check(t, err)
