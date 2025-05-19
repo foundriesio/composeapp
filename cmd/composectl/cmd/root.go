@@ -50,10 +50,6 @@ var (
 	config *compose.Config
 )
 
-func GetConfig() *compose.Config {
-	return config
-}
-
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
