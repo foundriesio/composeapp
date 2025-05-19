@@ -25,7 +25,7 @@ services:
     image: registry:5000/factory/runner-image:v0.1
     command: sh -c "while true; do sleep 60; done"
     ports:
-    - 8080:80
+    - 8081:80
   srvs-02:
     image: registry:5000/factory/runner-image:v0.1
     command: sh -c "while true; do sleep 60; done"
@@ -93,4 +93,21 @@ services:
 		t.Fatalf("apps are supposed to be installed, but they are not according to the status checking")
 	}
 
+	f.Check(t, compose.StartApps(ctx, cfg, appURIs))
+	defer func() {
+		for _, app := range apps {
+			app.Stop(t)
+		}
+	}()
+	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, appURIs)
+	f.Check(t, err)
+	if !appsStatus.AreFetched() {
+		t.Fatalf("apps are supposed to be fetched, but they are not according to the status checking")
+	}
+	if !appsStatus.AreInstalled() {
+		t.Fatalf("apps are supposed to be installed, but they are not according to the status checking")
+	}
+	if !appsStatus.AreRunning() {
+		t.Fatalf("apps are supposed to be running, but they are not according to the status checking")
+	}
 }
