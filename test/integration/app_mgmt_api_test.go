@@ -95,9 +95,7 @@ services:
 
 	f.Check(t, compose.StartApps(ctx, cfg, appURIs))
 	defer func() {
-		for _, app := range apps {
-			app.Stop(t)
-		}
+		f.Check(t, compose.StopApps(ctx, cfg, appURIs))
 	}()
 	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, appURIs)
 	f.Check(t, err)
