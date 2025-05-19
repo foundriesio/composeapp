@@ -81,10 +81,7 @@ services:
 		f.Check(t, compose.Install(ctx, cfg, appURI))
 	}
 	defer func() {
-		for _, app := range apps {
-			// TODO: replace it with the API call `Uninstall` once it is implemented
-			app.Uninstall(t)
-		}
+		f.Check(t, compose.UninstallApps(ctx, cfg, appURIs, compose.WithImagePruning()))
 	}()
 
 	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, appURIs)
