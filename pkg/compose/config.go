@@ -18,6 +18,7 @@ type (
 		AppLoader       AppLoader
 		AppStoreFactory func() (AppStore, error)
 		BlockSize       int64
+		DBFilePath      string
 	}
 )
 
