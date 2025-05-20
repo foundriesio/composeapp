@@ -27,6 +27,7 @@ type (
 
 	InstallOptions struct {
 		ProgressReporter progress.Reporter[InstallProgress]
+		LoadedImages     map[string]struct{}
 	}
 
 	InstallOption func(*InstallOptions)
@@ -42,6 +43,11 @@ func WithInstallProgress(pf InstallProgressFunc) InstallOption {
 	return func(o *InstallOptions) {
 		o.ProgressReporter = progress.NewReporter[InstallProgress](2)
 		o.ProgressReporter.Start(pf)
+	}
+}
+func WithLoadedImages(li map[string]struct{}) InstallOption {
+	return func(o *InstallOptions) {
+		o.LoadedImages = li
 	}
 }
 
@@ -78,17 +84,24 @@ func Install(ctx context.Context,
 
 	var loadImageOptions []LoadImageOption
 	var withProgressOpt LoadImageOption
-	if opts.ProgressReporter != nil {
+	if opts.ProgressReporter != nil || opts.LoadedImages != nil {
 		withProgressOpt = WithProgressReporting(func(ilp *LoadImageProgress) {
-			opts.ProgressReporter.Update(InstallProgress{
-				AppInstallState: AppInstallStateImagesLoading,
-				AppID:           app.Ref().String(),
-				ImageLoadState:  ilp.State,
-				ImageID:         ilp.ImageID,
-				ID:              ilp.ID,
-				Current:         ilp.Current,
-				Total:           ilp.Total,
-			})
+			if opts.LoadedImages != nil {
+				if ilp.State == ImageLoadStateImageLoaded {
+					opts.LoadedImages[ilp.ImageID] = struct{}{}
+				}
+			}
+			if opts.ProgressReporter != nil {
+				opts.ProgressReporter.Update(InstallProgress{
+					AppInstallState: AppInstallStateImagesLoading,
+					AppID:           app.Ref().String(),
+					ImageLoadState:  ilp.State,
+					ImageID:         ilp.ImageID,
+					ID:              ilp.ID,
+					Current:         ilp.Current,
+					Total:           ilp.Total,
+				})
+			}
 		})
 		loadImageOptions = append(loadImageOptions, withProgressOpt)
 	}
