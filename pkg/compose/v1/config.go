@@ -17,6 +17,7 @@ type (
 		ComposeRoot    string
 		ConnectTimeout time.Duration
 		SkopeoSupport  bool
+		UpdateDBPath   string
 	}
 	ConfigOpt func(*ConfigOpts)
 )
@@ -26,7 +27,14 @@ const (
 	DefaultStoreDir       = "store"
 	DefaultComposeDir     = "projects"
 	DefaultConnectTimeout = time.Duration(30) * time.Second
+	DefaultDBFileName     = "updates.db"
 )
+
+func WithUpdateDB(dbPath string) ConfigOpt {
+	return func(opts *ConfigOpts) {
+		opts.UpdateDBPath = dbPath
+	}
+}
 
 func WithSkopeoSupport(skopeoSupport bool) ConfigOpt {
 	return func(opts *ConfigOpts) {
@@ -79,6 +87,9 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 	if len(opts.ComposeRoot) == 0 {
 		opts.ComposeRoot = path.Join(homeDir, DefaultRootDir, DefaultComposeDir)
 	}
+	if len(opts.UpdateDBPath) == 0 {
+		opts.UpdateDBPath = path.Join(opts.StoreRoot, DefaultDBFileName)
+	}
 	if _, err := os.Stat(opts.StoreRoot); os.IsNotExist(err) {
 		if err := os.MkdirAll(opts.StoreRoot, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create app store root directory: %s", err.Error())
@@ -114,6 +125,7 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		AppStoreFactory: func() (compose.AppStore, error) {
 			return NewAppStore(opts.StoreRoot, platform, opts.SkopeoSupport)
 		},
-		BlockSize: s.BlockSize,
+		BlockSize:  s.BlockSize,
+		DBFilePath: opts.UpdateDBPath,
 	}, nil
 }
