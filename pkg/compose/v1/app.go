@@ -352,7 +352,7 @@ func (a *appCtx) getAppBundleIndex(ctx context.Context, blobProvider compose.Blo
 	r, err := blobProvider.GetReadCloser(ctx, compose.WithExpectedDigest(indexNode.Descriptor.Digest),
 		compose.WithExpectedSize(indexNode.Descriptor.Size))
 	if err != nil {
-		if errors.Is(err, errdefs.ErrNotFound) {
+		if errors.Is(err, errdefs.ErrNotFound) || os.IsNotExist(err) {
 			if getChildByType(a.GetComposeRoot().Children, compose.BlobTypeSkopeoImageIndex) != nil {
 				// App and its images are pulled by skopeo, hence we should not expect app bundle index in the store
 				// even if the app manifest contains a reference to the bundle index.
