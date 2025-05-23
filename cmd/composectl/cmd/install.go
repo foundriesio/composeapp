@@ -5,7 +5,6 @@ import (
 	"github.com/containerd/containerd/platforms"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
-	"path"
 )
 
 var (
@@ -32,6 +31,6 @@ func installApp(cmd *cobra.Command, args []string) {
 	DieNotNil(err)
 	fmt.Println("ok")
 	fmt.Printf("Extracting app compose archive to %s and loading its images to docker %s\n", composeRoot, dockerHost)
-	err = v1.InstallApp(cmd.Context(), app, cs, path.Join(config.StoreRoot, "blobs/sha256"), config.ComposeRoot, config.DockerHost)
+	err = v1.InstallApp(cmd.Context(), app, cs, config.GetBlobsRoot(), config.ComposeRoot, config.DockerHost)
 	DieNotNil(err)
 }
