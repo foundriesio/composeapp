@@ -130,21 +130,23 @@ func CheckAppsStatus(
 	ctx context.Context,
 	cfg *Config,
 	appRefs []string) (*AppsStatus, error) {
+	var err error
+	var appStore AppStore
+
+	if appStore, err = cfg.AppStoreFactory(); err != nil {
+		return nil, err
+	}
+
 	refs := appRefs
-	bp := NewStoreBlobProvider(cfg.GetBlobsRoot())
 	if len(refs) == 0 {
-		listedApps, err := ListApps(ctx, cfg)
-		if err != nil {
+		if refs, err = getStoreAppRefs(ctx, appStore); err != nil {
 			return nil, err
-		}
-		for _, a := range listedApps {
-			refs = append(refs, a.Ref().String())
 		}
 	}
 
 	appsStatus := NewAppsStatus()
 	for _, appRef := range refs {
-		app, err := cfg.AppLoader.LoadAppTree(ctx, bp, platforms.OnlyStrict(cfg.Platform), appRef)
+		app, err := cfg.AppLoader.LoadAppTree(ctx, appStore, platforms.OnlyStrict(cfg.Platform), appRef)
 		if errors.Is(err, ErrAppNotFound) {
 			appTreeRemoteProvider := newRemoteBlobProvider(cfg)
 			app, err = cfg.AppLoader.LoadAppTree(ctx, appTreeRemoteProvider, platforms.OnlyStrict(cfg.Platform), appRef)
@@ -168,7 +170,7 @@ func CheckAppsStatus(
 	for _, app := range appsStatus.Apps {
 		fetchReport := FetchReport{BlobsStatus: make(map[digest.Digest]*BlobInfo)}
 		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
-			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, bp)
+			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, appStore)
 			if checkBlobErr != nil {
 				return checkBlobErr
 			}
@@ -189,7 +191,7 @@ func CheckAppsStatus(
 			BundleErrors: make(AppBundleErrs),
 		}
 		// Check app compose installation and app images installation in the docker store
-		appBundleErrs, checkComposeErr := app.CheckComposeInstallation(ctx, bp, path.Join(cfg.ComposeRoot, app.Name()))
+		appBundleErrs, checkComposeErr := app.CheckComposeInstallation(ctx, appStore, path.Join(cfg.ComposeRoot, app.Name()))
 		if checkComposeErr != nil {
 			if errors.Is(checkComposeErr, ErrAppIndexNotFound) {
 				if appBundleErrs == nil {
@@ -377,4 +379,17 @@ func checkNodeBlob(ctx context.Context, cfg *Config, app App, node *TreeNode, bp
 		StoreSize:   AlignToBlockSize(node.Descriptor.Size, cfg.BlockSize),
 		RuntimeSize: app.GetBlobRuntimeSize(node.Descriptor, cfg.Platform.Architecture, cfg.BlockSize),
 	}, nil
+}
+
+func getStoreAppRefs(ctx context.Context, store AppStore) ([]string, error) {
+	appRefs, err := store.ListApps(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var stringRefs []string
+	for _, appRef := range appRefs {
+		stringRefs = append(stringRefs, appRef.String())
+	}
+	return stringRefs, nil
 }
