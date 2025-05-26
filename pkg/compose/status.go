@@ -159,26 +159,16 @@ func CheckAppsStatus(
 		return nil, err
 	}
 
+	var fetchStatus *FetchStatus
+	if fetchStatus, err = CheckAppsFetchStatus(ctx, cfg, appStore, apps); err != nil {
+		return nil, fmt.Errorf("failed to check apps fetch status: %w", err)
+	}
+
 	appsStatus := NewAppsStatus()
 	appsStatus.Apps = apps
-	for _, app := range appsStatus.Apps {
-		fetchReport := FetchReport{BlobsStatus: make(map[digest.Digest]*BlobInfo)}
-		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
-			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, appStore)
-			if checkBlobErr != nil {
-				return checkBlobErr
-			}
-			fetchReport.BlobsStatus[node.Descriptor.Digest] = bi
-			if bi.State != BlobOk {
-				appsStatus.FetchStatus.MissingBlobs[node.Descriptor.Digest] = bi
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		appsStatus.FetchStatus.BlobsStatus[app.Ref().Digest] = fetchReport
+	appsStatus.FetchStatus = *fetchStatus
 
+	for _, app := range appsStatus.Apps {
 		// Check App installation
 		installReport := InstallReport{
 			Images:       make(map[digest.Digest]bool),
@@ -242,6 +232,36 @@ func CheckAppsStatus(
 	}
 
 	return &appsStatus, nil
+}
+
+func CheckAppsFetchStatus(
+	ctx context.Context,
+	cfg *Config,
+	blobProvider BlobProvider,
+	apps []App) (*FetchStatus, error) {
+	fetchStatus := &FetchStatus{
+		MissingBlobs: map[digest.Digest]*BlobInfo{},
+		BlobsStatus:  map[digest.Digest]FetchReport{},
+	}
+	for _, app := range apps {
+		fetchReport := FetchReport{BlobsStatus: map[digest.Digest]*BlobInfo{}}
+		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
+			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, blobProvider)
+			if checkBlobErr != nil {
+				return checkBlobErr
+			}
+			fetchReport.BlobsStatus[node.Descriptor.Digest] = bi
+			if bi.State != BlobOk {
+				fetchStatus.MissingBlobs[node.Descriptor.Digest] = bi
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		fetchStatus.BlobsStatus[app.Ref().Digest] = fetchReport
+	}
+	return fetchStatus, nil
 }
 
 func GetInstalledImages(ctx context.Context, cfg *Config) (*InstalledImagesInfo, error) {
