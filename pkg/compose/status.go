@@ -39,7 +39,7 @@ type (
 		BundleErrors AppBundleErrs
 	}
 	InstallStatus struct {
-		AppsInstallStatus   map[digest.Digest]InstallReport
+		AppsInstallStatus   map[digest.Digest]*InstallReport
 		NotInstalledImages  map[string]interface{}
 		NotInstalledCompose map[digest.Digest]interface{}
 	}
@@ -96,7 +96,7 @@ func NewAppsStatus() AppsStatus {
 			MissingBlobs: make(map[digest.Digest]*BlobInfo),
 		},
 		InstallStatus: InstallStatus{
-			AppsInstallStatus:   make(map[digest.Digest]InstallReport),
+			AppsInstallStatus:   make(map[digest.Digest]*InstallReport),
 			NotInstalledImages:  make(map[string]interface{}),
 			NotInstalledCompose: make(map[digest.Digest]interface{}),
 		},
@@ -149,11 +149,6 @@ func CheckAppsStatus(
 		return nil, fmt.Errorf("failed to load app trees: %w", err)
 	}
 
-	installedImages, err := GetInstalledImages(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	foundAppServices, err := GetAppServicesStatus(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -164,45 +159,21 @@ func CheckAppsStatus(
 		return nil, fmt.Errorf("failed to check apps fetch status: %w", err)
 	}
 
+	var installStatus *InstallStatus
+	if installStatus, err = CheckAppsInstallStatus(ctx, cfg, appStore, apps); err != nil {
+		return nil, fmt.Errorf("failed to check apps install status: %w", err)
+	}
+
 	appsStatus := NewAppsStatus()
 	appsStatus.Apps = apps
 	appsStatus.FetchStatus = *fetchStatus
+	appsStatus.InstallStatus = *installStatus
 
 	for _, app := range appsStatus.Apps {
-		// Check App installation
-		installReport := InstallReport{
-			Images:       make(map[digest.Digest]bool),
-			BundleErrors: make(AppBundleErrs),
-		}
-		// Check app compose installation and app images installation in the docker store
-		appBundleErrs, checkComposeErr := app.CheckComposeInstallation(ctx, appStore, path.Join(cfg.ComposeRoot, app.Name()))
-		if checkComposeErr != nil {
-			if errors.Is(checkComposeErr, ErrAppIndexNotFound) {
-				if appBundleErrs == nil {
-					appBundleErrs = make(AppBundleErrs)
-				}
-				appBundleErrs[app.Ref().String()] = checkComposeErr.Error()
-			} else {
-				return nil, checkComposeErr
-			}
-		}
-		installReport.BundleErrors = appBundleErrs
-
 		var running = true
 		var appServices []*Service
 		appComposeRoot := app.GetComposeRoot()
 		for _, imageNode := range appComposeRoot.Children {
-			imageUri := imageNode.Ref()
-
-			installed, err := checkImageInstallation(installedImages, imageUri)
-			if err != nil {
-				return nil, err
-			}
-			installReport.Images[imageNode.Descriptor.Digest] = installed
-			if !installed {
-				appsStatus.InstallStatus.NotInstalledImages[imageUri] = struct{}{}
-			}
-
 			// check running status
 			if srv := foundAppServices.find(imageNode); srv != nil {
 				appServices = append(appServices, srv)
@@ -215,11 +186,6 @@ func CheckAppsStatus(
 				})
 				running = false
 			}
-		}
-
-		appsStatus.InstallStatus.AppsInstallStatus[app.Ref().Digest] = installReport
-		if len(installReport.BundleErrors) > 0 {
-			appsStatus.InstallStatus.NotInstalledCompose[app.Ref().Digest] = struct{}{}
 		}
 
 		appsStatus.RunningStatus.AppsRunningStatus[app.Ref().Digest] = RunningReport{
@@ -262,6 +228,65 @@ func CheckAppsFetchStatus(
 		fetchStatus.BlobsStatus[app.Ref().Digest] = fetchReport
 	}
 	return fetchStatus, nil
+}
+
+func CheckAppsInstallStatus(
+	ctx context.Context,
+	cfg *Config,
+	blobProvider BlobProvider,
+	apps []App) (*InstallStatus, error) {
+
+	installStatus := &InstallStatus{
+		AppsInstallStatus:   map[digest.Digest]*InstallReport{},
+		NotInstalledImages:  map[string]interface{}{},
+		NotInstalledCompose: map[digest.Digest]interface{}{},
+	}
+
+	installedImages, err := GetInstalledImages(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, app := range apps {
+		// Check App installation
+		installReport := &InstallReport{
+			Images:       map[digest.Digest]bool{},
+			BundleErrors: AppBundleErrs{},
+		}
+		// Check app compose installation and app images installation in the docker store
+		appBundleErrs, checkComposeErr := app.CheckComposeInstallation(ctx, blobProvider, path.Join(cfg.ComposeRoot, app.Name()))
+		if checkComposeErr != nil {
+			if errors.Is(checkComposeErr, ErrAppIndexNotFound) {
+				if appBundleErrs == nil {
+					appBundleErrs = make(AppBundleErrs)
+				}
+				appBundleErrs[app.Ref().String()] = checkComposeErr.Error()
+			} else {
+				return nil, checkComposeErr
+			}
+		}
+		installReport.BundleErrors = appBundleErrs
+
+		appComposeRoot := app.GetComposeRoot()
+		for _, imageNode := range appComposeRoot.Children {
+			imageUri := imageNode.Ref()
+			installed, err := checkImageInstallation(installedImages, imageUri)
+			if err != nil {
+				return nil, err
+			}
+			installReport.Images[imageNode.Descriptor.Digest] = installed
+			if !installed {
+				installStatus.NotInstalledImages[imageUri] = struct{}{}
+			}
+		}
+
+		installStatus.AppsInstallStatus[app.Ref().Digest] = installReport
+		if len(installReport.BundleErrors) > 0 {
+			installStatus.NotInstalledCompose[app.Ref().Digest] = struct{}{}
+		}
+	}
+
+	return installStatus, nil
 }
 
 func GetInstalledImages(ctx context.Context, cfg *Config) (*InstalledImagesInfo, error) {
