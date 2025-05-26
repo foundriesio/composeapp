@@ -144,17 +144,9 @@ func CheckAppsStatus(
 		}
 	}
 
-	appsStatus := NewAppsStatus()
-	for _, appRef := range refs {
-		app, err := cfg.AppLoader.LoadAppTree(ctx, appStore, platforms.OnlyStrict(cfg.Platform), appRef)
-		if errors.Is(err, ErrAppNotFound) {
-			appTreeRemoteProvider := newRemoteBlobProvider(cfg)
-			app, err = cfg.AppLoader.LoadAppTree(ctx, appTreeRemoteProvider, platforms.OnlyStrict(cfg.Platform), appRef)
-		}
-		if err != nil {
-			return nil, err
-		}
-		appsStatus.Apps = append(appsStatus.Apps, app)
+	var apps []App
+	if apps, err = loadAppTrees(ctx, cfg, appStore, refs, true); err != nil {
+		return nil, fmt.Errorf("failed to load app trees: %w", err)
 	}
 
 	installedImages, err := GetInstalledImages(ctx, cfg)
@@ -167,6 +159,8 @@ func CheckAppsStatus(
 		return nil, err
 	}
 
+	appsStatus := NewAppsStatus()
+	appsStatus.Apps = apps
 	for _, app := range appsStatus.Apps {
 		fetchReport := FetchReport{BlobsStatus: make(map[digest.Digest]*BlobInfo)}
 		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
@@ -392,4 +386,24 @@ func getStoreAppRefs(ctx context.Context, store AppStore) ([]string, error) {
 		stringRefs = append(stringRefs, appRef.String())
 	}
 	return stringRefs, nil
+}
+
+func loadAppTrees(ctx context.Context,
+	cfg *Config,
+	blobProvider BlobProvider,
+	appRefs []string,
+	fallbackLoadingFromRemote bool) ([]App, error) {
+	var apps []App
+	for _, appRef := range appRefs {
+		app, err := cfg.AppLoader.LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(cfg.Platform), appRef)
+		if fallbackLoadingFromRemote && errors.Is(err, ErrAppNotFound) {
+			app, err = cfg.AppLoader.LoadAppTree(ctx, newRemoteBlobProvider(cfg),
+				platforms.OnlyStrict(cfg.Platform), appRef)
+		}
+		if err != nil {
+			return nil, err
+		}
+		apps = append(apps, app)
+	}
+	return apps, nil
 }
