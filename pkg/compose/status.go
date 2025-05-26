@@ -22,9 +22,9 @@ const (
 type (
 	AppsStatus struct {
 		Apps []App
-		FetchStatus
-		InstallStatus
-		RunningStatus
+		*FetchStatus
+		*InstallStatus
+		*RunningStatus
 	}
 	FetchReport struct {
 		BlobsStatus map[digest.Digest]*BlobInfo
@@ -88,25 +88,6 @@ type (
 	}
 )
 
-func NewAppsStatus() AppsStatus {
-	return AppsStatus{
-		Apps: []App{},
-		FetchStatus: FetchStatus{
-			BlobsStatus:  make(map[digest.Digest]FetchReport),
-			MissingBlobs: make(map[digest.Digest]*BlobInfo),
-		},
-		InstallStatus: InstallStatus{
-			AppsInstallStatus:   make(map[digest.Digest]*InstallReport),
-			NotInstalledImages:  make(map[string]interface{}),
-			NotInstalledCompose: make(map[digest.Digest]interface{}),
-		},
-		RunningStatus: RunningStatus{
-			AppsRunningStatus: make(map[digest.Digest]RunningReport),
-			NotRunningApps:    make(map[digest.Digest]interface{}),
-		},
-	}
-}
-
 func (e *ErrComposeInstall) Error() string {
 	return fmt.Sprintf("app compose installation errors: %d", len(e.Errs))
 }
@@ -164,13 +145,12 @@ func CheckAppsStatus(
 		return nil, fmt.Errorf("failed to check apps running status: %w", err)
 	}
 
-	appsStatus := NewAppsStatus()
-	appsStatus.Apps = apps
-	appsStatus.FetchStatus = *fetchStatus
-	appsStatus.InstallStatus = *installStatus
-	appsStatus.RunningStatus = *runningStatus
-
-	return &appsStatus, nil
+	return &AppsStatus{
+		Apps:          apps,
+		FetchStatus:   fetchStatus,
+		InstallStatus: installStatus,
+		RunningStatus: runningStatus,
+	}, nil
 }
 
 func CheckAppsFetchStatus(
