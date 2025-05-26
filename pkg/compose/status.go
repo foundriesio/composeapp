@@ -149,11 +149,6 @@ func CheckAppsStatus(
 		return nil, fmt.Errorf("failed to load app trees: %w", err)
 	}
 
-	foundAppServices, err := GetAppServicesStatus(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	var fetchStatus *FetchStatus
 	if fetchStatus, err = CheckAppsFetchStatus(ctx, cfg, appStore, apps); err != nil {
 		return nil, fmt.Errorf("failed to check apps fetch status: %w", err)
@@ -164,38 +159,16 @@ func CheckAppsStatus(
 		return nil, fmt.Errorf("failed to check apps install status: %w", err)
 	}
 
+	var runningStatus *RunningStatus
+	if runningStatus, err = CheckAppsRunningStatus(ctx, cfg, apps); err != nil {
+		return nil, fmt.Errorf("failed to check apps running status: %w", err)
+	}
+
 	appsStatus := NewAppsStatus()
 	appsStatus.Apps = apps
 	appsStatus.FetchStatus = *fetchStatus
 	appsStatus.InstallStatus = *installStatus
-
-	for _, app := range appsStatus.Apps {
-		var running = true
-		var appServices []*Service
-		appComposeRoot := app.GetComposeRoot()
-		for _, imageNode := range appComposeRoot.Children {
-			// check running status
-			if srv := foundAppServices.find(imageNode); srv != nil {
-				appServices = append(appServices, srv)
-				if srv.State != "running" {
-					running = false
-				}
-			} else {
-				appServices = append(appServices, &Service{
-					State: "not created",
-				})
-				running = false
-			}
-		}
-
-		appsStatus.RunningStatus.AppsRunningStatus[app.Ref().Digest] = RunningReport{
-			Services: appServices,
-			Health:   "todo",
-		}
-		if !running {
-			appsStatus.RunningStatus.NotRunningApps[app.Ref().Digest] = struct{}{}
-		}
-	}
+	appsStatus.RunningStatus = *runningStatus
 
 	return &appsStatus, nil
 }
@@ -287,6 +260,48 @@ func CheckAppsInstallStatus(
 	}
 
 	return installStatus, nil
+}
+
+func CheckAppsRunningStatus(
+	ctx context.Context,
+	cfg *Config,
+	apps []App) (*RunningStatus, error) {
+	runningStatus := &RunningStatus{
+		AppsRunningStatus: map[digest.Digest]RunningReport{},
+		NotRunningApps:    map[digest.Digest]interface{}{},
+	}
+
+	foundAppServices, err := GetAppServicesStatus(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, app := range apps {
+		var running = true
+		var appServices []*Service
+		appComposeRoot := app.GetComposeRoot()
+		for _, imageNode := range appComposeRoot.Children {
+			if srv := foundAppServices.find(imageNode); srv != nil {
+				appServices = append(appServices, srv)
+				if srv.State != "running" {
+					running = false
+				}
+			} else {
+				appServices = append(appServices, &Service{
+					State: "not created",
+				})
+				running = false
+			}
+		}
+		runningStatus.AppsRunningStatus[app.Ref().Digest] = RunningReport{
+			Services: appServices,
+			Health:   "todo",
+		}
+		if !running {
+			runningStatus.NotRunningApps[app.Ref().Digest] = struct{}{}
+		}
+	}
+	return runningStatus, nil
 }
 
 func GetInstalledImages(ctx context.Context, cfg *Config) (*InstalledImagesInfo, error) {
