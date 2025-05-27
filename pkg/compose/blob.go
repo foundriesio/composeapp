@@ -23,6 +23,7 @@ type (
 		Type        BlobType            `json:"type"`
 		StoreSize   int64               `json:"store_size"`
 		RuntimeSize int64               `json:"runtime_size"`
+		Fetched     int64               `json:"fetched"`
 	}
 	BlobsStatus map[digest.Digest]BlobInfo
 
@@ -32,6 +33,7 @@ type (
 const (
 	BlobStateUndefined BlobState = iota
 	BlobOk
+	BlobFetching
 	BlobMissing
 	BlobSizeInvalid
 	BlobDigestInvalid
@@ -66,6 +68,8 @@ func (s BlobState) String() string {
 	switch s {
 	case BlobOk:
 		ret = "OK"
+	case BlobFetching:
+		ret = "fetching"
 	case BlobMissing:
 		ret = "missing"
 	case BlobSizeInvalid:
