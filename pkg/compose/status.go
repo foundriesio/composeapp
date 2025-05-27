@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/reference/docker"
@@ -162,12 +163,22 @@ func CheckAppsFetchStatus(
 		MissingBlobs: map[digest.Digest]*BlobInfo{},
 		BlobsStatus:  map[digest.Digest]FetchReport{},
 	}
+	ls, err := local.NewStore(cfg.StoreRoot)
+	if err != nil {
+		return nil, err
+	}
 	for _, app := range apps {
 		fetchReport := FetchReport{BlobsStatus: map[digest.Digest]*BlobInfo{}}
 		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
 			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, blobProvider)
 			if checkBlobErr != nil {
 				return checkBlobErr
+			}
+			if bi.State == BlobMissing {
+				if fetchStatus, err := ls.Status(ctx, node.Ref()); err == nil {
+					bi.State = BlobFetching
+					bi.Fetched = fetchStatus.Offset
+				}
 			}
 			fetchReport.BlobsStatus[node.Descriptor.Digest] = bi
 			if bi.State != BlobOk {
