@@ -87,7 +87,24 @@ type (
 	ErrImageInstall struct {
 		MissingImages []string
 	}
+
+	CheckAppsStatusOptions struct {
+		CheckInstallation bool
+		CheckRunning      bool
+	}
+	CheckAppsStatusOption func(*CheckAppsStatusOptions)
 )
+
+func WithCheckInstallation(check bool) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.CheckInstallation = check
+	}
+}
+func WithCheckRunning(check bool) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.CheckRunning = check
+	}
+}
 
 func (e *ErrComposeInstall) Error() string {
 	return fmt.Sprintf("app compose installation errors: %d", len(e.Errs))
@@ -111,7 +128,16 @@ func (s *AppsStatus) AreFetched() bool {
 func CheckAppsStatus(
 	ctx context.Context,
 	cfg *Config,
-	appRefs []string) (*AppsStatus, error) {
+	appRefs []string,
+	options ...CheckAppsStatusOption) (*AppsStatus, error) {
+	opts := &CheckAppsStatusOptions{
+		CheckInstallation: true,
+		CheckRunning:      true,
+	}
+	for _, opt := range options {
+		opt(opts)
+	}
+
 	var err error
 	var appStore AppStore
 
@@ -137,13 +163,17 @@ func CheckAppsStatus(
 	}
 
 	var installStatus *InstallStatus
-	if installStatus, err = CheckAppsInstallStatus(ctx, cfg, appStore, apps); err != nil {
-		return nil, fmt.Errorf("failed to check apps install status: %w", err)
+	if opts.CheckInstallation {
+		if installStatus, err = CheckAppsInstallStatus(ctx, cfg, appStore, apps); err != nil {
+			return nil, fmt.Errorf("failed to check apps install status: %w", err)
+		}
 	}
 
 	var runningStatus *RunningStatus
-	if runningStatus, err = CheckAppsRunningStatus(ctx, cfg, apps); err != nil {
-		return nil, fmt.Errorf("failed to check apps running status: %w", err)
+	if opts.CheckRunning {
+		if runningStatus, err = CheckAppsRunningStatus(ctx, cfg, apps); err != nil {
+			return nil, fmt.Errorf("failed to check apps running status: %w", err)
+		}
 	}
 
 	return &AppsStatus{
