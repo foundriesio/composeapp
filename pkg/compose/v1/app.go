@@ -145,7 +145,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 			// Check if app is being loaded from a local store, if so then make sure it is present, otherwise
 			// do not add it to the app tree, since it is optional in this case.
 			// The app index is mandatory only if app is loaded from a remote blob provider - container registry.
-			if _, ok := provider.(*appStore); ok {
+			if provider.Type() != compose.BlobProviderTypeRemote {
 				if _, err := provider.Info(ctx, indexNode.Descriptor.Digest); err == nil {
 					appTree.Children = append(appTree.Children, indexNode)
 				}
