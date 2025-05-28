@@ -17,8 +17,10 @@ import (
 type (
 	BlobProvider interface {
 		content.InfoProvider
+		Type() BlobProviderType
 		GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error)
 	}
+	BlobProviderType   string
 	remoteBlobProvider struct {
 		resolver remotes.Resolver
 	}
@@ -35,6 +37,13 @@ type (
 		reader io.Reader
 		closer io.Closer
 	}
+)
+
+const (
+	BlobProviderTypeRemote BlobProviderType = "blob-provider:remote"
+	BlobProviderTypeLocal  BlobProviderType = "blob-provider:local"
+	BlobProviderTypeStore  BlobProviderType = "blob-provider:store"
+	BlobProviderTypeMemory BlobProviderType = "blob-provider:memory"
 )
 
 func NewStoreBlobProvider(blobRoot string) BlobProvider {
@@ -59,6 +68,10 @@ func NewMemoryBlobProvider(blobs map[digest.Digest][]byte) BlobProvider {
 	return &memoryBlobProvider{
 		blobs: blobs,
 	}
+}
+
+func (store *storeBlobProvider) Type() BlobProviderType {
+	return BlobProviderTypeStore
 }
 
 func (store *storeBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
@@ -87,6 +100,10 @@ func (store *storeBlobProvider) Info(ctx context.Context, dgst digest.Digest) (c
 	return content.Info{}, fmt.Errorf("not implemented")
 }
 
+func (l *localBlobProvider) Type() BlobProviderType {
+	return BlobProviderTypeLocal
+}
+
 func (l *localBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
 	newOpts := opts
 	p := GetSecureReadParams(opts...)
@@ -111,6 +128,10 @@ func (l *localBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureRea
 
 func (l *localBlobProvider) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
 	return l.localFileProvider.Info(ctx, dgst)
+}
+
+func (r *remoteBlobProvider) Type() BlobProviderType {
+	return BlobProviderTypeRemote
 }
 
 func (r *remoteBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
@@ -142,6 +163,10 @@ func (r *remoteBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureRe
 
 func (r *remoteBlobProvider) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
 	return content.Info{}, fmt.Errorf("not implemented")
+}
+
+func (p *memoryBlobProvider) Type() BlobProviderType {
+	return BlobProviderTypeMemory
 }
 
 func (p *memoryBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
