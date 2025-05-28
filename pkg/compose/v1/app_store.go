@@ -33,6 +33,10 @@ type (
 	}
 )
 
+const (
+	BlobProviderTypeAppStore compose.BlobProviderType = "blob-provider:app-store"
+)
+
 func NewAppStore(root string, platform ocispec.Platform, skopeoStoreAware ...bool) (compose.AppStore, error) {
 	cs, err := local.NewStore(root)
 	if err != nil {
@@ -52,6 +56,10 @@ func NewAppStore(root string, platform ocispec.Platform, skopeoStoreAware ...boo
 		platform:         platform,
 		skopeoStoreAware: isSkopeoStoreAware,
 	}, nil
+}
+
+func (s *appStore) Type() compose.BlobProviderType {
+	return BlobProviderTypeAppStore
 }
 
 func (s *appStore) ListApps(ctx context.Context) ([]*compose.AppRef, error) {
