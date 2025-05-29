@@ -27,10 +27,10 @@ type (
 	}
 
 	CheckAppResult struct {
-		MissingBlobs     map[digest.Digest]compose.BlobInfo `json:"missing_blobs"`
-		TotalPullSize    int64                              `json:"total_pull_size"`
-		TotalStoreSize   int64                              `json:"total_store_size"`
-		TotalRuntimeSize int64                              `json:"total_runtime_size"`
+		MissingBlobs     map[digest.Digest]*compose.BlobInfo `json:"missing_blobs"`
+		TotalPullSize    int64                               `json:"total_pull_size"`
+		TotalStoreSize   int64                               `json:"total_store_size"`
+		TotalRuntimeSize int64                               `json:"total_runtime_size"`
 	}
 
 	CheckAndInstallResult struct {
@@ -95,8 +95,10 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 	if len(*opts.SrcStorePath) == 0 && *opts.Locally {
 		opts.SrcStorePath = &config.StoreRoot
 	}
-	cr, ui, _ := checkApps(cmd.Context(), args, cs, blobProvider,
+	cr, ui, _, err := checkApps(cmd.Context(), args, blobProvider,
 		*opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
+	DieNotNil(err, "failed to check apps status")
+
 	var ir InstallCheckResult
 	if opts.CheckInstall {
 		ir, err = checkIfInstalled(cmd.Context(), args, cs, config.DockerHost)
@@ -143,104 +145,64 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 
 func checkApps(ctx context.Context,
 	appRefs []string,
-	appStoreBlobProvider compose.BlobProvider,
 	srcBlobProvider compose.BlobProvider,
 	usageWatermark uint,
 	srcStorePath string,
 	quiet bool,
-	quick bool) (*CheckAppResult, *compose.UsageInfo, []compose.App) {
-	if usageWatermark < MinUsageWatermark {
-		DieNotNil(fmt.Errorf("the specified usage watermark is lower than the minimum allowed; %d < %d", usageWatermark, MinUsageWatermark))
-	}
-	if usageWatermark > MaxUsageWatermark {
-		DieNotNil(fmt.Errorf("the specified usage watermark is higher than the maximum allowed; %d < %d", usageWatermark, MaxUsageWatermark))
+	quick bool) (*CheckAppResult, *compose.UsageInfo, []compose.App, error) {
+
+	status, err := compose.CheckAppsStatus(ctx, config, appRefs,
+		compose.WithCheckRunning(false),
+		compose.WithCheckInstallation(false),
+		compose.WithAppTreeBlobProvider(srcBlobProvider),
+		compose.WithQuickCheckFetch(quick))
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	var apps []compose.App
-	blobsToPull := map[digest.Digest]compose.BlobInfo{}
-	checkRes := CheckAppResult{MissingBlobs: blobsToPull}
-
-	for _, appRef := range appRefs {
-		if !quiet {
+	if !quiet {
+		for _, app := range status.Apps {
 			if len(srcStorePath) > 0 {
-				fmt.Printf("Loading %s metadata from %s...\n", appRef, srcStorePath)
+				fmt.Printf("Loaded %s metadata from %s...\n", app.Ref(), srcStorePath)
 			} else {
-				fmt.Printf("Loading %s metadata from registry...\n", appRef)
+				fmt.Printf("Loaded %s metadata from registry...\n", app.Ref())
 			}
-		}
-		app, err := v1.NewAppLoader().LoadAppTree(ctx, srcBlobProvider, platforms.OnlyStrict(config.Platform), appRef)
-		DieNotNil(err)
-		apps = append(apps, app)
-		if !quiet {
-			fmt.Printf("%s metadata loaded\n", app.Name())
-			fmt.Printf("Checking %s state in the local store...\n", app.Name())
-		}
-		var blockSize int64 = 4096
-		s, err := compose.GetFsStat(config.StoreRoot)
-		if err != nil && !quiet {
-			fmt.Printf("Failed to get FS block size: %s\n", err.Error())
-			fmt.Printf("Assuming the FS block size if 4096")
-		} else {
-			blockSize = s.BlockSize
-		}
-
-		err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
-			if !quiet {
+			err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 				blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
 				fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
-			}
-			checkOpts := []compose.SecureReadOptions{compose.WithExpectedSize(node.Descriptor.Size)}
-			if !quick {
-				checkOpts = append(checkOpts, compose.WithExpectedDigest(node.Descriptor.Digest))
-			}
-			if node.HasRef() {
-				checkOpts = append(checkOpts, compose.WithRef(node.Ref()))
-			}
-			bs, stateCheckErr := compose.CheckBlob(compose.WithAppRef(compose.WithBlobType(ctx, node.Type), app.Ref()),
-				appStoreBlobProvider, node.Descriptor.Digest, checkOpts...)
-			if stateCheckErr != nil {
-				return stateCheckErr
-			}
-			if !quiet {
-				fmt.Printf("...%s\n", bs.String())
-			}
-			if bs != compose.BlobOk {
-				blobsToPull[node.Descriptor.Digest] = compose.BlobInfo{
-					Descriptor:  node.Descriptor,
-					State:       bs,
-					Type:        node.Type,
-					StoreSize:   compose.AlignToBlockSize(node.Descriptor.Size, blockSize),
-					RuntimeSize: app.GetBlobRuntimeSize(node.Descriptor, config.Platform.Architecture, blockSize),
+				bs := status.FetchStatus.BlobsStatus[app.Ref().Digest].BlobsStatus[node.Descriptor.Digest]
+				if bs.State == compose.BlobFetching {
+					fmt.Printf("...%.2f%% (%d)\n", (float64(bs.Fetched)/float64(bs.Descriptor.Size))*100, bs.Fetched)
+				} else {
+					fmt.Printf("...%s\n", bs.State.String())
 				}
+				return nil
+			})
+			if err != nil {
+				return nil, nil, nil, err
 			}
-			return nil
-		})
-		DieNotNil(err)
-
-		if !quiet {
 			fmt.Println()
-			if len(blobsToPull) == 0 {
-				fmt.Printf("%s is in sync (%s)\n", app.Name(), appRef)
-				continue
-			}
-
-			if !app.HasLayersMeta(config.Platform.Architecture) {
-				fmt.Println("No app layers meta are found, the app layer sizes are approximated!")
-			}
-		}
-
-		for _, b := range blobsToPull {
-			checkRes.TotalPullSize += b.Descriptor.Size
-			checkRes.TotalStoreSize += b.StoreSize
-			checkRes.TotalRuntimeSize += b.RuntimeSize
 		}
 	}
-	// TODO:  take into account that docker data root and OCI/blob store can be located on different volumes
-	ui, err := compose.GetUsageInfo(config.StoreRoot, checkRes.TotalStoreSize+checkRes.TotalRuntimeSize, usageWatermark)
-	if err != nil && !quiet {
-		fmt.Printf("Failed to get storage usage information")
+	checkResult := &CheckAppResult{
+		MissingBlobs: status.FetchStatus.MissingBlobs,
 	}
-	return &checkRes, ui, apps
+	for _, bi := range status.FetchStatus.MissingBlobs {
+		if bi.State == compose.BlobFetching {
+			checkResult.TotalPullSize += bi.Descriptor.Size - bi.Fetched
+			checkResult.TotalStoreSize += compose.AlignToBlockSize(bi.Descriptor.Size-bi.Fetched, config.BlockSize)
+		} else {
+			checkResult.TotalPullSize += bi.Descriptor.Size
+			checkResult.TotalStoreSize += bi.StoreSize
+		}
+		checkResult.TotalRuntimeSize += bi.RuntimeSize
+	}
+	ui, err := compose.GetUsageInfo(config.StoreRoot,
+		checkResult.TotalStoreSize+checkResult.TotalRuntimeSize, usageWatermark)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return checkResult, ui, status.Apps, nil
 }
 
 func (cr *CheckAppResult) print() {
