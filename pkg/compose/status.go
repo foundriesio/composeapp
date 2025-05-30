@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/reference/docker"
@@ -22,9 +23,9 @@ const (
 type (
 	AppsStatus struct {
 		Apps []App
-		FetchStatus
-		InstallStatus
-		RunningStatus
+		*FetchStatus
+		*InstallStatus
+		*RunningStatus
 	}
 	FetchReport struct {
 		BlobsStatus map[digest.Digest]*BlobInfo
@@ -39,7 +40,7 @@ type (
 		BundleErrors AppBundleErrs
 	}
 	InstallStatus struct {
-		AppsInstallStatus   map[digest.Digest]InstallReport
+		AppsInstallStatus   map[digest.Digest]*InstallReport
 		NotInstalledImages  map[string]interface{}
 		NotInstalledCompose map[digest.Digest]interface{}
 	}
@@ -86,24 +87,34 @@ type (
 	ErrImageInstall struct {
 		MissingImages []string
 	}
+
+	CheckAppsStatusOptions struct {
+		CheckInstallation   bool
+		CheckRunning        bool
+		QuickCheckFetch     bool
+		AppTreeBlobProvider BlobProvider
+	}
+	CheckAppsStatusOption func(*CheckAppsStatusOptions)
 )
 
-func NewAppsStatus() AppsStatus {
-	return AppsStatus{
-		Apps: []App{},
-		FetchStatus: FetchStatus{
-			BlobsStatus:  make(map[digest.Digest]FetchReport),
-			MissingBlobs: make(map[digest.Digest]*BlobInfo),
-		},
-		InstallStatus: InstallStatus{
-			AppsInstallStatus:   make(map[digest.Digest]InstallReport),
-			NotInstalledImages:  make(map[string]interface{}),
-			NotInstalledCompose: make(map[digest.Digest]interface{}),
-		},
-		RunningStatus: RunningStatus{
-			AppsRunningStatus: make(map[digest.Digest]RunningReport),
-			NotRunningApps:    make(map[digest.Digest]interface{}),
-		},
+func WithCheckInstallation(check bool) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.CheckInstallation = check
+	}
+}
+func WithCheckRunning(check bool) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.CheckRunning = check
+	}
+}
+func WithQuickCheckFetch(quickCheck bool) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.QuickCheckFetch = quickCheck
+	}
+}
+func WithAppTreeBlobProvider(bp BlobProvider) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.AppTreeBlobProvider = bp
 	}
 }
 
@@ -129,30 +140,127 @@ func (s *AppsStatus) AreFetched() bool {
 func CheckAppsStatus(
 	ctx context.Context,
 	cfg *Config,
-	appRefs []string) (*AppsStatus, error) {
+	appRefs []string,
+	options ...CheckAppsStatusOption) (*AppsStatus, error) {
+	opts := &CheckAppsStatusOptions{
+		CheckInstallation: true,
+		CheckRunning:      true,
+		QuickCheckFetch:   false,
+	}
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	var err error
+	var appStore AppStore
+
+	if appStore, err = cfg.AppStoreFactory(); err != nil {
+		return nil, err
+	}
+
 	refs := appRefs
-	bp := NewStoreBlobProvider(cfg.GetBlobsRoot())
 	if len(refs) == 0 {
-		listedApps, err := ListApps(ctx, cfg)
-		if err != nil {
+		if refs, err = getStoreAppRefs(ctx, appStore); err != nil {
 			return nil, err
-		}
-		for _, a := range listedApps {
-			refs = append(refs, a.Ref().String())
 		}
 	}
 
-	appsStatus := NewAppsStatus()
-	for _, appRef := range refs {
-		app, err := cfg.AppLoader.LoadAppTree(ctx, bp, platforms.OnlyStrict(cfg.Platform), appRef)
-		if errors.Is(err, ErrAppNotFound) {
-			appTreeRemoteProvider := newRemoteBlobProvider(cfg)
-			app, err = cfg.AppLoader.LoadAppTree(ctx, appTreeRemoteProvider, platforms.OnlyStrict(cfg.Platform), appRef)
+	var apps []App
+	var appTreeProvider BlobProvider
+	var fallbackToRemoteProvider bool
+	// If the app tree blob provider is specified then load app tree from it and do not fallback
+	// to loading it from the remote provider.
+	// Otherwise, use the local app store/storage as the app tree provider and fallback to the remote provider
+	// if the app is not found in the local store or not all blobs of app trees are found in it.
+	if opts.AppTreeBlobProvider != nil {
+		appTreeProvider = opts.AppTreeBlobProvider
+		fallbackToRemoteProvider = false
+	} else {
+		appTreeProvider = appStore
+		fallbackToRemoteProvider = true
+	}
+	if apps, err = loadAppTrees(ctx, cfg, appTreeProvider, refs, fallbackToRemoteProvider); err != nil {
+		return nil, fmt.Errorf("failed to load app trees: %w", err)
+	}
+
+	var fetchStatus *FetchStatus
+	if fetchStatus, err = CheckAppsFetchStatus(ctx, cfg, appStore, apps, opts.QuickCheckFetch); err != nil {
+		return nil, fmt.Errorf("failed to check apps fetch status: %w", err)
+	}
+
+	var installStatus *InstallStatus
+	if opts.CheckInstallation {
+		if installStatus, err = CheckAppsInstallStatus(ctx, cfg, appStore, apps); err != nil {
+			return nil, fmt.Errorf("failed to check apps install status: %w", err)
 		}
+	}
+
+	var runningStatus *RunningStatus
+	if opts.CheckRunning {
+		if runningStatus, err = CheckAppsRunningStatus(ctx, cfg, apps); err != nil {
+			return nil, fmt.Errorf("failed to check apps running status: %w", err)
+		}
+	}
+
+	return &AppsStatus{
+		Apps:          apps,
+		FetchStatus:   fetchStatus,
+		InstallStatus: installStatus,
+		RunningStatus: runningStatus,
+	}, nil
+}
+
+func CheckAppsFetchStatus(
+	ctx context.Context,
+	cfg *Config,
+	blobProvider BlobProvider,
+	apps []App,
+	quick bool) (*FetchStatus, error) {
+	fetchStatus := &FetchStatus{
+		MissingBlobs: map[digest.Digest]*BlobInfo{},
+		BlobsStatus:  map[digest.Digest]FetchReport{},
+	}
+	ls, err := local.NewStore(cfg.StoreRoot)
+	if err != nil {
+		return nil, err
+	}
+	for _, app := range apps {
+		fetchReport := FetchReport{BlobsStatus: map[digest.Digest]*BlobInfo{}}
+		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
+			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, blobProvider, quick)
+			if checkBlobErr != nil {
+				return checkBlobErr
+			}
+			if bi.State == BlobMissing {
+				if fetchStatus, err := ls.Status(ctx, node.Ref()); err == nil {
+					bi.State = BlobFetching
+					bi.FetchedSize = fetchStatus.Offset
+				}
+			}
+			fetchReport.BlobsStatus[node.Descriptor.Digest] = bi
+			if bi.State != BlobOk {
+				fetchStatus.MissingBlobs[node.Descriptor.Digest] = bi
+			}
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		appsStatus.Apps = append(appsStatus.Apps, app)
+		fetchStatus.BlobsStatus[app.Ref().Digest] = fetchReport
+	}
+	return fetchStatus, nil
+}
+
+func CheckAppsInstallStatus(
+	ctx context.Context,
+	cfg *Config,
+	blobProvider BlobProvider,
+	apps []App) (*InstallStatus, error) {
+
+	installStatus := &InstallStatus{
+		AppsInstallStatus:   map[digest.Digest]*InstallReport{},
+		NotInstalledImages:  map[string]interface{}{},
+		NotInstalledCompose: map[digest.Digest]interface{}{},
 	}
 
 	installedImages, err := GetInstalledImages(ctx, cfg)
@@ -160,36 +268,14 @@ func CheckAppsStatus(
 		return nil, err
 	}
 
-	foundAppServices, err := GetAppServicesStatus(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, app := range appsStatus.Apps {
-		fetchReport := FetchReport{BlobsStatus: make(map[digest.Digest]*BlobInfo)}
-		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
-			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, bp)
-			if checkBlobErr != nil {
-				return checkBlobErr
-			}
-			fetchReport.BlobsStatus[node.Descriptor.Digest] = bi
-			if bi.State != BlobOk {
-				appsStatus.FetchStatus.MissingBlobs[node.Descriptor.Digest] = bi
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		appsStatus.FetchStatus.BlobsStatus[app.Ref().Digest] = fetchReport
-
+	for _, app := range apps {
 		// Check App installation
-		installReport := InstallReport{
-			Images:       make(map[digest.Digest]bool),
-			BundleErrors: make(AppBundleErrs),
+		installReport := &InstallReport{
+			Images:       map[digest.Digest]bool{},
+			BundleErrors: AppBundleErrs{},
 		}
 		// Check app compose installation and app images installation in the docker store
-		appBundleErrs, checkComposeErr := app.CheckComposeInstallation(ctx, bp, path.Join(cfg.ComposeRoot, app.Name()))
+		appBundleErrs, checkComposeErr := app.CheckComposeInstallation(ctx, blobProvider, path.Join(cfg.ComposeRoot, app.Name()))
 		if checkComposeErr != nil {
 			if errors.Is(checkComposeErr, ErrAppIndexNotFound) {
 				if appBundleErrs == nil {
@@ -202,22 +288,47 @@ func CheckAppsStatus(
 		}
 		installReport.BundleErrors = appBundleErrs
 
-		var running = true
-		var appServices []*Service
 		appComposeRoot := app.GetComposeRoot()
 		for _, imageNode := range appComposeRoot.Children {
 			imageUri := imageNode.Ref()
-
 			installed, err := checkImageInstallation(installedImages, imageUri)
 			if err != nil {
 				return nil, err
 			}
 			installReport.Images[imageNode.Descriptor.Digest] = installed
 			if !installed {
-				appsStatus.InstallStatus.NotInstalledImages[imageUri] = struct{}{}
+				installStatus.NotInstalledImages[imageUri] = struct{}{}
 			}
+		}
 
-			// check running status
+		installStatus.AppsInstallStatus[app.Ref().Digest] = installReport
+		if len(installReport.BundleErrors) > 0 {
+			installStatus.NotInstalledCompose[app.Ref().Digest] = struct{}{}
+		}
+	}
+
+	return installStatus, nil
+}
+
+func CheckAppsRunningStatus(
+	ctx context.Context,
+	cfg *Config,
+	apps []App) (*RunningStatus, error) {
+	runningStatus := &RunningStatus{
+		AppsRunningStatus: map[digest.Digest]RunningReport{},
+		NotRunningApps:    map[digest.Digest]interface{}{},
+	}
+
+	foundAppServices, err := GetAppServicesStatus(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, app := range apps {
+		var running = true
+		var appServices []*Service
+		appComposeRoot := app.GetComposeRoot()
+		for _, imageNode := range appComposeRoot.Children {
 			if srv := foundAppServices.find(imageNode); srv != nil {
 				appServices = append(appServices, srv)
 				if srv.State != "running" {
@@ -230,22 +341,15 @@ func CheckAppsStatus(
 				running = false
 			}
 		}
-
-		appsStatus.InstallStatus.AppsInstallStatus[app.Ref().Digest] = installReport
-		if len(installReport.BundleErrors) > 0 {
-			appsStatus.InstallStatus.NotInstalledCompose[app.Ref().Digest] = struct{}{}
-		}
-
-		appsStatus.RunningStatus.AppsRunningStatus[app.Ref().Digest] = RunningReport{
+		runningStatus.AppsRunningStatus[app.Ref().Digest] = RunningReport{
 			Services: appServices,
 			Health:   "todo",
 		}
 		if !running {
-			appsStatus.RunningStatus.NotRunningApps[app.Ref().Digest] = struct{}{}
+			runningStatus.NotRunningApps[app.Ref().Digest] = struct{}{}
 		}
 	}
-
-	return &appsStatus, nil
+	return runningStatus, nil
 }
 
 func GetInstalledImages(ctx context.Context, cfg *Config) (*InstalledImagesInfo, error) {
@@ -356,8 +460,7 @@ func checkImageInstallation(installedImages *InstalledImagesInfo, uri string) (b
 	return false, nil
 }
 
-func checkNodeBlob(ctx context.Context, cfg *Config, app App, node *TreeNode, bp BlobProvider) (*BlobInfo, error) {
-	var quick bool
+func checkNodeBlob(ctx context.Context, cfg *Config, app App, node *TreeNode, bp BlobProvider, quick bool) (*BlobInfo, error) {
 	checkOpts := []SecureReadOptions{WithExpectedSize(node.Descriptor.Size)}
 	if !quick {
 		checkOpts = append(checkOpts, WithExpectedDigest(node.Descriptor.Digest))
@@ -377,4 +480,37 @@ func checkNodeBlob(ctx context.Context, cfg *Config, app App, node *TreeNode, bp
 		StoreSize:   AlignToBlockSize(node.Descriptor.Size, cfg.BlockSize),
 		RuntimeSize: app.GetBlobRuntimeSize(node.Descriptor, cfg.Platform.Architecture, cfg.BlockSize),
 	}, nil
+}
+
+func getStoreAppRefs(ctx context.Context, store AppStore) ([]string, error) {
+	appRefs, err := store.ListApps(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var stringRefs []string
+	for _, appRef := range appRefs {
+		stringRefs = append(stringRefs, appRef.String())
+	}
+	return stringRefs, nil
+}
+
+func loadAppTrees(ctx context.Context,
+	cfg *Config,
+	blobProvider BlobProvider,
+	appRefs []string,
+	fallbackLoadingFromRemote bool) ([]App, error) {
+	var apps []App
+	for _, appRef := range appRefs {
+		app, err := cfg.AppLoader.LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(cfg.Platform), appRef)
+		if fallbackLoadingFromRemote && errors.Is(err, ErrAppNotFound) {
+			app, err = cfg.AppLoader.LoadAppTree(ctx, newRemoteBlobProvider(cfg),
+				platforms.OnlyStrict(cfg.Platform), appRef)
+		}
+		if err != nil {
+			return nil, err
+		}
+		apps = append(apps, app)
+	}
+	return apps, nil
 }
