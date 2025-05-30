@@ -91,6 +91,7 @@ type (
 	CheckAppsStatusOptions struct {
 		CheckInstallation bool
 		CheckRunning      bool
+		QuickCheckFetch   bool
 	}
 	CheckAppsStatusOption func(*CheckAppsStatusOptions)
 )
@@ -103,6 +104,11 @@ func WithCheckInstallation(check bool) CheckAppsStatusOption {
 func WithCheckRunning(check bool) CheckAppsStatusOption {
 	return func(opts *CheckAppsStatusOptions) {
 		opts.CheckRunning = check
+	}
+}
+func WithQuickCheckFetch(quickCheck bool) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.QuickCheckFetch = quickCheck
 	}
 }
 
@@ -133,6 +139,7 @@ func CheckAppsStatus(
 	opts := &CheckAppsStatusOptions{
 		CheckInstallation: true,
 		CheckRunning:      true,
+		QuickCheckFetch:   false,
 	}
 	for _, opt := range options {
 		opt(opts)
@@ -158,7 +165,7 @@ func CheckAppsStatus(
 	}
 
 	var fetchStatus *FetchStatus
-	if fetchStatus, err = CheckAppsFetchStatus(ctx, cfg, appStore, apps); err != nil {
+	if fetchStatus, err = CheckAppsFetchStatus(ctx, cfg, appStore, apps, opts.QuickCheckFetch); err != nil {
 		return nil, fmt.Errorf("failed to check apps fetch status: %w", err)
 	}
 
@@ -188,7 +195,8 @@ func CheckAppsFetchStatus(
 	ctx context.Context,
 	cfg *Config,
 	blobProvider BlobProvider,
-	apps []App) (*FetchStatus, error) {
+	apps []App,
+	quick bool) (*FetchStatus, error) {
 	fetchStatus := &FetchStatus{
 		MissingBlobs: map[digest.Digest]*BlobInfo{},
 		BlobsStatus:  map[digest.Digest]FetchReport{},
@@ -200,7 +208,7 @@ func CheckAppsFetchStatus(
 	for _, app := range apps {
 		fetchReport := FetchReport{BlobsStatus: map[digest.Digest]*BlobInfo{}}
 		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
-			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, blobProvider)
+			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, blobProvider, quick)
 			if checkBlobErr != nil {
 				return checkBlobErr
 			}
@@ -433,8 +441,7 @@ func checkImageInstallation(installedImages *InstalledImagesInfo, uri string) (b
 	return false, nil
 }
 
-func checkNodeBlob(ctx context.Context, cfg *Config, app App, node *TreeNode, bp BlobProvider) (*BlobInfo, error) {
-	var quick bool
+func checkNodeBlob(ctx context.Context, cfg *Config, app App, node *TreeNode, bp BlobProvider, quick bool) (*BlobInfo, error) {
 	checkOpts := []SecureReadOptions{WithExpectedSize(node.Descriptor.Size)}
 	if !quick {
 		checkOpts = append(checkOpts, WithExpectedDigest(node.Descriptor.Digest))
