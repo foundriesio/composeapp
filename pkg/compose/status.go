@@ -89,9 +89,10 @@ type (
 	}
 
 	CheckAppsStatusOptions struct {
-		CheckInstallation bool
-		CheckRunning      bool
-		QuickCheckFetch   bool
+		CheckInstallation   bool
+		CheckRunning        bool
+		QuickCheckFetch     bool
+		AppTreeBlobProvider BlobProvider
 	}
 	CheckAppsStatusOption func(*CheckAppsStatusOptions)
 )
@@ -109,6 +110,11 @@ func WithCheckRunning(check bool) CheckAppsStatusOption {
 func WithQuickCheckFetch(quickCheck bool) CheckAppsStatusOption {
 	return func(opts *CheckAppsStatusOptions) {
 		opts.QuickCheckFetch = quickCheck
+	}
+}
+func WithAppTreeBlobProvider(bp BlobProvider) CheckAppsStatusOption {
+	return func(opts *CheckAppsStatusOptions) {
+		opts.AppTreeBlobProvider = bp
 	}
 }
 
@@ -160,7 +166,20 @@ func CheckAppsStatus(
 	}
 
 	var apps []App
-	if apps, err = loadAppTrees(ctx, cfg, appStore, refs, true); err != nil {
+	var appTreeProvider BlobProvider
+	var fallbackToRemoteProvider bool
+	// If the app tree blob provider is specified then load app tree from it and do not fallback
+	// to loading it from the remote provider.
+	// Otherwise, use the local app store/storage as the app tree provider and fallback to the remote provider
+	// if the app is not found in the local store or not all blobs of app trees are found in it.
+	if opts.AppTreeBlobProvider != nil {
+		appTreeProvider = opts.AppTreeBlobProvider
+		fallbackToRemoteProvider = false
+	} else {
+		appTreeProvider = appStore
+		fallbackToRemoteProvider = true
+	}
+	if apps, err = loadAppTrees(ctx, cfg, appTreeProvider, refs, fallbackToRemoteProvider); err != nil {
 		return nil, fmt.Errorf("failed to load app trees: %w", err)
 	}
 
