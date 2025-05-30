@@ -12,6 +12,12 @@ var (
 		Use:   "init [app_ref]...",
 		Short: "Initialize the update for specified apps by identifying required blobs to fetch",
 		Long:  `Initialize or reinitialize an update for the specified apps by determining which blobs need to be downloaded to fetch the update`,
+		Example: `
+	# Initialize a new update for the specified apps:
+	composectl update init <app1 URI> <app2 URI>...
+
+	# Reinitialize an existing update:
+	composectl update init`,
 	}
 )
 
