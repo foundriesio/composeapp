@@ -7,15 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	manifestCmd = &cobra.Command{
-		Use:   "manifest <ref>",
-		Short: "manifest <ref>",
-		Long:  ``,
-		Args:  cobra.ExactArgs(1),
-	}
-)
-
 type (
 	manifestOptions struct {
 		SrcStorePath *string
@@ -24,6 +15,12 @@ type (
 )
 
 func init() {
+	manifestCmd := &cobra.Command{
+		Use:   "manifest <ref>",
+		Short: "manifest <ref>",
+		Long:  ``,
+		Args:  cobra.ExactArgs(1),
+	}
 	opts := manifestOptions{}
 
 	opts.SrcStorePath = manifestCmd.Flags().StringP("source-store-path", "l", "",

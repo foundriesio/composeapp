@@ -7,17 +7,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	installCmd = &cobra.Command{
+func init() {
+	installCmd := &cobra.Command{
 		Use:   "install <ref>",
 		Short: "install <ref>",
 		Long:  ``,
 		Args:  cobra.ExactArgs(1),
 		Run:   installApp,
 	}
-)
-
-func init() {
 	rootCmd.AddCommand(installCmd)
 }
 

@@ -44,6 +44,11 @@ type (
 )
 
 func init() {
+	psCmd := &cobra.Command{
+		Use:   "ps [<ref>]...",
+		Short: "ps [<ref>]...",
+		Long:  ``,
+	}
 	opts := psOptions{}
 	psCmd.Flags().StringVar(&opts.Format, "format", "table", "Format the output. Values: [table | json]")
 	psCmd.Flags().BoolVar(&opts.CheckInstall, "install", true, "Also check if app is installed")
@@ -55,12 +60,6 @@ func init() {
 	}
 
 	rootCmd.AddCommand(psCmd)
-}
-
-var psCmd = &cobra.Command{
-	Use:   "ps [<ref>]...",
-	Short: "ps [<ref>]...",
-	Long:  ``,
 }
 
 func psApps(cmd *cobra.Command, args []string, opts *psOptions) {

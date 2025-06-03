@@ -7,13 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var listCmd = &cobra.Command{
-	Use:   "ls",
-	Short: "list apps found in the store",
-	Long:  ``,
-	Args:  cobra.NoArgs,
-}
-
 type (
 	listOptions struct {
 		Format string
@@ -25,6 +18,12 @@ type (
 )
 
 func init() {
+	listCmd := &cobra.Command{
+		Use:   "ls",
+		Short: "list apps found in the store",
+		Long:  ``,
+		Args:  cobra.NoArgs,
+	}
 	opts := listOptions{}
 	listCmd.Flags().StringVar(&opts.Format, "format", "plain", "Format the output. Values: [plain | json]")
 	listCmd.Run = func(cmd *cobra.Command, args []string) {

@@ -22,12 +22,6 @@ const (
 	`
 )
 
-var publishCmd = &cobra.Command{
-	Use:   "publish <ref> [comma,separated,arch,list]",
-	Short: "publish <ref> [comma,separated,arch,list]",
-	Args:  cobra.RangeArgs(1, 2),
-}
-
 type (
 	publishOptions struct {
 		ComposeFile             string
@@ -40,6 +34,11 @@ type (
 )
 
 func init() {
+	publishCmd := &cobra.Command{
+		Use:   "publish <ref> [comma,separated,arch,list]",
+		Short: "publish <ref> [comma,separated,arch,list]",
+		Args:  cobra.RangeArgs(1, 2),
+	}
 	opts := publishOptions{}
 	publishCmd.Flags().StringVarP(&opts.ComposeFile, "file", "f", "docker-compose.yml", "A path to a compose project file")
 	publishCmd.Flags().StringVarP(&opts.DigestFile, "digest-file", "d", "", "A file to store the published app sha256 digest to")
