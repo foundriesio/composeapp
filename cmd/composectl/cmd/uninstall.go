@@ -8,13 +8,6 @@ import (
 	"os"
 )
 
-var uninstallCmd = &cobra.Command{
-	Use:   "uninstall",
-	Short: "uninstall <app-name> [<app-name>]",
-	Long:  ``,
-	Args:  cobra.MinimumNArgs(1),
-}
-
 type (
 	uninstallOptions struct {
 		ignoreNonInstalled bool
@@ -23,6 +16,12 @@ type (
 )
 
 func init() {
+	uninstallCmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "uninstall <app-name> [<app-name>]",
+		Long:  ``,
+		Args:  cobra.MinimumNArgs(1),
+	}
 	opts := uninstallOptions{}
 	uninstallCmd.Flags().BoolVar(&opts.ignoreNonInstalled, "ignore-non-installed", false,
 		"Do not yield error if app installation is not found")

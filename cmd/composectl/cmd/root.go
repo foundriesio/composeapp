@@ -34,7 +34,18 @@ var (
 		Use:   "composectl",
 		Short: "Manage Compose Apps",
 	}
-	versionCmd = &cobra.Command{
+	config *compose.Config
+)
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+func init() {
+	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "print a version of the utility",
 		Long:  ``,
@@ -47,17 +58,6 @@ var (
 			}
 		},
 	}
-	config *compose.Config
-)
-
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-}
-
-func init() {
 	cobra.OnInitialize(initConfig)
 	// The `storeRoot`, `composeRoot`, `defConnectTimeout` can be set at compile time
 	configOpts := []v1.ConfigOpt{
