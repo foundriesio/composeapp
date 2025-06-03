@@ -7,13 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var pruneCmd = &cobra.Command{
-	Use:   "prune",
-	Short: "prune dangling blobs",
-	Long:  ``,
-	Args:  cobra.NoArgs,
-}
-
 type (
 	pruneOptions struct {
 		Format string
@@ -21,6 +14,12 @@ type (
 )
 
 func init() {
+	pruneCmd := &cobra.Command{
+		Use:   "prune",
+		Short: "prune dangling blobs",
+		Long:  ``,
+		Args:  cobra.NoArgs,
+	}
 	opts := pruneOptions{}
 	pruneCmd.Flags().StringVar(&opts.Format, "format", "plain", "format the output. Values: [plain | json]")
 	pruneCmd.Run = func(cmd *cobra.Command, args []string) {

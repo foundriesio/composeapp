@@ -16,15 +16,6 @@ import (
 	"os"
 )
 
-var (
-	checkCmd = &cobra.Command{
-		Use:   "check",
-		Short: "check <ref> [<ref>]",
-		Long:  ``,
-		Args:  cobra.MinimumNArgs(1),
-	}
-)
-
 type (
 	checkOptions struct {
 		UsageWatermark *uint
@@ -62,6 +53,12 @@ const (
 )
 
 func init() {
+	checkCmd := &cobra.Command{
+		Use:   "check",
+		Short: "check <ref> [<ref>]",
+		Long:  ``,
+		Args:  cobra.MinimumNArgs(1),
+	}
 	opts := checkOptions{}
 	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80,
 		"The maximum allowed storage usage in percentage")

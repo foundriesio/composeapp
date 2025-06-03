@@ -15,16 +15,13 @@ type (
 	}
 )
 
-var (
-	stopCmd = &cobra.Command{
+func init() {
+	stopCmd := &cobra.Command{
 		Use:   "stop",
 		Short: "stop --all | <app-name> [<app-name>]",
 		Long:  ``,
 		Args:  cobra.ArbitraryArgs,
 	}
-)
-
-func init() {
 	opts := stopOptions{}
 	stopCmd.Flags().BoolVar(&opts.All, "all", false, "stop all installed and running apps")
 	stopCmd.Run = func(cmd *cobra.Command, args []string) {

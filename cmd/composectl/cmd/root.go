@@ -5,6 +5,7 @@ import (
 	dockercfg "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
 	"github.com/docker/cli/cli/config/credentials"
+	updatectl "github.com/foundriesio/composeapp/cmd/composectl/cmd/update"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
@@ -34,7 +35,18 @@ var (
 		Use:   "composectl",
 		Short: "Manage Compose Apps",
 	}
-	versionCmd = &cobra.Command{
+	config *compose.Config
+)
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+func init() {
+	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "print a version of the utility",
 		Long:  ``,
@@ -47,17 +59,6 @@ var (
 			}
 		},
 	}
-	config *compose.Config
-)
-
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-}
-
-func init() {
 	cobra.OnInitialize(initConfig)
 	// The `storeRoot`, `composeRoot`, `defConnectTimeout` can be set at compile time
 	configOpts := []v1.ConfigOpt{
@@ -81,6 +82,7 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", int(config.ConnectTimeout.Seconds()),
 		"timeout in seconds for establishing a connection to a container registry and an authentication service")
 	rootCmd.PersistentFlags().BoolVarP(&showConfigFile, "show-config", "C", false, "print paths of the applied config files")
+	rootCmd.AddCommand(updatectl.UpdateCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 

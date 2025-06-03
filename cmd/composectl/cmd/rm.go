@@ -8,13 +8,6 @@ import (
 	"strings"
 )
 
-var rmCmd = &cobra.Command{
-	Use:   "rm",
-	Short: "rm <app-name> | <ref> [<app-name> | <ref>]",
-	Long:  ``,
-	Args:  cobra.MinimumNArgs(1),
-}
-
 type (
 	rmOptions struct {
 		Prune bool
@@ -23,6 +16,12 @@ type (
 )
 
 func init() {
+	rmCmd := &cobra.Command{
+		Use:   "rm",
+		Short: "rm <app-name> | <ref> [<app-name> | <ref>]",
+		Long:  ``,
+		Args:  cobra.MinimumNArgs(1),
+	}
 	opts := rmOptions{}
 	rmCmd.Flags().BoolVar(&opts.Prune, "prune", true, "prune unused blobs after removing apps")
 	rmCmd.Flags().BoolVar(&opts.Quiet, "quiet", false, "ignore non-existing apps")

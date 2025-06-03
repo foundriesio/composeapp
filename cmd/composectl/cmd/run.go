@@ -11,15 +11,6 @@ import (
 	"strings"
 )
 
-var (
-	runCmd = &cobra.Command{
-		Use:   "run",
-		Short: "run <app name> [<app name>] | --apps <app list>; if empty (\"\") then run all apps",
-		Long:  ``,
-		Args:  cobra.ArbitraryArgs,
-	}
-)
-
 type (
 	runOptions struct {
 		Apps map[string]bool
@@ -27,6 +18,12 @@ type (
 )
 
 func init() {
+	runCmd := &cobra.Command{
+		Use:   "run",
+		Short: "run <app name> [<app name>] | --apps <app list>; if empty (\"\") then run all apps",
+		Long:  ``,
+		Args:  cobra.ArbitraryArgs,
+	}
 	opts := runOptions{Apps: map[string]bool{}}
 	runAppShortlist := runCmd.Flags().String("apps", ",", "Comma separated list of apps to run;"+
 		" all installed apps are started if not defined")
