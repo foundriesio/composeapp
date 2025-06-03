@@ -13,13 +13,6 @@ import (
 )
 
 var (
-	pullCmd = &cobra.Command{
-		Use:   "pull <ref> [<ref>]",
-		Short: "pull <ref> [<ref>]",
-		Long:  ``,
-		Args:  cobra.MinimumNArgs(1),
-		Run:   pullApps,
-	}
 	pullUsageWatermark        *uint
 	pullSrcStorePath          *string
 	pullPrintUsageStat        *bool
@@ -27,6 +20,13 @@ var (
 )
 
 func init() {
+	pullCmd := &cobra.Command{
+		Use:   "pull <ref> [<ref>]",
+		Short: "pull <ref> [<ref>]",
+		Long:  ``,
+		Args:  cobra.MinimumNArgs(1),
+		Run:   pullApps,
+	}
 	rootCmd.AddCommand(pullCmd)
 	pullUsageWatermark = pullCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
 	pullSrcStorePath = pullCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")

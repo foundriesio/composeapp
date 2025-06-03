@@ -8,15 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	composeCmd = &cobra.Command{
-		Use:   "compose <ref>",
-		Short: "compose <ref>",
-		Long:  ``,
-		Args:  cobra.ExactArgs(1),
-	}
-)
-
 type (
 	composeOptions struct {
 		SrcStorePath *string
@@ -25,6 +16,12 @@ type (
 )
 
 func init() {
+	composeCmd := &cobra.Command{
+		Use:   "compose <ref>",
+		Short: "compose <ref>",
+		Long:  ``,
+		Args:  cobra.ExactArgs(1),
+	}
 	opts := composeOptions{}
 
 	opts.SrcStorePath = composeCmd.Flags().StringP("source-store-path", "l", "",

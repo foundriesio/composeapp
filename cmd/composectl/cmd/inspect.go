@@ -9,15 +9,14 @@ import (
 )
 
 func init() {
+	inspectCmd := &cobra.Command{
+		Use:   "inspect <app ref>",
+		Short: "inspect <ref>",
+		Long:  ``,
+		Args:  cobra.ExactArgs(1),
+		Run:   inspectApp,
+	}
 	rootCmd.AddCommand(inspectCmd)
-}
-
-var inspectCmd = &cobra.Command{
-	Use:   "inspect <app ref>",
-	Short: "inspect <ref>",
-	Long:  ``,
-	Args:  cobra.ExactArgs(1),
-	Run:   inspectApp,
 }
 
 func inspectApp(cmd *cobra.Command, args []string) {
