@@ -7,20 +7,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	fetchCmd = &cobra.Command{
-		Use:   "fetch",
-		Short: "Download missing blobs for apps being updated",
-		Long:  `Fetch the update by downloading any missing blobs required by the apps being updated`,
-	}
-)
-
 type (
 	fetchOptions struct {
 	}
 )
 
 func init() {
+	fetchCmd := &cobra.Command{
+		Use:   "fetch",
+		Short: "Download missing blobs for the apps being updated",
+		Long:  `Fetch the update by downloading any missing blobs for the apps being updated.`,
+	}
+
 	opts := fetchOptions{}
 
 	fetchCmd.Run = func(cmd *cobra.Command, args []string) {

@@ -6,20 +6,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	runCmd = &cobra.Command{
-		Use:   "start",
-		Short: "Start the updated apps",
-		Long:  `Start the fetched and installed applications by launching their compose services`,
-	}
-)
-
 type (
 	runOptions struct {
 	}
 )
 
 func init() {
+	runCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the updated apps",
+		Long:  `Start the fetched and installed apps by launching their compose services`,
+	}
+
 	opts := runOptions{}
 
 	runCmd.Run = func(cmd *cobra.Command, args []string) {

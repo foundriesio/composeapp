@@ -7,8 +7,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	initCmd = &cobra.Command{
+type (
+	initOptions struct {
+		UpdateRef string
+	}
+)
+
+func init() {
+	initCmd := &cobra.Command{
 		Use:   "init [app_ref]...",
 		Short: "Initialize the update for specified apps by identifying required blobs to fetch",
 		Long:  `Initialize or reinitialize an update for the specified apps by determining which blobs need to be downloaded to fetch the update`,
@@ -19,15 +25,7 @@ var (
 	# Reinitialize an existing update:
 	composectl update init`,
 	}
-)
 
-type (
-	initOptions struct {
-		UpdateRef string
-	}
-)
-
-func init() {
 	opts := initOptions{}
 
 	initCmd.Flags().StringVar(&opts.UpdateRef, "ref", "",

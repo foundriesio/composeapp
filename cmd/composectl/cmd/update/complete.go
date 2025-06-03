@@ -6,15 +6,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	completeCmd = &cobra.Command{
-		Use:   "complete",
-		Short: "Complete the update process",
-		Long: `Completes the update process by checking the status of 
-the update and optionally uninstalling and removing apps that are not included into the update.`,
-	}
-)
-
 type (
 	completeOptions struct {
 		Prune bool
@@ -22,6 +13,15 @@ type (
 )
 
 func init() {
+	completeCmd := &cobra.Command{
+		Use:   "complete",
+		Short: "Complete the update process",
+		Long: `Complete the update process and optionally uninstall and remove apps not included in the update.
+
+Run this command after the update has been installed and the updated apps are confirmed to be functioning correctly.
+This will mark the update as successful after checking whether the update apps are fetched, installed, and running.`,
+	}
+
 	opts := completeOptions{}
 
 	completeCmd.Flags().BoolVar(&opts.Prune, "prune", false,

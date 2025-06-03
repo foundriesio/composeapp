@@ -9,14 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	statusCmd = &cobra.Command{
-		Use:   "status",
-		Short: "Output the current or the last update status",
-		Long:  `Output the current or the last update status`,
-	}
-)
-
 type (
 	statusOptions struct {
 		CheckApps bool
@@ -24,6 +16,12 @@ type (
 )
 
 func init() {
+	statusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Output the current or the last update status",
+		Long:  `Output the current or the last update status`,
+	}
+
 	opts := statusOptions{}
 
 	statusCmd.Flags().BoolVar(&opts.CheckApps, "check", false,

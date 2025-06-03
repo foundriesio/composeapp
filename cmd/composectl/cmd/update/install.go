@@ -9,17 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	installCmd = &cobra.Command{
-		Use:   "install",
-		Short: "Install the updated apps",
-		Long:  `Install the updated applications by extracting the compose project and loading its images into the docker store`,
-	}
-)
-
 type (
-	installOptions struct {
-	}
+	installOptions struct{}
 
 	progressRendererCtx struct {
 		bar        *progressbar.ProgressBar
@@ -29,6 +20,12 @@ type (
 )
 
 func init() {
+	installCmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install the updated apps",
+		Long:  `Install the updated apps by extracting the compose project and loading its images into the Docker image storage	`,
+	}
+
 	opts := installOptions{}
 
 	installCmd.Run = func(cmd *cobra.Command, args []string) {

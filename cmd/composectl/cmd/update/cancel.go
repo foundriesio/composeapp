@@ -6,20 +6,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	cancelCmd = &cobra.Command{
+type (
+	cancelOptions struct{}
+)
+
+func init() {
+	cancelCmd := &cobra.Command{
 		Use:   "cancel",
 		Short: "Cancel the current update by uninstalling the applications if installed and removing any fetched blobs",
 		Long:  ``,
 	}
-)
 
-type (
-	cancelOptions struct {
-	}
-)
-
-func init() {
 	opts := cancelOptions{}
 
 	cancelCmd.Run = func(cmd *cobra.Command, args []string) {
