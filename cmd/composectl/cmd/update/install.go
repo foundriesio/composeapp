@@ -50,13 +50,11 @@ func getProgressRenderer() compose.InstallProgressFunc {
 	ctx := &progressRendererCtx{}
 
 	return func(p *compose.InstallProgress) {
+		// TODO: handle and render info about the compose.AppInstallStateComposeChecking state
 		switch p.AppInstallState {
 		case compose.AppInstallStateComposeInstalling:
 			{
 				fmt.Printf("Installing app %s\n", p.AppID)
-			}
-		case compose.AppInstallStateComposeChecking:
-			{
 			}
 		case compose.AppInstallStateImagesLoading:
 			{
