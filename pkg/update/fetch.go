@@ -123,11 +123,11 @@ func checkAndUpdateBlobStatus(ctx context.Context, b *session, u *runnerImpl, ls
 	for ref, b := range u.Blobs {
 		if s, err := ls.Status(ctx, ref); err == nil {
 			currentUpdateDownloadSize += s.Offset
-			b.Downloaded = s.Offset
+			b.Fetched = s.Offset
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
 				currentUpdateDownloadSize += i.Size
-				b.Downloaded = i.Size
+				b.Fetched = i.Size
 			}
 		}
 	}

@@ -23,22 +23,17 @@ type (
 
 	State string
 
-	BlobStatus struct {
-		compose.BlobInfo
-		Downloaded int64 `json:"downloaded"`
-	}
-
 	Update struct {
-		ID                    string                 `json:"id"`
-		ClientRef             string                 `json:"client_ref"`
-		State                 State                  `json:"state"`
-		Progress              int                    `json:"progress"`
-		CreationTime          time.Time              `json:"timestamp"`
-		UpdateTime            time.Time              `json:"update_time"`
-		URIs                  []string               `json:"uris"`
-		Blobs                 map[string]*BlobStatus `json:"blobs"`
-		TotalBlobDownloadSize int64                  `json:"total_blob_download_size"`
-		LoadedImages          map[string]struct{}    `json:"loaded_images"`
+		ID                    string                       `json:"id"`
+		ClientRef             string                       `json:"client_ref"`
+		State                 State                        `json:"state"`
+		Progress              int                          `json:"progress"`
+		CreationTime          time.Time                    `json:"timestamp"`
+		UpdateTime            time.Time                    `json:"update_time"`
+		URIs                  []string                     `json:"uris"`
+		Blobs                 map[string]*compose.BlobInfo `json:"blobs"`
+		TotalBlobDownloadSize int64                        `json:"total_blob_download_size"`
+		LoadedImages          map[string]struct{}          `json:"loaded_images"`
 	}
 
 	runnerImpl struct {
