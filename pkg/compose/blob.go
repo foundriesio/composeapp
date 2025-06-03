@@ -25,7 +25,6 @@ type (
 		RuntimeSize int64               `json:"runtime_size"`
 		Fetched     int64               `json:"fetched"`
 	}
-	BlobsStatus map[digest.Digest]BlobInfo
 
 	ctxKeyType string
 )
