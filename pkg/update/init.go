@@ -90,7 +90,7 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 	var downloadSizeTotal int64 = 0
 	var totalSize int64 = 0
 
-	missingBlobs := map[string]*BlobStatus{}
+	missingBlobs := map[string]*compose.BlobInfo{}
 	u.Blobs = missingBlobs
 
 	if opts.ProgressReporter != nil {
@@ -125,15 +125,13 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				blobStoreSize := compose.AlignToBlockSize(node.Descriptor.Size, u.config.BlockSize)
 				blobRuntimeSize := app.GetBlobRuntimeSize(node.Descriptor, u.config.Platform.Architecture, u.config.BlockSize)
 
-				missingBlobs[blobURI] = &BlobStatus{
-					BlobInfo: compose.BlobInfo{
-						Descriptor:  node.Descriptor,
-						State:       bs,
-						Type:        node.Type,
-						StoreSize:   blobStoreSize,
-						RuntimeSize: blobRuntimeSize,
-					},
-					Downloaded: 0,
+				missingBlobs[blobURI] = &compose.BlobInfo{
+					Descriptor:  node.Descriptor,
+					State:       bs,
+					Type:        node.Type,
+					StoreSize:   blobStoreSize,
+					RuntimeSize: blobRuntimeSize,
+					Fetched:     0,
 				}
 				storeSizeTotal += blobStoreSize
 				runtimeSizeTotal += blobStoreSize
