@@ -3,6 +3,7 @@ package updatectl
 import (
 	"errors"
 	"fmt"
+	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
@@ -55,9 +56,12 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 	}
 	cmd.Printf("Date: \t\t%s\n", u.CreationTime.String())
 	cmd.Printf("State: \t\t%s\n", u.State)
-	cmd.Printf("Progress: \t%d\n", u.Progress)
-	cmd.Printf("Download Size: \t%d\n", u.TotalBlobDownloadSize)
+	cmd.Printf("Progress: \t%d%%\n", u.Progress)
+	cmd.Printf("Fetched: \t%s\n", units.BytesSize(float64(u.Fetched)))
+	cmd.Printf("Size: \t\t%s\n", units.BytesSize(float64(u.TotalBlobDownloadSize)))
+	cmd.Printf("Fetched blobs: \t%d\n", u.FetchedBlobs)
 	cmd.Printf("Blobs: \t\t%d\n", len(u.Blobs))
+
 	cmd.Println("URIs:")
 	for _, appURI := range u.URIs {
 		cmd.Printf("\t\t%s\n", appURI)
