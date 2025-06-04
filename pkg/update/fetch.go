@@ -119,20 +119,23 @@ func (u *runnerImpl) fetch(
 }
 
 func checkAndUpdateBlobStatus(ctx context.Context, b *session, u *runnerImpl, ls content.Store, sr progress.Reporter[FetchProgress]) {
-	var currentUpdateDownloadSize int64
+	u.Fetched = 0
+	u.FetchedBlobs = 0
 	for ref, b := range u.Blobs {
 		if s, err := ls.Status(ctx, ref); err == nil {
-			currentUpdateDownloadSize += s.Offset
+			// amount of update data fetched so far
+			u.Fetched += s.Offset
 			b.Fetched = s.Offset
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
-				currentUpdateDownloadSize += i.Size
+				u.Fetched += i.Size
 				b.Fetched = i.Size
+				u.FetchedBlobs++
 			}
 		}
 	}
 	if u.TotalBlobDownloadSize != 0 {
-		u.Progress = int((currentUpdateDownloadSize * 100) / u.TotalBlobDownloadSize)
+		u.Progress = int((u.Fetched * 100) / u.TotalBlobDownloadSize)
 	} else {
 		u.Progress = 100
 	}
@@ -143,5 +146,5 @@ func checkAndUpdateBlobStatus(ctx context.Context, b *session, u *runnerImpl, ls
 		// TODO: replace it by using logger
 		fmt.Printf("failed to save update state: %v", storeErr)
 	}
-	sr.Update(FetchProgress{Current: currentUpdateDownloadSize, Total: u.TotalBlobDownloadSize})
+	sr.Update(FetchProgress{Current: u.Fetched, Total: u.TotalBlobDownloadSize})
 }

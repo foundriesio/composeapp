@@ -31,9 +31,11 @@ type (
 		CreationTime          time.Time                    `json:"timestamp"`
 		UpdateTime            time.Time                    `json:"update_time"`
 		URIs                  []string                     `json:"uris"`
-		Blobs                 map[string]*compose.BlobInfo `json:"blobs"`
-		TotalBlobDownloadSize int64                        `json:"total_blob_download_size"`
+		Blobs                 map[string]*compose.BlobInfo `json:"blobs"`                    // map of update blob URIs to their info
+		TotalBlobDownloadSize int64                        `json:"total_blob_download_size"` // total size of all update blobs in bytes
 		LoadedImages          map[string]struct{}          `json:"loaded_images"`
+		Fetched               int64                        `json:"fetched"`       // total bytes fetched so far
+		FetchedBlobs          int                          `json:"fetched_blobs"` // number of blobs fetched so far
 	}
 
 	runnerImpl struct {
