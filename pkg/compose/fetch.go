@@ -26,8 +26,8 @@ type (
 	}
 
 	FetchOptions struct {
-		ProgressReporter     progress.Reporter[FetchProgress]
 		ProgressPollInterval int // interval between polling/checking blob download status in milliseconds
+		ProgressHandler      FetchProgressFunc
 	}
 
 	FetchOption       func(*FetchOptions)
@@ -36,8 +36,7 @@ type (
 
 func WithFetchProgress(pf FetchProgressFunc) FetchOption {
 	return func(o *FetchOptions) {
-		o.ProgressReporter = progress.NewReporter[FetchProgress](2)
-		o.ProgressReporter.Start(pf)
+		o.ProgressHandler = pf
 	}
 }
 
@@ -53,9 +52,15 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 		o(&opts)
 	}
 
+	var progressReporter progress.Reporter[FetchProgress]
+
+	if opts.ProgressHandler != nil {
+		progressReporter = progress.NewReporter[FetchProgress](2)
+		progressReporter.Start(opts.ProgressHandler)
+	}
 	defer func() {
-		if opts.ProgressReporter != nil {
-			opts.ProgressReporter.Stop(ctx.Err() == nil)
+		if progressReporter != nil {
+			progressReporter.Stop(ctx.Err() == nil)
 		}
 	}()
 
@@ -73,7 +78,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 
 	var progressWg sync.WaitGroup
 	stopChan := make(chan struct{})
-	if opts.ProgressReporter != nil {
+	if progressReporter != nil {
 		var pollInterval int
 		if opts.ProgressPollInterval > 0 {
 			pollInterval = opts.ProgressPollInterval
@@ -87,13 +92,13 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 			for {
 				select {
 				case <-ctx.Done():
-					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, opts.ProgressReporter)
+					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, progressReporter)
 					return
 				case <-stopChan:
-					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, opts.ProgressReporter)
+					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, progressReporter)
 					return
 				default:
-					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, opts.ProgressReporter)
+					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, progressReporter)
 				}
 				time.Sleep(time.Duration(pollInterval) * time.Millisecond)
 			}
@@ -108,7 +113,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 		}
 	}
 
-	if opts.ProgressReporter != nil {
+	if progressReporter != nil {
 		if ctx.Err() == nil {
 			// stop the progress reporter if it wasn't stopped yet through the context cancel
 			stopChan <- struct{}{}

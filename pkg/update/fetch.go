@@ -17,12 +17,6 @@ func (u *runnerImpl) fetch(
 		o(&opts)
 	}
 
-	defer func() {
-		if opts.ProgressReporter != nil {
-			opts.ProgressReporter.Stop(ctx.Err() == nil)
-		}
-	}()
-
 	blobsToFetch := make(map[digest.Digest]*compose.BlobInfo)
 	for ref, b := range u.Blobs {
 		d := digest.FromString(ref)
@@ -48,8 +42,8 @@ func (u *runnerImpl) fetch(
 				fmt.Printf("failed to save update state: %v", storeErr)
 			}
 			// invoke the progress reporter if one is provided by a caller
-			if opts.ProgressReporter != nil {
-				opts.ProgressReporter.Update(*p)
+			if opts.ProgressHandler != nil {
+				opts.ProgressHandler(p)
 			}
 		}))
 
