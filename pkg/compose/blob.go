@@ -18,12 +18,12 @@ type (
 	BlobState int
 	BlobType  string
 	BlobInfo  struct {
-		Descriptor  *ocispec.Descriptor `json:"descriptor"`
-		State       BlobState           `json:"state"`
-		Type        BlobType            `json:"type"`
-		StoreSize   int64               `json:"store_size"`
-		RuntimeSize int64               `json:"runtime_size"`
-		Fetched     int64               `json:"fetched"`
+		Descriptor   *ocispec.Descriptor `json:"descriptor"`
+		State        BlobState           `json:"state"`
+		Type         BlobType            `json:"type"`
+		StoreSize    int64               `json:"store_size"`
+		RuntimeSize  int64               `json:"runtime_size"`
+		BytesFetched int64               `json:"fetched_bytes"`
 	}
 
 	ctxKeyType string
@@ -158,7 +158,7 @@ func copyBlob(ctx context.Context, r io.ReadCloser, ref string, desc ocispec.Des
 	var err error
 	var w content.Writer
 	for {
-		w, err = content.OpenWriter(ctx, store, content.WithRef(ref), content.WithDescriptor(desc))
+		w, err = store.Writer(ctx, content.WithRef(ref), content.WithDescriptor(desc))
 		if err != nil {
 			if force && errdefs.IsAlreadyExists(err) {
 				if err := store.Delete(ctx, desc.Digest); err == nil {

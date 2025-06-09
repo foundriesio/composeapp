@@ -18,11 +18,17 @@ const (
 )
 
 type (
+	BlobFetchProgress struct {
+		BlobInfo
+		BytesFetched   int64     `json:"bytes_fetched"`
+		FetchStartTime time.Time `json:"fetch_start_time"`
+		FetchSpeedAvg  int64     `json:"fetch_speed_avg"` // bytes per second
+	}
 	FetchProgress struct {
-		Blobs        []*BlobInfo
-		FetchedBlobs int
-		Current      int64
-		Total        int64
+		Blobs        map[digest.Digest]*BlobFetchProgress // per-blob metadata and progress
+		FetchedCount int                                  // number of fully fetched blobs
+		CurrentBytes int64                                // total bytes downloaded so far
+		TotalBytes   int64                                // total bytes expected to download
 	}
 
 	FetchOptions struct {
@@ -46,7 +52,7 @@ func WithProgressPollInterval(pollInterval int) FetchOption {
 	}
 }
 
-func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest]*BlobInfo, options ...FetchOption) error {
+func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobInfo, options ...FetchOption) error {
 	opts := FetchOptions{}
 	for _, o := range options {
 		o(&opts)
@@ -65,8 +71,19 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 	}()
 
 	var totalBlobsFetchSize int64
-	for _, blob := range blobsToFetch {
+	blobsToFetch := map[digest.Digest]*BlobFetchProgress{}
+	for d, blob := range blobs {
 		totalBlobsFetchSize += blob.Descriptor.Size
+		blobsToFetch[d] = &BlobFetchProgress{
+			BlobInfo: *blob,
+		}
+	}
+
+	fetchProgress := FetchProgress{
+		Blobs:        blobsToFetch,
+		FetchedCount: 0,
+		CurrentBytes: 0,
+		TotalBytes:   totalBlobsFetchSize,
 	}
 
 	authorizer := NewRegistryAuthorizer(cfg.DockerCfg, cfg.ConnectTimeout)
@@ -89,27 +106,49 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 
 		go func(stopChan chan struct{}) {
 			defer progressWg.Done()
+			ticker := time.NewTicker(time.Duration(pollInterval) * time.Millisecond)
+			defer ticker.Stop()
+		done:
 			for {
 				select {
 				case <-ctx.Done():
-					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, progressReporter)
-					return
+					break done
 				case <-stopChan:
-					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, progressReporter)
-					return
-				default:
-					checkAndUpdateBlobStatus(ctx, blobsToFetch, localStore, totalBlobsFetchSize, progressReporter)
+					break done
+				case <-ticker.C:
+					checkAndUpdateBlobStatus(ctx, &fetchProgress, localStore, progressReporter)
 				}
-				time.Sleep(time.Duration(pollInterval) * time.Millisecond)
 			}
+			checkAndUpdateBlobStatus(ctx, &fetchProgress, localStore, progressReporter)
 		}(stopChan)
 	}
+
+	var blobsToResumeDownload []*BlobFetchProgress
+	var blobsToStartDownload []*BlobFetchProgress
+
 	for _, bi := range blobsToFetch {
+		if bi.State == BlobFetching {
+			blobsToResumeDownload = append(blobsToResumeDownload, bi)
+		} else {
+			blobsToStartDownload = append(blobsToStartDownload, bi)
+		}
+	}
+
+	for _, bi := range blobsToResumeDownload {
+		bi.FetchStartTime = time.Now()
 		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, localStore, true)
 		if err != nil {
 			// TODO: log this error and do retry
 			fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
-			break
+		}
+	}
+
+	for _, bi := range blobsToStartDownload {
+		bi.FetchStartTime = time.Now()
+		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, localStore, true)
+		if err != nil {
+			// TODO: log this error and do retry
+			fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
 		}
 	}
 
@@ -124,23 +163,29 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 	return ctx.Err()
 }
 
-func checkAndUpdateBlobStatus(ctx context.Context, blobsToFetch map[digest.Digest]*BlobInfo, ls content.Store, totalBlobsFetchSize int64, sr progress.Reporter[FetchProgress]) {
-	var currentUpdateDownloadSize int64
-	var inFlightBlobs []*BlobInfo
-	var fetchedBlobs int
-	for _, b := range blobsToFetch {
+func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress, ls content.Store, sr progress.Reporter[FetchProgress]) {
+	for _, b := range fetchProgress.Blobs {
+		if b.State == BlobOk {
+			// already fetched
+			continue
+		}
 		if s, err := ls.Status(ctx, b.Descriptor.URLs[0]); err == nil {
-			currentUpdateDownloadSize += s.Offset
-			b.Fetched = s.Offset
-			inFlightBlobs = append(inFlightBlobs, b)
+			fetchProgress.CurrentBytes += s.Offset - b.BytesFetched
+			b.BytesFetched = s.Offset
+			if b.State != BlobFetching {
+				b.State = BlobFetching
+			} else {
+				b.FetchSpeedAvg = int64(float64(b.BytesFetched) / time.Since(b.FetchStartTime).Seconds())
+			}
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
-				currentUpdateDownloadSize += i.Size
-				b.Fetched = i.Size
-				fetchedBlobs++
+				fetchProgress.CurrentBytes += i.Size - b.BytesFetched
+				b.BytesFetched = i.Size
+				b.State = BlobOk
+				fetchProgress.FetchedCount++
+				b.FetchSpeedAvg = int64(float64(b.BytesFetched) / time.Since(b.FetchStartTime).Seconds())
 			}
 		}
 	}
-
-	sr.Update(FetchProgress{Blobs: inFlightBlobs, FetchedBlobs: fetchedBlobs, Current: currentUpdateDownloadSize, Total: totalBlobsFetchSize})
+	sr.Update(*fetchProgress)
 }
