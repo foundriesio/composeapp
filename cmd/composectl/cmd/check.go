@@ -171,7 +171,7 @@ func checkApps(ctx context.Context,
 				fmt.Printf("%s %*s", blobDescStr, 120-len(blobDescStr), compose.FormatBytesInt64(node.Descriptor.Size))
 				bs := status.FetchStatus.BlobsStatus[app.Ref().Digest].BlobsStatus[node.Descriptor.Digest]
 				if bs.State == compose.BlobFetching {
-					fmt.Printf("...%.2f%% (%s)\n", (float64(bs.Fetched)/float64(bs.Descriptor.Size))*100, compose.FormatBytesInt64(bs.Fetched))
+					fmt.Printf("...%.2f%% (%s)\n", (float64(bs.BytesFetched)/float64(bs.Descriptor.Size))*100, compose.FormatBytesInt64(bs.BytesFetched))
 				} else {
 					fmt.Printf("...%s\n", bs.State.String())
 				}
@@ -188,8 +188,8 @@ func checkApps(ctx context.Context,
 	}
 	for _, bi := range status.MissingBlobs {
 		if bi.State == compose.BlobFetching {
-			checkResult.TotalPullSize += bi.Descriptor.Size - bi.Fetched
-			checkResult.TotalStoreSize += compose.AlignToBlockSize(bi.Descriptor.Size-bi.Fetched, config.BlockSize)
+			checkResult.TotalPullSize += bi.Descriptor.Size - bi.BytesFetched
+			checkResult.TotalStoreSize += compose.AlignToBlockSize(bi.Descriptor.Size-bi.BytesFetched, config.BlockSize)
 		} else {
 			checkResult.TotalPullSize += bi.Descriptor.Size
 			checkResult.TotalStoreSize += bi.StoreSize

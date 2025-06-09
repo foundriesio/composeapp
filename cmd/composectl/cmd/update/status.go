@@ -73,7 +73,7 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 
 		fmt.Println()
 		yesno := map[bool]string{false: "no", true: "yes"}
-		fmt.Printf("BytesFetched: \t%s\n", yesno[appsStatus.AreFetched()])
+		fmt.Printf("Fetched: \t%s\n", yesno[appsStatus.AreFetched()])
 		fmt.Printf("Installed: \t%s\n", yesno[appsStatus.AreInstalled()])
 		fmt.Printf("Running: \t%s\n", yesno[appsStatus.AreRunning()])
 	}
