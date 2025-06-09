@@ -19,10 +19,10 @@ const (
 
 type (
 	FetchProgress struct {
-		Blobs        []*BlobInfo
-		FetchedBlobs int
-		Current      int64
-		Total        int64
+		Blobs        map[digest.Digest]*BlobInfo // per-blob metadata and progress
+		FetchedCount int                         // number of fully fetched blobs
+		CurrentBytes int64                       // total bytes downloaded so far
+		TotalBytes   int64                       // total bytes expected to download
 	}
 
 	FetchOptions struct {
@@ -104,7 +104,28 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 			}
 		}(stopChan)
 	}
+
+	var blobsToResumeDownload []*BlobInfo
+	var blobsToStartDownload []*BlobInfo
+
 	for _, bi := range blobsToFetch {
+		if bi.State == BlobFetching {
+			blobsToResumeDownload = append(blobsToResumeDownload, bi)
+		} else {
+			blobsToStartDownload = append(blobsToStartDownload, bi)
+		}
+	}
+
+	for _, bi := range blobsToResumeDownload {
+		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, localStore, true)
+		if err != nil {
+			// TODO: log this error and do retry
+			fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
+			break
+		}
+	}
+
+	for _, bi := range blobsToStartDownload {
 		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, localStore, true)
 		if err != nil {
 			// TODO: log this error and do retry
@@ -124,23 +145,28 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobsToFetch map[digest.Digest
 	return ctx.Err()
 }
 
-func checkAndUpdateBlobStatus(ctx context.Context, blobsToFetch map[digest.Digest]*BlobInfo, ls content.Store, totalBlobsFetchSize int64, sr progress.Reporter[FetchProgress]) {
-	var currentUpdateDownloadSize int64
-	var inFlightBlobs []*BlobInfo
-	var fetchedBlobs int
+func checkAndUpdateBlobStatus(ctx context.Context, blobsToFetch map[digest.Digest]*BlobInfo, ls content.Store, totalBytes int64, sr progress.Reporter[FetchProgress]) {
+	var currentBytes int64
+	var fetchedCount int
 	for _, b := range blobsToFetch {
 		if s, err := ls.Status(ctx, b.Descriptor.URLs[0]); err == nil {
-			currentUpdateDownloadSize += s.Offset
+			currentBytes += s.Offset
 			b.Fetched = s.Offset
-			inFlightBlobs = append(inFlightBlobs, b)
+			b.State = BlobFetching
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
-				currentUpdateDownloadSize += i.Size
+				currentBytes += i.Size
 				b.Fetched = i.Size
-				fetchedBlobs++
+				b.State = BlobOk
+				fetchedCount++
 			}
 		}
 	}
-
-	sr.Update(FetchProgress{Blobs: inFlightBlobs, FetchedBlobs: fetchedBlobs, Current: currentUpdateDownloadSize, Total: totalBlobsFetchSize})
+	sr.Update(FetchProgress{
+		Blobs:        blobsToFetch,
+		FetchedCount: fetchedCount,
+		CurrentBytes: currentBytes,
+		TotalBytes:   totalBytes,
+	},
+	)
 }
