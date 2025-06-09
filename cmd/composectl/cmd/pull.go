@@ -8,7 +8,6 @@ import (
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
 	"os"
-	"strings"
 )
 
 var (
@@ -57,60 +56,44 @@ func pullApps(cmd *cobra.Command, args []string) {
 		}
 		cr.print()
 		fmt.Println("Pulling app blobs...")
-		//// copying missing blobs
-		//// TODO:  move to a separate function:
-		////  1) Copy in multiple goroutines/workers (configurable)
-		////  2) Generic status reporting mechanism
-		//authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
-		//resolver := compose.NewResolver(authorizer, config.ConnectTimeout)
-		//
-		//ls, err := local.NewStore(config.StoreRoot)
-		//DieNotNil(err)
-		//for _, b := range cr.MissingBlobs {
-		//	fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
-		//	var copyErr error
-		//	if len(*pullSrcStorePath) > 0 {
-		//		blobPath := path.Join(compose.GetBlobsRootFor(*pullSrcStorePath), b.Descriptor.Digest.Encoded())
-		//		copyErr = compose.CopyLocalBlob(cmd.Context(), blobPath, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
-		//	} else {
-		//		copyErr = compose.CopyBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
-		//	}
-		//	DieNotNil(copyErr)
-		//	fmt.Println("ok")
-		//}
 
-		var printedLines = 0
-
-		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs, compose.WithFetchProgress(func(progress *compose.FetchProgress) {
-			// Move the cursor up to overwrite previous output
-			if printedLines > 0 {
-				fmt.Printf("\033[%dA", printedLines)
-			}
-
-			var sb strings.Builder
-
-			// Line 1: Overall progress
-			sb.WriteString(fmt.Sprintf("Blobs downloaded: %d/%d\n", progress.Current, progress.Total))
-
-			// Line 2: Current blob download (if any)
-			if len(progress.Blobs) > 0 {
-				blob := progress.Blobs[0]
-				var percent float64
-				if blob.Descriptor.Size > 0 {
-					percent = float64(blob.Fetched) / float64(blob.Descriptor.Size) * 100
+		var currentBlob *compose.BlobInfo
+		var lastSizeStr string
+		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
+			compose.WithFetchProgress(func(p *compose.FetchProgress) {
+				// Currently, we only support downloading one blob at a time,
+				// so we assume that `p.Blobs` contains only one blob at the Fetching state.
+				if currentBlob != nil {
+					if len(lastSizeStr) > 0 {
+						// Move the cursor back to the start of the size string
+						fmt.Printf("\x1b[%dD", len(lastSizeStr))
+					}
+					lastSizeStr = fmt.Sprintf("%.2f%% (%d)", (float64(currentBlob.Fetched)/float64(currentBlob.Descriptor.Size))*100, currentBlob.Fetched)
+					fmt.Printf("%s", lastSizeStr)
 				}
-				sb.WriteString(fmt.Sprintf("Downloading %s: %d/%d bytes (%.1f%%)\n",
-					blob.Descriptor.Digest, blob.Fetched, blob.Descriptor.Size, percent))
-			} else {
-				sb.WriteString("Waiting for blob...\n")
-			}
 
-			// Print output and update printed line count
-			output := sb.String()
-			printedLines = strings.Count(output, "\n")
-			fmt.Print(output)
-		}))
+				// Find the blob that is currently being fetched
+				var blobBeingFetched *compose.BlobInfo
+				for _, bi := range p.Blobs {
+					if bi.State == compose.BlobFetching {
+						blobBeingFetched = bi
+						break
+					}
+				}
+
+				if blobBeingFetched == nil {
+					return // No blob is currently being fetched
+				}
+
+				// If this is the first blob or the next blob then print the new blob info in the new line
+				if currentBlob == nil || currentBlob.Descriptor.Digest != blobBeingFetched.Descriptor.Digest {
+					currentBlob = blobBeingFetched
+					fmt.Printf("\n [%-15s] %s %15d...", blobBeingFetched.Type, blobBeingFetched.Descriptor.Digest.Encoded(), blobBeingFetched.Descriptor.Size)
+					lastSizeStr = ""
+				}
+			}))
 		DieNotNil(err, "failed to fetch blobs")
+		fmt.Println("")
 	}
 
 	for _, app := range apps {
