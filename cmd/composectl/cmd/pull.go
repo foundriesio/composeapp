@@ -6,6 +6,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
+	"github.com/moby/term"
 	"github.com/spf13/cobra"
 	"os"
 )
@@ -59,17 +60,30 @@ func pullApps(cmd *cobra.Command, args []string) {
 
 		var currentBlob *compose.BlobInfo
 		var lastSizeStr string
+		var lastFetchBytes int64
+		isTTY := term.IsTerminal(os.Stdout.Fd())
+
 		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
 			compose.WithFetchProgress(func(p *compose.FetchProgress) {
 				// Currently, we only support downloading one blob at a time,
 				// so we assume that `p.Blobs` contains only one blob at the Fetching state.
 				if currentBlob != nil {
-					if len(lastSizeStr) > 0 {
-						// Move the cursor back to the start of the size string
-						fmt.Printf("\x1b[%dD", len(lastSizeStr))
+					if lastFetchBytes == currentBlob.Fetched {
+						// skip progress update if the fetched bytes haven't changed
+						return
 					}
-					lastSizeStr = fmt.Sprintf("%.2f%% (%d)", (float64(currentBlob.Fetched)/float64(currentBlob.Descriptor.Size))*100, currentBlob.Fetched)
-					fmt.Printf("%s", lastSizeStr)
+					sizeStr := fmt.Sprintf("%.2f%% (%d)", (float64(currentBlob.Fetched)/float64(currentBlob.Descriptor.Size))*100, currentBlob.Fetched)
+					if isTTY {
+						if len(lastSizeStr) > 0 {
+							// Move cursor back to overwrite previous percentage
+							fmt.Printf("\x1b[%dD", len(lastSizeStr))
+						}
+						fmt.Print(sizeStr)
+					} else {
+						// Print progress update as a new line in log mode
+						fmt.Printf(" %s", sizeStr)
+					}
+					lastSizeStr = sizeStr
 				}
 
 				// Find the blob that is currently being fetched
@@ -88,8 +102,13 @@ func pullApps(cmd *cobra.Command, args []string) {
 				// If this is the first blob or the next blob then print the new blob info in the new line
 				if currentBlob == nil || currentBlob.Descriptor.Digest != blobBeingFetched.Descriptor.Digest {
 					currentBlob = blobBeingFetched
-					fmt.Printf("\n [%-15s] %s %15d...", blobBeingFetched.Type, blobBeingFetched.Descriptor.Digest.Encoded(), blobBeingFetched.Descriptor.Size)
+					fmt.Printf("\n [%-15s] %s %15d...",
+						blobBeingFetched.Type,
+						blobBeingFetched.Descriptor.Digest.Encoded(),
+						blobBeingFetched.Descriptor.Size)
 					lastSizeStr = ""
+				} else {
+					lastFetchBytes = blobBeingFetched.Fetched
 				}
 			}))
 		DieNotNil(err, "failed to fetch blobs")
