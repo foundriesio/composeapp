@@ -12,18 +12,21 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 type (
 	BlobState int
 	BlobType  string
 	BlobInfo  struct {
-		Descriptor  *ocispec.Descriptor `json:"descriptor"`
-		State       BlobState           `json:"state"`
-		Type        BlobType            `json:"type"`
-		StoreSize   int64               `json:"store_size"`
-		RuntimeSize int64               `json:"runtime_size"`
-		Fetched     int64               `json:"fetched"`
+		Descriptor          *ocispec.Descriptor `json:"descriptor"`
+		State               BlobState           `json:"state"`
+		Type                BlobType            `json:"type"`
+		StoreSize           int64               `json:"store_size"`
+		RuntimeSize         int64               `json:"runtime_size"`
+		BytesFetched        int64               `json:"bytes_fetched"`
+		LastFetchStartBytes int64               `json:"last_fetch_start_bytes"`
+		LastFetchStartTime  time.Time           `json:"last_fetch_start_time"`
 	}
 
 	ctxKeyType string

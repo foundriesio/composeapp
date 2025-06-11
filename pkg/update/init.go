@@ -126,12 +126,12 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				blobRuntimeSize := app.GetBlobRuntimeSize(node.Descriptor, u.config.Platform.Architecture, u.config.BlockSize)
 
 				missingBlobs[blobURI] = &compose.BlobInfo{
-					Descriptor:  node.Descriptor,
-					State:       bs,
-					Type:        node.Type,
-					StoreSize:   blobStoreSize,
-					RuntimeSize: blobRuntimeSize,
-					Fetched:     0,
+					Descriptor:   node.Descriptor,
+					State:        bs,
+					Type:         node.Type,
+					StoreSize:    blobStoreSize,
+					RuntimeSize:  blobRuntimeSize,
+					BytesFetched: 0,
 				}
 				storeSizeTotal += blobStoreSize
 				runtimeSizeTotal += blobStoreSize

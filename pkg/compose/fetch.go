@@ -151,12 +151,20 @@ func checkAndUpdateBlobStatus(ctx context.Context, blobsToFetch map[digest.Diges
 	for _, b := range blobsToFetch {
 		if s, err := ls.Status(ctx, b.Descriptor.URLs[0]); err == nil {
 			currentBytes += s.Offset
-			b.Fetched = s.Offset
-			b.State = BlobFetching
+			b.BytesFetched = s.Offset
+			if b.State != BlobFetching {
+				b.State = BlobFetching
+			}
+			if b.LastFetchStartBytes == 0 {
+				b.LastFetchStartBytes = s.Offset
+			}
+			if b.LastFetchStartTime == (time.Time{}) {
+				b.LastFetchStartTime = time.Now()
+			}
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
 				currentBytes += i.Size
-				b.Fetched = i.Size
+				b.BytesFetched = i.Size
 				b.State = BlobOk
 				fetchedCount++
 			}
