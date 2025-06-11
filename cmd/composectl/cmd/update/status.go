@@ -3,6 +3,7 @@ package updatectl
 import (
 	"errors"
 	"fmt"
+
 	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
@@ -57,9 +58,9 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 	cmd.Printf("Date: \t\t%s\n", u.CreationTime.String())
 	cmd.Printf("State: \t\t%s\n", u.State)
 	cmd.Printf("Progress: \t%d%%\n", u.Progress)
-	cmd.Printf("Fetched: \t%s\n", units.BytesSize(float64(u.Fetched)))
+	cmd.Printf("Bytes fetched: \t%s\n", units.BytesSize(float64(u.Fetched)))
 	cmd.Printf("Size: \t\t%s\n", units.BytesSize(float64(u.TotalBlobDownloadSize)))
-	cmd.Printf("Fetched blobs: \t%d\n", u.FetchedBlobs)
+	cmd.Printf("Blobs fetched: \t%d\n", u.FetchedBlobs)
 	cmd.Printf("Blobs: \t\t%d\n", len(u.Blobs))
 
 	cmd.Println("URIs:")
@@ -73,7 +74,7 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 
 		fmt.Println()
 		yesno := map[bool]string{false: "no", true: "yes"}
-		fmt.Printf("Fetched: \t%s\n", yesno[appsStatus.AreFetched()])
+		fmt.Printf("BytesFetched: \t%s\n", yesno[appsStatus.AreFetched()])
 		fmt.Printf("Installed: \t%s\n", yesno[appsStatus.AreInstalled()])
 		fmt.Printf("Running: \t%s\n", yesno[appsStatus.AreRunning()])
 	}
