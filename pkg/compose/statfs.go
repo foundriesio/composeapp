@@ -27,14 +27,25 @@ type (
 	}
 )
 
+var (
+	binaryAbbrs = []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"}
+)
+
+func FormatBytesUint64(size uint64) string {
+	return units.CustomSize("%.4g %s", float64(size), 1024.0, binaryAbbrs)
+}
+func FormatBytesInt64(size int64) string {
+	return units.CustomSize("%.4g %s", float64(size), 1024.0, binaryAbbrs)
+}
+
 func (u *UsageInfo) Print() {
 	fmt.Printf("required: %s (%.2f%%), available: %s (%.2f%%) at %s, size: %s (100%%), free: %s (%.2f%%),"+
 		" reserved: %s (%.2f%%)\n",
-		units.BytesSize(float64(u.Required)), u.RequiredP,
-		units.BytesSize(float64(u.Available)), u.AvailableP,
-		u.Path, units.BytesSize(float64(u.SizeB)),
-		units.BytesSize(float64(u.Free)), u.FreeP,
-		units.BytesSize(float64(u.Reserved)), u.ReservedP)
+		FormatBytesUint64(u.Required), u.RequiredP,
+		FormatBytesUint64(u.Available), u.AvailableP,
+		u.Path, FormatBytesUint64(u.SizeB),
+		FormatBytesUint64(u.Free), u.FreeP,
+		FormatBytesUint64(u.Reserved), u.ReservedP)
 }
 
 func GetUsageInfo(path string, required int64, watermark uint) (*UsageInfo, error) {
