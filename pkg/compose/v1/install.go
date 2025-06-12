@@ -9,7 +9,6 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/reference"
 	"github.com/docker/docker/pkg/jsonmessage"
-	units "github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"io"
 	"os"
@@ -133,7 +132,7 @@ func processAndPrintImageLoadProgress(in io.Reader, lm []imageLoadManifest) erro
 				fmt.Println("done")
 			}
 			// start of a new layer load
-			fmt.Printf("\tID: %s, size: %s:", jm.ID, units.BytesSize(float64(jm.Progress.Total)))
+			fmt.Printf("\tID: %s, size: %s:", jm.ID, compose.FormatBytesInt64(jm.Progress.Total))
 			curLayerID = jm.ID
 			curLayerStatus = 1 // layer loading - extracting layer
 		}
