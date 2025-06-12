@@ -8,7 +8,6 @@ import (
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/reference/docker"
 	dockertypes "github.com/docker/docker/api/types"
-	"github.com/docker/go-units"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/opencontainers/go-digest"
@@ -207,7 +206,8 @@ func checkApps(ctx context.Context,
 
 func (cr *CheckAppResult) print() {
 	fmt.Printf("%d blobs to pull; total download size: %s, total store size: %s, total runtime size of missing blobs: %s, total required: %s\n",
-		len(cr.MissingBlobs), units.BytesSize(float64(cr.TotalPullSize)), units.BytesSize(float64(cr.TotalStoreSize)), units.BytesSize(float64(cr.TotalRuntimeSize)), units.BytesSize(float64(cr.TotalStoreSize+cr.TotalRuntimeSize)))
+		len(cr.MissingBlobs), compose.FormatBytesInt64(cr.TotalPullSize), compose.FormatBytesInt64(cr.TotalStoreSize),
+		compose.FormatBytesInt64(cr.TotalRuntimeSize), compose.FormatBytesInt64(cr.TotalStoreSize+cr.TotalRuntimeSize))
 }
 
 func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compose.BlobProvider, dockerHost string) (InstallCheckResult, error) {
