@@ -168,10 +168,10 @@ func checkApps(ctx context.Context,
 			}
 			err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 				blobDescStr := fmt.Sprintf("%*s %10s %s", depth*8, " ", node.Type, node.Descriptor.Digest.Encoded())
-				fmt.Printf("%s %*d", blobDescStr, 120-len(blobDescStr), node.Descriptor.Size)
+				fmt.Printf("%s %*s", blobDescStr, 120-len(blobDescStr), compose.FormatBytesInt64(node.Descriptor.Size))
 				bs := status.FetchStatus.BlobsStatus[app.Ref().Digest].BlobsStatus[node.Descriptor.Digest]
 				if bs.State == compose.BlobFetching {
-					fmt.Printf("...%.2f%% (%d)\n", (float64(bs.Fetched)/float64(bs.Descriptor.Size))*100, bs.Fetched)
+					fmt.Printf("...%.2f%% (%s)\n", (float64(bs.Fetched)/float64(bs.Descriptor.Size))*100, compose.FormatBytesInt64(bs.Fetched))
 				} else {
 					fmt.Printf("...%s\n", bs.State.String())
 				}
