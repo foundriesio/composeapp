@@ -89,6 +89,10 @@ func pullApps(cmd *cobra.Command, args []string) {
 						}
 						fmt.Print(sizeStr)
 					} else {
+						fmt.Printf("\n [%-15s] %s %15d ... ",
+							currentBlob.Type,
+							currentBlob.Descriptor.Digest.Encoded(),
+							currentBlob.Descriptor.Size)
 						fmt.Printf(" %s", sizeStr)
 					}
 				}
@@ -104,10 +108,12 @@ func pullApps(cmd *cobra.Command, args []string) {
 
 				// If this is the first blob or the next blob then print the new blob info in the new line
 				if currentBlob == nil || currentBlob.Descriptor.Digest != blobBeingFetched.Descriptor.Digest {
-					fmt.Printf("\n [%-15s] %s %15d ... ",
-						blobBeingFetched.Type,
-						blobBeingFetched.Descriptor.Digest.Encoded(),
-						blobBeingFetched.Descriptor.Size)
+					if isTTY {
+						fmt.Printf("\n [%-15s] %s %15d ... ",
+							blobBeingFetched.Type,
+							blobBeingFetched.Descriptor.Digest.Encoded(),
+							blobBeingFetched.Descriptor.Size)
+					}
 					lastSizeStr = ""
 					currentBlob = blobBeingFetched
 				}
@@ -134,8 +140,12 @@ func pullApps(cmd *cobra.Command, args []string) {
 						fmt.Printf("\x1b[%dD", len(lastSizeStr))
 					}
 					fmt.Print(sizeStr)
-				} else {
+				} else if currentBlob != nil {
 					// Print progress update as a new line in log mode
+					fmt.Printf("\n [%-15s] %s %15d ... ",
+						currentBlob.Type,
+						currentBlob.Descriptor.Digest.Encoded(),
+						currentBlob.Descriptor.Size)
 					fmt.Printf(" %s", sizeStr)
 				}
 				lastSizeStr = sizeStr
