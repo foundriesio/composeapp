@@ -60,96 +60,9 @@ func pullApps(cmd *cobra.Command, args []string) {
 		cr.print()
 		fmt.Println("Pulling app blobs, starting at " + time.Now().UTC().Format("15:04:05 02 Jan 2006") + "...")
 
-		var currentBlob *compose.BlobFetchProgress
-		var lastSizeStr string
-		var lastFetchBytes int64
-		isTTY := term.IsTerminal(os.Stdout.Fd())
-
 		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
 			compose.WithProgressPollInterval(1000),
-			compose.WithFetchProgress(func(p *compose.FetchProgress) {
-				// Find the blob that is currently being fetched
-				var blobBeingFetched *compose.BlobFetchProgress
-				for _, bi := range p.Blobs {
-					if bi.State == compose.BlobFetching {
-						blobBeingFetched = bi
-						break
-					}
-				}
-
-				if currentBlob != nil && currentBlob != blobBeingFetched {
-					speed := units.HumanSize(float64(currentBlob.BytesFetched-currentBlob.BlobInfo.BytesFetched) / (time.Since(currentBlob.FetchStartTime).Seconds()))
-					sizeStr := fmt.Sprintf("downloaded %8s at %s (%s/s avg)",
-						units.HumanSize(float64(currentBlob.BytesFetched)),
-						time.Now().UTC().Format("15:04:05"),
-						speed)
-					if isTTY {
-						if len(lastSizeStr) > 0 {
-							fmt.Printf("\x1b[%dD", len(lastSizeStr))
-						}
-						fmt.Print(sizeStr)
-					} else {
-						fmt.Printf("\n [%-15s] %s %15d ... ",
-							currentBlob.Type,
-							currentBlob.Descriptor.Digest.Encoded(),
-							currentBlob.Descriptor.Size)
-						fmt.Printf(" %s", sizeStr)
-					}
-				}
-
-				if blobBeingFetched == nil {
-					return // No blob is currently being fetched
-				}
-
-				if currentBlob != nil && lastFetchBytes == currentBlob.BytesFetched {
-					// skip progress update if the fetched bytes haven't changed
-					return
-				}
-
-				// If this is the first blob or the next blob then print the new blob info in the new line
-				if currentBlob == nil || currentBlob.Descriptor.Digest != blobBeingFetched.Descriptor.Digest {
-					if isTTY {
-						fmt.Printf("\n [%-15s] %s %15d ... ",
-							blobBeingFetched.Type,
-							blobBeingFetched.Descriptor.Digest.Encoded(),
-							blobBeingFetched.Descriptor.Size)
-					}
-					lastSizeStr = ""
-					currentBlob = blobBeingFetched
-				}
-
-				speed := units.HumanSize(float64(currentBlob.BytesFetched-currentBlob.BlobInfo.BytesFetched) / (time.Since(currentBlob.FetchStartTime).Seconds()))
-				var sizeStr string
-				if currentBlob.BytesFetched == currentBlob.Descriptor.Size {
-					sizeStr = fmt.Sprintf("downloaded %8s at %s (%s/s avg)",
-						units.HumanSize(float64(currentBlob.BytesFetched)),
-						time.Now().UTC().Format("15:04:05"),
-						speed)
-					currentBlob = nil // Reset currentBlob after completion
-				} else {
-					sizeStr = fmt.Sprintf("%8s / %8s; %d%%; %s/s",
-						units.HumanSize(float64(currentBlob.BytesFetched)),
-						units.HumanSize(float64(currentBlob.Descriptor.Size)),
-						int((float64(currentBlob.BytesFetched)/float64(currentBlob.Descriptor.Size))*100),
-						speed)
-				}
-
-				if isTTY {
-					if len(lastSizeStr) > 0 {
-						// Move cursor back to overwrite previous percentage
-						fmt.Printf("\x1b[%dD", len(lastSizeStr))
-					}
-					fmt.Print(sizeStr)
-				} else if currentBlob != nil {
-					// Print progress update as a new line in log mode
-					fmt.Printf("\n [%-15s] %s %15d ... ",
-						currentBlob.Type,
-						currentBlob.Descriptor.Digest.Encoded(),
-						currentBlob.Descriptor.Size)
-					fmt.Printf(" %s", sizeStr)
-				}
-				lastSizeStr = sizeStr
-			}))
+			compose.WithFetchProgress(getHandleFetchProgress()))
 		DieNotNil(err, "failed to fetch blobs")
 		fmt.Println("\n\nApp blobs pull completed at " + time.Now().UTC().Format("15:04:05 02 Jan 2006"))
 	}
@@ -157,5 +70,95 @@ func pullApps(cmd *cobra.Command, args []string) {
 	for _, app := range apps {
 		err = v1.MakeAkliteHappy(cmd.Context(), cs, app, platforms.OnlyStrict(config.Platform))
 		DieNotNil(err)
+	}
+}
+
+func getHandleFetchProgress() func(progress *compose.FetchProgress) {
+	var currentBlob *compose.BlobFetchProgress
+	var lastSizeStr string
+	var lastFetchBytes int64
+	isTTY := term.IsTerminal(os.Stdout.Fd())
+
+	return func(p *compose.FetchProgress) {
+		var blobBeingFetched *compose.BlobFetchProgress
+		for _, bi := range p.Blobs {
+			if bi.State == compose.BlobFetching {
+				blobBeingFetched = bi
+				break
+			}
+		}
+
+		if currentBlob != nil && currentBlob != blobBeingFetched {
+			speed := units.HumanSize(float64(currentBlob.BytesFetched-currentBlob.BlobInfo.BytesFetched) / (time.Since(currentBlob.FetchStartTime).Seconds()))
+			sizeStr := fmt.Sprintf("downloaded %8s at %s (%s/s avg)",
+				units.HumanSize(float64(currentBlob.BytesFetched)),
+				time.Now().UTC().Format("15:04:05"),
+				speed)
+			if isTTY {
+				if len(lastSizeStr) > 0 {
+					fmt.Printf("\x1b[%dD", len(lastSizeStr))
+				}
+				fmt.Print(sizeStr)
+			} else {
+				fmt.Printf("\n [%-15s] %s %15d ... ",
+					currentBlob.Type,
+					currentBlob.Descriptor.Digest.Encoded(),
+					currentBlob.Descriptor.Size)
+				fmt.Printf(" %s", sizeStr)
+			}
+		}
+
+		if blobBeingFetched == nil {
+			return // No blob is currently being fetched
+		}
+
+		if currentBlob != nil && lastFetchBytes == currentBlob.BytesFetched {
+			// skip progress update if the fetched bytes haven't changed
+			return
+		}
+
+		// If this is the first blob or the next blob then print the new blob info in the new line
+		if currentBlob == nil || currentBlob.Descriptor.Digest != blobBeingFetched.Descriptor.Digest {
+			if isTTY {
+				fmt.Printf("\n [%-15s] %s %15d ... ",
+					blobBeingFetched.Type,
+					blobBeingFetched.Descriptor.Digest.Encoded(),
+					blobBeingFetched.Descriptor.Size)
+			}
+			lastSizeStr = ""
+			currentBlob = blobBeingFetched
+		}
+
+		speed := units.HumanSize(float64(currentBlob.BytesFetched-currentBlob.BlobInfo.BytesFetched) / (time.Since(currentBlob.FetchStartTime).Seconds()))
+		var sizeStr string
+		if currentBlob.BytesFetched == currentBlob.Descriptor.Size {
+			sizeStr = fmt.Sprintf("downloaded %8s at %s (%s/s avg)",
+				units.HumanSize(float64(currentBlob.BytesFetched)),
+				time.Now().UTC().Format("15:04:05"),
+				speed)
+			currentBlob = nil // Reset currentBlob after completion
+		} else {
+			sizeStr = fmt.Sprintf("%8s / %8s; %d%%; %s/s",
+				units.HumanSize(float64(currentBlob.BytesFetched)),
+				units.HumanSize(float64(currentBlob.Descriptor.Size)),
+				int((float64(currentBlob.BytesFetched)/float64(currentBlob.Descriptor.Size))*100),
+				speed)
+		}
+
+		if isTTY {
+			if len(lastSizeStr) > 0 {
+				// Move cursor back to overwrite previous percentage
+				fmt.Printf("\x1b[%dD", len(lastSizeStr))
+			}
+			fmt.Print(sizeStr)
+		} else if currentBlob != nil {
+			// Print progress update as a new line in log mode
+			fmt.Printf("\n [%-15s] %s %15d ... ",
+				currentBlob.Type,
+				currentBlob.Descriptor.Digest.Encoded(),
+				currentBlob.Descriptor.Size)
+			fmt.Printf(" %s", sizeStr)
+		}
+		lastSizeStr = sizeStr
 	}
 }
