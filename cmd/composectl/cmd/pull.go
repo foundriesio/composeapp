@@ -62,7 +62,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 
 		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
 			compose.WithProgressPollInterval(1000),
-			compose.WithFetchProgress(getHandleFetchProgress()))
+			compose.WithFetchProgress(getHandleFetchProgress1()))
 		DieNotNil(err, "failed to fetch blobs")
 		fmt.Println("\n\nApp blobs pull completed at " + time.Now().UTC().Format("15:04:05 02 Jan 2006"))
 	}
@@ -160,5 +160,60 @@ func getHandleFetchProgress() func(progress *compose.FetchProgress) {
 			fmt.Printf(" %s", sizeStr)
 		}
 		lastSizeStr = sizeStr
+	}
+}
+
+func getHandleFetchProgress1() func(progress *compose.FetchProgress) {
+	var blobsBeingFetched []struct {
+		blob *compose.BlobFetchProgress
+		done bool
+	}
+	return func(p *compose.FetchProgress) {
+		currentBlobsBeingFetchedNumb := len(blobsBeingFetched)
+		for _, bi := range p.Blobs {
+			found := false
+			for _, bf := range blobsBeingFetched {
+				if bf.blob.Descriptor.Digest == bi.Descriptor.Digest {
+					found = true
+					break
+				}
+			}
+			if !found && (bi.State == compose.BlobFetching || bi.State == compose.BlobOk) {
+				blobsBeingFetched = append(blobsBeingFetched, struct {
+					blob *compose.BlobFetchProgress
+					done bool
+				}{blob: bi, done: false})
+			}
+		}
+		//fmt.Printf(">> Move %d back: ", currentBlobsBeingFetchedNumb)
+		//time.Sleep(1* time.Second)
+		fmt.Printf("\033[%dA\r", currentBlobsBeingFetchedNumb)
+
+		for i := range blobsBeingFetched {
+			if blobsBeingFetched[i].done {
+				fmt.Print("\033[1B")
+				continue
+			}
+
+			b := blobsBeingFetched[i].blob
+
+			fmt.Printf("\n [%-15s] %s started at %s from %10s; ",
+				b.Type,
+				b.Descriptor.Digest.Encoded(),
+				b.FetchStartTime.UTC().Format("15:04:05"),
+				compose.FormatBytesInt64(b.BlobInfo.BytesFetched))
+
+			fmt.Printf("%10s / %10s; %4d%%; %10s/s",
+				compose.FormatBytesInt64(b.BytesFetched),
+				compose.FormatBytesInt64(b.Descriptor.Size),
+				int((float64(b.BytesFetched)/float64(b.Descriptor.Size))*100),
+				compose.FormatBytesInt64(b.FetchSpeedAvg))
+
+			if b.BytesFetched == b.Descriptor.Size {
+				fmt.Printf("; done at %s",
+					time.Now().UTC().Format("15:04:05"))
+				blobsBeingFetched[i].done = true
+			}
+		}
 	}
 }

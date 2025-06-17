@@ -22,6 +22,7 @@ type (
 		BlobInfo
 		BytesFetched   int64     `json:"bytes_fetched"`
 		FetchStartTime time.Time `json:"fetch_start_time"`
+		FetchSpeedAvg  int64     `json:"fetch_speed_avg"` // bytes per second
 	}
 	FetchProgress struct {
 		Blobs        map[digest.Digest]*BlobFetchProgress // per-blob metadata and progress
@@ -134,6 +135,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 	}
 
 	for _, bi := range blobsToResumeDownload {
+		bi.FetchStartTime = time.Now()
 		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, localStore, true)
 		if err != nil {
 			// TODO: log this error and do retry
@@ -143,6 +145,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 	}
 
 	for _, bi := range blobsToStartDownload {
+		bi.FetchStartTime = time.Now()
 		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, localStore, true)
 		if err != nil {
 			// TODO: log this error and do retry
@@ -173,7 +176,8 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 			b.BytesFetched = s.Offset
 			if b.State != BlobFetching {
 				b.State = BlobFetching
-				b.FetchStartTime = time.Now()
+			} else {
+				b.FetchSpeedAvg = int64(float64(b.BytesFetched) / time.Since(b.FetchStartTime).Seconds())
 			}
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
@@ -181,6 +185,7 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 				b.BytesFetched = i.Size
 				b.State = BlobOk
 				fetchProgress.FetchedCount++
+				b.FetchSpeedAvg = int64(float64(b.BytesFetched) / time.Since(b.FetchStartTime).Seconds())
 			}
 		}
 	}
