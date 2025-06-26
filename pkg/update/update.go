@@ -199,7 +199,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 				} else {
 					u.State = StateInitialized
 				}
-			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -215,7 +215,10 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 func (u *runnerImpl) Fetch(ctx context.Context, options ...FetchOption) error {
 	return u.store.lock(func(db *session) error {
 		var err error
-		if !(u.State == StateFetching || u.State == StateInitialized) {
+		switch u.State {
+		case StateFetching, StateInitialized:
+			// the current state is correct to fetch updates
+		default:
 			return fmt.Errorf("cannot fetch update when it is in state '%s'", u.State.String())
 		}
 
@@ -238,7 +241,7 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...FetchOption) error {
 						fmt.Printf("failed to add info about fetched apps to the store: %v\n", err)
 					}
 				}
-			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -255,10 +258,12 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...FetchOption) error {
 func (u *runnerImpl) Install(ctx context.Context, options ...compose.InstallOption) error {
 	return u.store.lock(func(db *session) error {
 		var err error
-		if !(u.State == StateFetched || u.State == StateInstalling || u.State == StateInstalled) {
+		switch u.State {
+		case StateFetched, StateInstalling, StateInstalled:
+			// the current state is correct to install updates
+		default:
 			return fmt.Errorf("cannot install update when it is in state '%s'", u.State.String())
 		}
-
 		u.State = StateInstalling
 		u.Progress = 0
 		err = db.write(&u.Update)
@@ -269,7 +274,7 @@ func (u *runnerImpl) Install(ctx context.Context, options ...compose.InstallOpti
 		defer func() {
 			if err == nil {
 				u.State = StateInstalled
-			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -285,8 +290,11 @@ func (u *runnerImpl) Install(ctx context.Context, options ...compose.InstallOpti
 
 func (u *runnerImpl) Start(ctx context.Context) error {
 	return u.store.lock(func(db *session) error {
-		if !(u.State == StateInstalled || u.State == StateStarting) {
-			return fmt.Errorf("cannot run update when it is in state '%s'", u.State.String())
+		switch u.State {
+		case StateInstalled, StateStarting:
+			// the current state is correct to start updates
+		default:
+			return fmt.Errorf("cannot start update when it is in state '%s'", u.State.String())
 		}
 
 		u.State = StateStarting
@@ -299,7 +307,7 @@ func (u *runnerImpl) Start(ctx context.Context) error {
 		defer func() {
 			if err == nil {
 				u.State = StateStarted
-			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -315,13 +323,10 @@ func (u *runnerImpl) Start(ctx context.Context) error {
 func (u *runnerImpl) Cancel(ctx context.Context) error {
 	return u.store.lock(func(db *session) error {
 		var err error
-		if !(u.State == StateCreated ||
-			u.State == StateInitializing ||
-			u.State == StateInitialized ||
-			u.State == StateFetching ||
-			u.State == StateFetched ||
-			u.State == StateInstalling ||
-			u.State == StateInstalled) {
+		switch u.State {
+		case StateCreated, StateInitializing, StateInitialized, StateFetching, StateFetched, StateInstalling, StateInstalled:
+			// the current state is correct to cancel updates
+		default:
 			return fmt.Errorf("cannot cancel update when it is in state '%s'", u.State.String())
 		}
 
@@ -335,7 +340,7 @@ func (u *runnerImpl) Cancel(ctx context.Context) error {
 		defer func() {
 			if err == nil {
 				u.State = StateCanceled
-			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -352,7 +357,10 @@ func (u *runnerImpl) Cancel(ctx context.Context) error {
 func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error {
 	return u.store.lock(func(db *session) error {
 		var err error
-		if !(u.State == StateStarted || u.State == StateCompleting) {
+		switch u.State {
+		case StateStarted, StateCompleting:
+			// the current state is correct to complete updates
+		default:
 			return fmt.Errorf("cannot complete update when it is in state '%s'", u.State.String())
 		}
 
@@ -367,7 +375,7 @@ func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error
 			if err == nil {
 				u.Progress = 100
 				u.State = StateCompleted
-			} else if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {

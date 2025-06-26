@@ -138,7 +138,7 @@ services:
 	}
 	s, err = compose.CheckAppsStatus(ctx, cfg, []string{app.PublishedUri})
 	f.Check(t, err)
-	if !(s.AreFetched() && s.AreInstalled()) {
+	if !s.AreFetched() || !s.AreInstalled() {
 		t.Fatalf("apps are supposed to be fetched and installed")
 	}
 	if s.AreRunning() {
@@ -153,7 +153,7 @@ services:
 
 	s, err = compose.CheckAppsStatus(ctx, cfg, []string{app.PublishedUri})
 	f.Check(t, err)
-	if !(s.AreFetched() && s.AreInstalled() && s.AreRunning()) {
+	if !s.AreFetched() || !s.AreInstalled() || !s.AreRunning() {
 		t.Fatalf("apps are supposed to be fetched and installed and running")
 	}
 
@@ -313,7 +313,7 @@ services:
 
 	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, nil)
 	f.Check(t, err)
-	if !(len(appsStatus.Apps) == 1 && appsStatus.Apps[0].Ref().String() == app.PublishedUri) {
+	if len(appsStatus.Apps) != 1 || appsStatus.Apps[0].Ref().String() != app.PublishedUri {
 		t.Fatalf("invalid apps status; expected just one app: %s\n", app.PublishedUri)
 	}
 	if !appsStatus.AreFetched() {
@@ -417,7 +417,7 @@ services:
 
 	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, nil)
 	f.Check(t, err)
-	if !(len(appsStatus.Apps) == 1 && appsStatus.Apps[0].Ref().String() == app.PublishedUri) {
+	if len(appsStatus.Apps) != 1 || appsStatus.Apps[0].Ref().String() != app.PublishedUri {
 		t.Fatalf("invalid apps status; expected just one app: %s\n", app.PublishedUri)
 	}
 	if !appsStatus.AreFetched() {

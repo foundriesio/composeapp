@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine
+FROM golang:1.24-alpine
 
 ARG REG_CERT=test/compose/registry/certs/registry.crt
 ARG SRC_DIR=$PWD

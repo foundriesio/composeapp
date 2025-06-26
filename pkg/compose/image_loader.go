@@ -336,9 +336,13 @@ func generateImageLoadManifest(
 			break
 		}
 
-		if !(imageRoot.Type == BlobTypeImageIndex || imageRoot.Type == BlobTypeSkopeoImageIndex) {
+		switch imageRoot.Type {
+		case BlobTypeImageIndex, BlobTypeSkopeoImageIndex:
+			// ok
+		default:
 			return nil, nil, fmt.Errorf("invalid image type is specified: %s", imageRoot.Type)
 		}
+
 		if len(imageRoot.Children) != 1 {
 			return nil, nil, fmt.Errorf("the specified image index has more than one manifest: %s", imageRoot.Ref())
 		}
