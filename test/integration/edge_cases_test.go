@@ -41,7 +41,7 @@ services:
     image: registry:5000/factory/runner-image:v0.1
     command: sh -c "while true; do sleep 60; done"
     environment:
-    - VERSION = 0.1
+    - VERSION=0.1
 `
 	appComposeDef02 := `
 services:
@@ -49,7 +49,7 @@ services:
     image: registry:5000/factory/runner-image:v0.1
     command: sh -c "while true; do sleep 60; done"
     environment:
-    - VERSION = 0.2
+    - VERSION=0.2
 `
 	app := f.NewApp(t, appComposeDef)
 	app.Publish(t)
@@ -155,7 +155,7 @@ services:
     image: registry:5000/factory/runner-image:v0.1
     command: sh -c "while true; do sleep 60; done"
     environment:
-    - VERSION = 0.1
+    - VERSION=0.1
 `
 	appComposeDef02 := `
 services:
@@ -163,7 +163,7 @@ services:
     image: registry:5000/factory/runner-image:v0.1
     command: sh -c "while true; do sleep 60; done"
     environment:
-    - VERSION = 0.2
+    - VERSION=0.2
 `
 	app := f.NewApp(t, appComposeDef)
 	app.Publish(t, f.WithAppBundleIndexes(false))

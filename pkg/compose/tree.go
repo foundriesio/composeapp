@@ -61,11 +61,12 @@ func (t *TreeNode) Ref() string {
 }
 
 func (t *TreeNode) GetServiceHash() string {
-	if !(t.Type == BlobTypeImageIndex ||
-		t.Type == BlobTypeSkopeoImageIndex ||
-		t.Type == BlobTypeImageManifest) {
+	switch t.Type {
+	case BlobTypeImageIndex, BlobTypeSkopeoImageIndex, BlobTypeImageManifest:
+	default:
 		return ""
 	}
+
 	if t.Descriptor == nil {
 		return ""
 	}
