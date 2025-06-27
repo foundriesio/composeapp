@@ -35,7 +35,7 @@ func fetchUpdateCmd(cmd *cobra.Command, args []string, opts *fetchOptions) {
 	updateCtl, err := update.GetCurrentUpdate(cfg)
 	ExitIfNotNil(err)
 
-	bar := progressbar.DefaultBytes(updateCtl.Status().TotalBlobDownloadSize)
+	bar := progressbar.DefaultBytes(updateCtl.Status().TotalBlobsBytes)
 
 	err = updateCtl.Fetch(cmd.Context(), update.WithFetchProgress(func(status *update.FetchProgress) {
 		if err := bar.Set64(status.Current); err != nil {

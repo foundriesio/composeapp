@@ -24,16 +24,19 @@ type (
 	State string
 
 	Update struct {
-		ID                    string                       `json:"id"`
-		ClientRef             string                       `json:"client_ref"`
-		State                 State                        `json:"state"`
-		Progress              int                          `json:"progress"`
-		CreationTime          time.Time                    `json:"timestamp"`
-		UpdateTime            time.Time                    `json:"update_time"`
-		URIs                  []string                     `json:"uris"`
-		Blobs                 map[string]*compose.BlobInfo `json:"blobs"`
-		TotalBlobDownloadSize int64                        `json:"total_blob_download_size"`
-		LoadedImages          map[string]struct{}          `json:"loaded_images"`
+		ID              string                       `json:"id"`
+		ClientRef       string                       `json:"client_ref"`
+		State           State                        `json:"state"`
+		Progress        int                          `json:"progress"`
+		CreationTime    time.Time                    `json:"timestamp"`
+		UpdateTime      time.Time                    `json:"update_time"`
+		URIs            []string                     `json:"uris"`
+		Blobs           map[string]*compose.BlobInfo `json:"blobs"`
+		TotalBlobsBytes int64                        `json:"total_blobs_bytes"` // total size of all blobs in bytes
+		LoadedImages    map[string]struct{}          `json:"loaded_images"`     // images that have been loaded into the docker storage
+		FetchedBytes    int64                        `json:"fetched_bytes"`     // total bytes fetched so far
+		FetchedBlobs    int                          `json:"fetched_blobs"`     // number of blobs fetched so far
+
 	}
 
 	runnerImpl struct {
@@ -167,7 +170,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 					return fmt.Errorf("cannot reinitialize an existing update with new app URIs specified")
 				}
 				u.Blobs = nil
-				u.TotalBlobDownloadSize = 0
+				u.TotalBlobsBytes = 0
 				u.Progress = 0
 			}
 		default:
@@ -183,7 +186,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 		defer func() {
 			if err == nil {
 				u.Progress = 100
-				if len(u.Blobs) == 0 && u.TotalBlobDownloadSize == 0 {
+				if len(u.Blobs) == 0 && u.TotalBlobsBytes == 0 {
 					if s, err := compose.CheckAppsStatus(ctx, u.config, u.URIs); err == nil {
 						if s.AreFetched() {
 							u.State = StateFetched

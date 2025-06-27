@@ -143,7 +143,7 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				opts.ProgressReporter.Update(p)
 			}
 
-			u.TotalBlobDownloadSize = downloadSizeTotal
+			u.TotalBlobsBytes = downloadSizeTotal
 			u.Progress = int(float64(p.Current) / float64(p.Total) * 100)
 			if err := b.write(&u.Update); err != nil {
 				return err
