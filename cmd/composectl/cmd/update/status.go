@@ -3,6 +3,7 @@ package updatectl
 import (
 	"errors"
 	"fmt"
+
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
@@ -55,9 +56,12 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 	}
 	cmd.Printf("Date: \t\t%s\n", u.CreationTime.String())
 	cmd.Printf("State: \t\t%s\n", u.State)
-	cmd.Printf("Progress: \t%d\n", u.Progress)
-	cmd.Printf("Download Size: \t%d\n", u.TotalBlobDownloadSize)
-	cmd.Printf("Blobs: \t\t%d\n", len(u.Blobs))
+	cmd.Printf("Fetch Size: \t%s\n", compose.FormatBytesInt64(u.TotalBlobsBytes))
+	cmd.Printf("Blobs Number: \t%d\n", len(u.Blobs))
+	cmd.Printf("Progress: \t%d%%\n", u.Progress)
+	cmd.Printf("Fetched Bytes: \t%s\n", compose.FormatBytesInt64(u.FetchedBytes))
+	cmd.Printf("Fetched Blobs: \t%d\n", u.FetchedBlobs)
+
 	cmd.Println("URIs:")
 	for _, appURI := range u.URIs {
 		cmd.Printf("\t\t%s\n", appURI)
@@ -69,7 +73,7 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 
 		fmt.Println()
 		yesno := map[bool]string{false: "no", true: "yes"}
-		fmt.Printf("Fetched: \t%s\n", yesno[appsStatus.AreFetched()])
+		fmt.Printf("BytesFetched: \t%s\n", yesno[appsStatus.AreFetched()])
 		fmt.Printf("Installed: \t%s\n", yesno[appsStatus.AreInstalled()])
 		fmt.Printf("Running: \t%s\n", yesno[appsStatus.AreRunning()])
 	}
