@@ -1,10 +1,24 @@
-run:
-  timeout: 2m
+version: "2"
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - staticcheck
-    - unused
-    - gofmt
     - gocyclo
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

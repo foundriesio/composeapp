@@ -88,7 +88,7 @@ func loadImages(t *testing.T, ctx context.Context, cli *client.Client, app compo
 			if imageRoot.Type == compose.BlobTypeImageManifest {
 				break
 			}
-			if !(imageRoot.Type == compose.BlobTypeImageIndex || imageRoot.Type == compose.BlobTypeSkopeoImageIndex) {
+			if imageRoot.Type != compose.BlobTypeImageIndex && imageRoot.Type != compose.BlobTypeSkopeoImageIndex {
 				t.Fatalf("invalid image type is specified: %s", imageRoot.Type)
 			}
 			if len(imageRoot.Children) != 1 {

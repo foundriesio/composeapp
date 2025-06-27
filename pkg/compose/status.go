@@ -126,15 +126,15 @@ func (e *ErrImageInstall) Error() string {
 }
 
 func (s *AppsStatus) AreRunning() bool {
-	return len(s.RunningStatus.NotRunningApps) == 0
+	return len(s.NotRunningApps) == 0
 }
 
 func (s *AppsStatus) AreInstalled() bool {
-	return len(s.InstallStatus.NotInstalledImages) == 0 && len(s.InstallStatus.NotInstalledCompose) == 0
+	return len(s.NotInstalledImages) == 0 && len(s.NotInstalledCompose) == 0
 }
 
 func (s *AppsStatus) AreFetched() bool {
-	return len(s.FetchStatus.MissingBlobs) == 0
+	return len(s.MissingBlobs) == 0
 }
 
 func CheckAppsStatus(

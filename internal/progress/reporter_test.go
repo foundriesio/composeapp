@@ -48,10 +48,8 @@ func TestReporter_BlockingWithRetry(t *testing.T) {
 	})
 
 	for i := 0; i < maxProgress; i++ {
-		for {
-			if progressReporter.Update(i) {
-				break
-			}
+		for !progressReporter.Update(i) {
+			// loop until Update(i) returns true
 		}
 	}
 }

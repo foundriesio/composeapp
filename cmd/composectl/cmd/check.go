@@ -84,7 +84,7 @@ func init() {
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
-	quietCheck := false
+	var quietCheck bool
 	if opts.Format == "json" {
 		quietCheck = true
 	}
@@ -184,9 +184,9 @@ func checkApps(ctx context.Context,
 		}
 	}
 	checkResult := &CheckAppResult{
-		MissingBlobs: status.FetchStatus.MissingBlobs,
+		MissingBlobs: status.MissingBlobs,
 	}
-	for _, bi := range status.FetchStatus.MissingBlobs {
+	for _, bi := range status.MissingBlobs {
 		if bi.State == compose.BlobFetching {
 			checkResult.TotalPullSize += bi.Descriptor.Size - bi.Fetched
 			checkResult.TotalStoreSize += compose.AlignToBlockSize(bi.Descriptor.Size-bi.Fetched, config.BlockSize)

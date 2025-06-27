@@ -100,16 +100,17 @@ func (t *AppTree) Walk(fn NodeProcessor) error {
 
 func (t *AppTree) Print() {
 	err := t.Walk(func(node *TreeNode, depth int) error {
-		if depth == 0 {
+		switch depth {
+		case 0:
 			id := node.Ref()
 			if len(id) == 0 {
 				id = node.Descriptor.Digest.String()
 			}
 			fmt.Printf("%s: %s, %d\n", node.Type, id, node.Descriptor.Size)
-		} else if depth == 1 {
+		case 1:
 			fmt.Printf("%*s\n", 9, "|")
 			fmt.Printf("%*s %s: %s, %d\n", 11, "|—>", node.Type, node.Descriptor.Digest.String(), node.Descriptor.Size)
-		} else if depth == 2 {
+		case 2:
 			fmt.Printf("%*s\n", 9*depth, "|")
 			(*ImageTree)(node).Print(depth)
 			fmt.Println()
