@@ -123,30 +123,9 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 		}(stopChan)
 	}
 
-	var blobsToResumeDownload []*BlobFetchProgress
-	var blobsToStartDownload []*BlobFetchProgress
-
-	for _, bi := range blobsToFetch {
-		if bi.State == BlobFetching {
-			blobsToResumeDownload = append(blobsToResumeDownload, bi)
-		} else {
-			blobsToStartDownload = append(blobsToStartDownload, bi)
-		}
-	}
-
-	for _, bi := range blobsToResumeDownload {
+	for _, bi := range getOrderedBlobsToFetch(blobsToFetch) {
 		bi.FetchStartTime = time.Now()
-		err = CopyBlob(ctx, resolver, bi.Ref(), *bi.Descriptor, ls, true)
-		if err != nil {
-			err = fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
-			break
-		}
-	}
-
-	for _, bi := range blobsToStartDownload {
-		bi.FetchStartTime = time.Now()
-		err = CopyBlob(ctx, resolver, bi.Ref(), *bi.Descriptor, ls, true)
-		if err != nil {
+		if err = CopyBlob(ctx, resolver, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
 			err = fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
 			break
 		}
@@ -190,4 +169,19 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 		}
 	}
 	sr.Update(*fetchProgress)
+}
+
+func getOrderedBlobsToFetch(blobs map[digest.Digest]*BlobFetchProgress) (blobsToFetch []*BlobFetchProgress) {
+	var blobsToResumeDownload []*BlobFetchProgress
+	var blobsToStartDownload []*BlobFetchProgress
+
+	for _, bi := range blobs {
+		if bi.State == BlobFetching {
+			blobsToResumeDownload = append(blobsToResumeDownload, bi)
+		} else {
+			blobsToStartDownload = append(blobsToStartDownload, bi)
+		}
+	}
+	blobsToFetch = append(blobsToResumeDownload, blobsToStartDownload...)
+	return
 }
