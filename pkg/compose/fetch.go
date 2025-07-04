@@ -55,6 +55,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 	for _, o := range options {
 		o(&opts)
 	}
+
 	var progressReporter progress.Reporter[FetchProgress]
 
 	if opts.ProgressHandler != nil {
@@ -85,7 +86,6 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 
 	authorizer := NewRegistryAuthorizer(cfg.DockerCfg, cfg.ConnectTimeout)
 	resolver := NewResolver(authorizer, cfg.ConnectTimeout)
-
 	ls, err := local.NewStore(cfg.StoreRoot)
 	if err != nil {
 		return err
@@ -104,19 +104,20 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 
 		go func(stopChan chan struct{}) {
 			defer progressWg.Done()
+			ticker := time.NewTicker(time.Duration(pollInterval) * time.Millisecond)
+			defer ticker.Stop()
+		done:
 			for {
 				select {
 				case <-ctx.Done():
-					checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
-					return
+					break done
 				case <-stopChan:
-					checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
-					return
-				default:
+					break done
+				case <-ticker.C:
 					checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
 				}
-				time.Sleep(time.Duration(pollInterval) * time.Millisecond)
 			}
+			checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
 		}(stopChan)
 	}
 
