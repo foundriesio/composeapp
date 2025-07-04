@@ -96,10 +96,8 @@ func getFetchProgressHandler() func(progress *compose.FetchProgress) {
 			}
 		}
 
-		if isTty {
-			if currentBlobsBeingFetchedNumb > 0 {
-				fmt.Printf("\033[%dA\r", currentBlobsBeingFetchedNumb)
-			}
+		if isTty && currentBlobsBeingFetchedNumb > 0 {
+			fmt.Printf("\033[%dA\r", currentBlobsBeingFetchedNumb)
 		}
 
 		for i := range blobsBeingFetched {
@@ -113,15 +111,17 @@ func getFetchProgressHandler() func(progress *compose.FetchProgress) {
 
 			b := blobsBeingFetched[i].blob
 
-			fmt.Printf("\n [%-15s] %s started from %10s",
+			fmt.Printf("\n [%-15s] %s started at %s from %10s; ",
 				b.Type,
 				b.Descriptor.Digest.Encoded(),
-				compose.FormatBytesInt64(b.Fetched))
+				b.FetchStartTime.UTC().Format(time.TimeOnly),
+				compose.FormatBytesInt64(b.BlobInfo.BytesFetched))
 
-			fmt.Printf("%10s / %10s; %4d%%",
+			fmt.Printf("%10s / %10s; %4d%%; %10s/s",
 				compose.FormatBytesInt64(b.BytesFetched),
 				compose.FormatBytesInt64(b.Descriptor.Size),
-				int((float64(b.BytesFetched)/float64(b.Descriptor.Size))*100))
+				int((float64(b.BytesFetched)/float64(b.Descriptor.Size))*100),
+				compose.FormatBytesInt64(b.FetchSpeedAvg))
 
 			if b.BytesFetched == b.Descriptor.Size {
 				fmt.Printf("; done at %s",

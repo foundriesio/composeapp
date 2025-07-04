@@ -18,12 +18,12 @@ type (
 	BlobState int
 	BlobType  string
 	BlobInfo  struct {
-		Descriptor  *ocispec.Descriptor `json:"descriptor"`
-		State       BlobState           `json:"state"`
-		Type        BlobType            `json:"type"`
-		StoreSize   int64               `json:"store_size"`
-		RuntimeSize int64               `json:"runtime_size"`
-		Fetched     int64               `json:"fetched"`
+		Descriptor   *ocispec.Descriptor `json:"descriptor"`
+		State        BlobState           `json:"state"`
+		Type         BlobType            `json:"type"`
+		StoreSize    int64               `json:"store_size"`
+		RuntimeSize  int64               `json:"runtime_size"`
+		BytesFetched int64               `json:"bytes_fetched"`
 	}
 
 	ctxKeyType string
