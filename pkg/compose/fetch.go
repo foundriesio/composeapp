@@ -172,16 +172,25 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 }
 
 func getOrderedBlobsToFetch(blobs map[digest.Digest]*BlobFetchProgress) (blobsToFetch []*BlobFetchProgress) {
-	var blobsToResumeDownload []*BlobFetchProgress
-	var blobsToStartDownload []*BlobFetchProgress
+	var resumeMeta, resumeData, startMeta, startData []*BlobFetchProgress
 
 	for _, bi := range blobs {
-		if bi.State == BlobFetching {
-			blobsToResumeDownload = append(blobsToResumeDownload, bi)
-		} else {
-			blobsToStartDownload = append(blobsToStartDownload, bi)
+		isData := bi.Type == BlobTypeImageLayer
+		switch {
+		case bi.State == BlobFetching && !isData:
+			resumeMeta = append(resumeMeta, bi)
+		case bi.State == BlobFetching && isData:
+			resumeData = append(resumeData, bi)
+		case bi.State != BlobFetching && !isData:
+			startMeta = append(startMeta, bi)
+		default: // bi.State != BlobFetching && isData
+			startData = append(startData, bi)
 		}
 	}
-	blobsToFetch = append(blobsToResumeDownload, blobsToStartDownload...)
+
+	// Order: resume metadata -> start metadata -> resume data -> start data
+	blobsToFetch = append(resumeMeta, startMeta...)
+	blobsToFetch = append(blobsToFetch, resumeData...)
+	blobsToFetch = append(blobsToFetch, startData...)
 	return
 }
