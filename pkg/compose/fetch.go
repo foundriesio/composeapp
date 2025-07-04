@@ -119,12 +119,31 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 			}
 		}(stopChan)
 	}
+
+	var blobsToResumeDownload []*BlobFetchProgress
+	var blobsToStartDownload []*BlobFetchProgress
+
 	for _, bi := range blobsToFetch {
+		if bi.State == BlobFetching {
+			blobsToResumeDownload = append(blobsToResumeDownload, bi)
+		} else {
+			blobsToStartDownload = append(blobsToStartDownload, bi)
+		}
+	}
+
+	for _, bi := range blobsToResumeDownload {
 		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, ls, true)
 		if err != nil {
 			// TODO: log this error and do retry
 			fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
-			break
+		}
+	}
+
+	for _, bi := range blobsToStartDownload {
+		err = CopyBlob(ctx, resolver, bi.Descriptor.URLs[0], *bi.Descriptor, ls, true)
+		if err != nil {
+			// TODO: log this error and do retry
+			fmt.Printf("failed to fetch blob %store: %v", bi.Descriptor.Digest, err)
 		}
 	}
 
