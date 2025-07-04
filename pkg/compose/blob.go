@@ -51,6 +51,17 @@ const (
 	ctxKeyBlobType ctxKeyType = "blob:type"
 )
 
+func (bi *BlobInfo) HasRef() bool {
+	return len(bi.Descriptor.URLs) > 0
+}
+
+func (bi *BlobInfo) Ref() string {
+	if bi.HasRef() {
+		return bi.Descriptor.URLs[0]
+	}
+	return ""
+}
+
 func WithBlobType(ctx context.Context, blobType BlobType) context.Context {
 	return context.WithValue(ctx, ctxKeyBlobType, blobType)
 }
