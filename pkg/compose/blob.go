@@ -18,12 +18,12 @@ type (
 	BlobState int
 	BlobType  string
 	BlobInfo  struct {
-		Descriptor  *ocispec.Descriptor `json:"descriptor"`
-		State       BlobState           `json:"state"`
-		Type        BlobType            `json:"type"`
-		StoreSize   int64               `json:"store_size"`
-		RuntimeSize int64               `json:"runtime_size"`
-		Fetched     int64               `json:"fetched"`
+		Descriptor   *ocispec.Descriptor `json:"descriptor"`
+		State        BlobState           `json:"state"`
+		Type         BlobType            `json:"type"`
+		StoreSize    int64               `json:"store_size"`
+		RuntimeSize  int64               `json:"runtime_size"`
+		BytesFetched int64               `json:"bytes_fetched"`
 	}
 
 	ctxKeyType string
@@ -50,6 +50,17 @@ const (
 
 	ctxKeyBlobType ctxKeyType = "blob:type"
 )
+
+func (bi *BlobInfo) HasRef() bool {
+	return len(bi.Descriptor.URLs) > 0
+}
+
+func (bi *BlobInfo) Ref() string {
+	if bi.HasRef() {
+		return bi.Descriptor.URLs[0]
+	}
+	return ""
+}
 
 func WithBlobType(ctx context.Context, blobType BlobType) context.Context {
 	return context.WithValue(ctx, ctxKeyBlobType, blobType)
