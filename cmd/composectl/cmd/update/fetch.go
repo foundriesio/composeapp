@@ -1,6 +1,7 @@
 package updatectl
 
 import (
+	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
 	"github.com/schollz/progressbar/v3"
@@ -37,12 +38,12 @@ func fetchUpdateCmd(cmd *cobra.Command, args []string, opts *fetchOptions) {
 
 	bar := progressbar.DefaultBytes(updateCtl.Status().TotalBlobsBytes)
 
-	err = updateCtl.Fetch(cmd.Context(), update.WithFetchProgress(func(status *update.FetchProgress) {
-		if err := bar.Set64(status.Current); err != nil {
+	err = updateCtl.Fetch(cmd.Context(), compose.WithFetchProgress(func(status *compose.FetchProgress) {
+		if err := bar.Set64(status.CurrentBytes); err != nil {
 			cmd.Printf("Error setting progress bar: %s\n", err.Error())
 		}
 	}),
-		update.WithProgressPollInterval(500))
+		compose.WithProgressPollInterval(500))
 	ExitIfNotNil(err)
 
 }
