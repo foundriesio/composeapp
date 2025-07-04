@@ -3,13 +3,13 @@ package composectl
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
+	"github.com/moby/term"
 	"github.com/spf13/cobra"
 	"os"
-	"path"
+	"time"
 )
 
 var (
@@ -57,32 +57,77 @@ func pullApps(cmd *cobra.Command, args []string) {
 			DieNotNilWithCode(fmt.Errorf("not enough storage available"), exitCodeInsufficientSpace)
 		}
 		cr.print()
-		fmt.Println("Pulling app blobs...")
-		// copying missing blobs
-		// TODO:  move to a separate function:
-		//  1) Copy in multiple goroutines/workers (configurable)
-		//  2) Generic status reporting mechanism
-		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
-		resolver := compose.NewResolver(authorizer, config.ConnectTimeout)
+		fmt.Println("Pulling app blobs, starting at " + time.Now().UTC().Format("15:04:05 02 Jan 2006") + "...")
 
-		ls, err := local.NewStore(config.StoreRoot)
-		DieNotNil(err)
-		for _, b := range cr.MissingBlobs {
-			fmt.Printf(" [%-15s] %s %15d ... ", b.Type, b.Descriptor.Digest.Encoded(), b.Descriptor.Size)
-			var copyErr error
-			if len(*pullSrcStorePath) > 0 {
-				blobPath := path.Join(compose.GetBlobsRootFor(*pullSrcStorePath), b.Descriptor.Digest.Encoded())
-				copyErr = compose.CopyLocalBlob(cmd.Context(), blobPath, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
-			} else {
-				copyErr = compose.CopyBlob(cmd.Context(), resolver, b.Descriptor.URLs[0], *b.Descriptor, ls, true)
-			}
-			DieNotNil(copyErr)
-			fmt.Println("ok")
-		}
+		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
+			compose.WithProgressPollInterval(1000),
+			compose.WithFetchProgress(getFetchProgressHandler()))
+		DieNotNil(err, "failed to fetch blobs")
+		fmt.Println("\n\nApp blobs pull completed at " + time.Now().UTC().Format("15:04:05 02 Jan 2006"))
 	}
 
 	for _, app := range apps {
 		err = v1.MakeAkliteHappy(cmd.Context(), cs, app, platforms.OnlyStrict(config.Platform))
 		DieNotNil(err)
+	}
+}
+
+func getFetchProgressHandler() func(progress *compose.FetchProgress) {
+	var blobsBeingFetched []struct {
+		blob *compose.BlobFetchProgress
+		done bool
+	}
+	isTty := term.IsTerminal(os.Stdout.Fd())
+	return func(p *compose.FetchProgress) {
+		currentBlobsBeingFetchedNumb := len(blobsBeingFetched)
+		for _, bi := range p.Blobs {
+			found := false
+			for _, bf := range blobsBeingFetched {
+				if bf.blob.Descriptor.Digest == bi.Descriptor.Digest {
+					found = true
+					break
+				}
+			}
+			if !found && (bi.State == compose.BlobFetching || bi.State == compose.BlobOk) {
+				blobsBeingFetched = append(blobsBeingFetched, struct {
+					blob *compose.BlobFetchProgress
+					done bool
+				}{blob: bi, done: false})
+			}
+		}
+
+		if isTty {
+			if currentBlobsBeingFetchedNumb > 0 {
+				fmt.Printf("\033[%dA\r", currentBlobsBeingFetchedNumb)
+			}
+		}
+
+		for i := range blobsBeingFetched {
+			if blobsBeingFetched[i].done {
+				if isTty {
+					// Move cursor down one line since this blob fetch is completed
+					fmt.Print("\033[1B")
+				}
+				continue
+			}
+
+			b := blobsBeingFetched[i].blob
+
+			fmt.Printf("\n [%-15s] %s started from %10s",
+				b.Type,
+				b.Descriptor.Digest.Encoded(),
+				compose.FormatBytesInt64(b.Fetched))
+
+			fmt.Printf("%10s / %10s; %4d%%",
+				compose.FormatBytesInt64(b.BytesFetched),
+				compose.FormatBytesInt64(b.Descriptor.Size),
+				int((float64(b.BytesFetched)/float64(b.Descriptor.Size))*100))
+
+			if b.BytesFetched == b.Descriptor.Size {
+				fmt.Printf("; done at %s",
+					time.Now().UTC().Format(time.TimeOnly))
+				blobsBeingFetched[i].done = true
+			}
+		}
 	}
 }
