@@ -234,7 +234,7 @@ func CheckAppsFetchStatus(
 			if bi.State == BlobMissing {
 				if fetchStatus, err := ls.Status(ctx, node.Ref()); err == nil {
 					bi.State = BlobFetching
-					bi.Fetched = fetchStatus.Offset
+					bi.BytesFetched = fetchStatus.Offset
 				}
 			}
 			fetchReport.BlobsStatus[node.Descriptor.Digest] = bi
