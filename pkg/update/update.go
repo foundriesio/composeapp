@@ -14,7 +14,7 @@ type (
 	Runner interface {
 		Status() Update
 		Init(context.Context, []string, ...InitOption) error
-		Fetch(context.Context, ...FetchOption) error
+		Fetch(context.Context, ...compose.FetchOption) error
 		Install(context.Context, ...compose.InstallOption) error
 		Start(context.Context) error
 		Cancel(context.Context) error
@@ -36,7 +36,6 @@ type (
 		LoadedImages    map[string]struct{}          `json:"loaded_images"`     // images that have been loaded into the docker storage
 		FetchedBytes    int64                        `json:"fetched_bytes"`     // total bytes fetched so far
 		FetchedBlobs    int                          `json:"fetched_blobs"`     // number of blobs fetched so far
-
 	}
 
 	runnerImpl struct {
@@ -215,7 +214,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 	})
 }
 
-func (u *runnerImpl) Fetch(ctx context.Context, options ...FetchOption) error {
+func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) error {
 	return u.store.lock(func(db *session) error {
 		var err error
 		switch u.State {
