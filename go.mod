@@ -1,6 +1,6 @@
 module github.com/foundriesio/composeapp
 
-go 1.24
+go 1.22
 
 require (
 	github.com/compose-spec/compose-go v1.20.2
