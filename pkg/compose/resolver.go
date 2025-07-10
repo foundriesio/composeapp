@@ -9,19 +9,19 @@ import (
 )
 
 func NewResolver(authorizer docker.Authorizer, connectTimeout time.Duration) remotes.Resolver {
-	ropts := []docker.RegistryOpt{
-		docker.WithAuthorizer(authorizer),
-		docker.WithClient(&http.Client{
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout: connectTimeout,
-				}).DialContext,
-			},
-		}),
-	}
-	//TODO: consider using options.Hosts = config.ConfigureHosts(ctx, hostOptions)
+	// Clone the default transport, so the default settings are preserved
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Override the DialContext with a custom TLS connection timeout
+	transport.DialContext = (&net.Dialer{
+		Timeout:   connectTimeout,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	// Set the response header timeout
+	transport.ResponseHeaderTimeout = 30 * time.Second
+
 	return docker.NewResolver(docker.ResolverOptions{
-		Hosts: docker.ConfigureDefaultRegistries(ropts...),
-	},
-	)
+		Hosts: docker.ConfigureDefaultRegistries(
+			docker.WithAuthorizer(authorizer),
+			docker.WithClient(&http.Client{Transport: transport})),
+	})
 }
