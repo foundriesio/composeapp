@@ -43,9 +43,7 @@ func doOutputComposeFile(cmd *cobra.Command, args []string, opts *composeOptions
 	if len(*opts.SrcStorePath) > 0 {
 		blobProvider = compose.NewStoreBlobProvider(compose.GetBlobsRootFor(*opts.SrcStorePath))
 	} else {
-		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
-		resolver := compose.NewResolver(authorizer, config.ConnectTimeout)
-		blobProvider = compose.NewRemoteBlobProvider(resolver)
+		blobProvider = compose.NewRemoteBlobProviderFromConfig(config)
 	}
 	app, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), blobProvider, platforms.OnlyStrict(config.Platform), args[0])
 	DieNotNil(err)
