@@ -22,10 +22,8 @@ func init() {
 func inspectApp(cmd *cobra.Command, args []string) {
 	appRef := args[0]
 
-	authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
-	resolver := compose.NewResolver(authorizer, config.ConnectTimeout)
 	fmt.Printf("Inspecting App %s...", appRef)
-	app, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), compose.NewRemoteBlobProvider(resolver), platforms.All, appRef)
+	app, err := v1.NewAppLoader().LoadAppTree(cmd.Context(), compose.NewRemoteBlobProviderFromConfig(config), platforms.All, appRef)
 	DieNotNil(err)
 	fmt.Println("ok")
 	app.Tree().Print()

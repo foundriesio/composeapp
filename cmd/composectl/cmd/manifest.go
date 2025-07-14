@@ -42,9 +42,7 @@ func doOutputManifest(cmd *cobra.Command, args []string, opts *manifestOptions) 
 	if len(*opts.SrcStorePath) > 0 {
 		blobProvider = compose.NewStoreBlobProvider(compose.GetBlobsRootFor(*opts.SrcStorePath))
 	} else {
-		authorizer := compose.NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
-		resolver := compose.NewResolver(authorizer, config.ConnectTimeout)
-		blobProvider = compose.NewRemoteBlobProvider(resolver)
+		blobProvider = compose.NewRemoteBlobProviderFromConfig(config)
 	}
 	b, err := compose.ReadBlobWithReadLimit(cmd.Context(), blobProvider, args[0], v1.AppManifestMaxSize)
 	DieNotNil(err)

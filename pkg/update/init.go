@@ -50,9 +50,7 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 		}
 	}()
 
-	authorizer := compose.NewRegistryAuthorizer(u.config.DockerCfg, u.config.ConnectTimeout)
-	resolver := compose.NewResolver(authorizer, u.config.ConnectTimeout)
-	srcBlobProvider := compose.NewRemoteBlobProvider(resolver)
+	srcBlobProvider := compose.NewRemoteBlobProviderFromConfig(u.config)
 
 	p := InitProgress{
 		State:   UpdateInitStateLoadingTree,

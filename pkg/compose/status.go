@@ -424,12 +424,6 @@ func (s Services) find(imageNode *TreeNode) (foundService *Service) {
 	return
 }
 
-func newRemoteBlobProvider(c *Config) BlobProvider {
-	authorizer := NewRegistryAuthorizer(c.DockerCfg, c.ConnectTimeout)
-	resolver := NewResolver(authorizer, c.ConnectTimeout)
-	return NewRemoteBlobProvider(resolver)
-}
-
 func checkImageInstallation(installedImages *InstalledImagesInfo, uri string) (bool, error) {
 	if _, ok := installedImages.InstalledImageRefs[uri]; ok {
 		return true, nil
@@ -504,7 +498,7 @@ func loadAppTrees(ctx context.Context,
 	for _, appRef := range appRefs {
 		app, err := cfg.AppLoader.LoadAppTree(ctx, blobProvider, platforms.OnlyStrict(cfg.Platform), appRef)
 		if fallbackLoadingFromRemote && errors.Is(err, ErrAppNotFound) {
-			app, err = cfg.AppLoader.LoadAppTree(ctx, newRemoteBlobProvider(cfg),
+			app, err = cfg.AppLoader.LoadAppTree(ctx, NewRemoteBlobProviderFromConfig(cfg),
 				platforms.OnlyStrict(cfg.Platform), appRef)
 		}
 		if err != nil {
