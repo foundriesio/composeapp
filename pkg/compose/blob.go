@@ -155,15 +155,6 @@ func CopyBlob(ctx context.Context, resolver remotes.Resolver, ref string, desc o
 	return copyBlob(ctx, r, ref, desc, store, force)
 }
 
-func CopyLocalBlob(ctx context.Context, path string, ref string, desc ocispec.Descriptor, store content.Store, force bool) error {
-	r, err := os.OpenFile(path, os.O_RDONLY, 0600)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	return copyBlob(ctx, r, ref, desc, store, force)
-}
-
 // TODO: it can be method of AppStore interface { content.Store
 func copyBlob(ctx context.Context, r io.ReadCloser, ref string, desc ocispec.Descriptor, store content.Store, force bool) error {
 	var err error
