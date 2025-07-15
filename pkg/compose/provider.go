@@ -60,8 +60,9 @@ func NewLocalBlobProvider(fileProvider content.Store) BlobProvider {
 }
 
 func NewRemoteBlobProviderFromConfig(config *Config) BlobProvider {
-	authorizer := NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
-	resolver := NewResolver(authorizer, config.ConnectTimeout)
+	client := NewHttpClient(config.ConnectTimeout)
+	authorizer := NewRegistryAuthorizer(config.DockerCfg, client)
+	resolver := NewResolver(authorizer, client)
 	return newRemoteBlobProvider(resolver)
 }
 
