@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
 )
 
@@ -15,6 +16,7 @@ type (
 		ExpectedDigest digest.Digest
 		ExpectedSize   int64
 		ReadLimit      int64
+		Descriptor     ocispec.Descriptor
 	}
 
 	ErrBlobDigestMismatch struct {
@@ -140,6 +142,12 @@ func WithExpectedDigest(digest digest.Digest) func(opts *SecureReadParams) {
 func WithReadLimit(limit int64) func(opts *SecureReadParams) {
 	return func(opts *SecureReadParams) {
 		opts.ReadLimit = limit
+	}
+}
+
+func WithDescriptor(desc ocispec.Descriptor) func(opts *SecureReadParams) {
+	return func(opts *SecureReadParams) {
+		opts.Descriptor = desc
 	}
 }
 
