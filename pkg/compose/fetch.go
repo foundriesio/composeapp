@@ -86,8 +86,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 		TotalBytes:   totalBlobsFetchSize,
 	}
 
-	authorizer := NewRegistryAuthorizer(cfg.DockerCfg, cfg.ConnectTimeout)
-	resolver := NewResolver(authorizer, cfg.ConnectTimeout)
+	blobProvider := NewRemoteBlobProviderFromConfig(cfg)
 	ls, err := local.NewStore(cfg.StoreRoot)
 	if err != nil {
 		return err
@@ -124,9 +123,21 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 	}
 
 	for _, bi := range getOrderedBlobsToFetch(blobsToFetch) {
-		bi.FetchStartTime = time.Now()
-		if err = CopyBlob(ctx, resolver, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
-			err = fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
+		err = func() error {
+			// Get the reader without digest calculation and verification because the writer/ingester of
+			// the local store (`ls`) will do that.
+			r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor))
+			if err != nil {
+				return fmt.Errorf("failed to initiate request to fetch blob %s: %v", bi.Descriptor.Digest, err)
+			}
+			defer r.Close()
+			bi.FetchStartTime = time.Now()
+			if err := CopyBlob(ctx, r, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
+				return fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
+			}
+			return nil
+		}()
+		if err != nil {
 			break
 		}
 	}

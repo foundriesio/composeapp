@@ -20,7 +20,8 @@ type (
 		Type() BlobProviderType
 		GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error)
 	}
-	BlobProviderType   string
+	BlobProviderType string
+
 	remoteBlobProvider struct {
 		resolver remotes.Resolver
 	}
@@ -61,10 +62,10 @@ func NewLocalBlobProvider(fileProvider content.Store) BlobProvider {
 func NewRemoteBlobProviderFromConfig(config *Config) BlobProvider {
 	authorizer := NewRegistryAuthorizer(config.DockerCfg, config.ConnectTimeout)
 	resolver := NewResolver(authorizer, config.ConnectTimeout)
-	return NewRemoteBlobProvider(resolver)
+	return newRemoteBlobProvider(resolver)
 }
 
-func NewRemoteBlobProvider(resolver remotes.Resolver) BlobProvider {
+func newRemoteBlobProvider(resolver remotes.Resolver) BlobProvider {
 	return &remoteBlobProvider{
 		resolver: resolver,
 	}
@@ -145,6 +146,14 @@ func (r *remoteBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureRe
 	if len(p.Ref) == 0 {
 		return nil, fmt.Errorf("missing mandatory parameter `SecureReadParams.Ref`")
 	}
+	if len(p.ExpectedDigest) > 0 || p.ExpectedSize > 0 || p.ReadLimit > 0 {
+		return r.getSecureReadCloser(ctx, &p, opts...)
+	} else {
+		return r.getReadCloser(ctx, &p)
+	}
+}
+
+func (r *remoteBlobProvider) getSecureReadCloser(ctx context.Context, p *SecureReadParams, opts ...SecureReadOptions) (io.ReadCloser, error) {
 	var desc ocispec.Descriptor
 	var err error
 	if len(p.ExpectedDigest) > 0 && p.ExpectedSize != 0 {
@@ -165,6 +174,18 @@ func (r *remoteBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureRe
 		return nil, err
 	}
 	return NewSecureReadCloser(sr, append([]SecureReadOptions{WithExpectedDigest(desc.Digest), WithExpectedSize(desc.Size)}, opts...)...)
+}
+
+func (r *remoteBlobProvider) getReadCloser(ctx context.Context, p *SecureReadParams) (io.ReadCloser, error) {
+	if p.Descriptor.Size == 0 || p.Descriptor.Digest == "" {
+		return nil, fmt.Errorf("mandatory parameter `Descriptor` is not set or incomplete:" +
+			" `Size` and `Digest` fields must be set")
+	}
+	f, err := r.resolver.Fetcher(ctx, p.Ref)
+	if err != nil {
+		return nil, err
+	}
+	return f.Fetch(ctx, p.Descriptor)
 }
 
 func (r *remoteBlobProvider) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
