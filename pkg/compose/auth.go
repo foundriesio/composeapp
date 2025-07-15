@@ -4,21 +4,13 @@ import (
 	"fmt"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/docker/cli/cli/config/configfile"
-	"net"
 	"net/http"
-	"time"
 )
 
-func NewRegistryAuthorizer(cfg *configfile.ConfigFile, connectTimeout time.Duration) docker.Authorizer {
+func NewRegistryAuthorizer(cfg *configfile.ConfigFile, client *http.Client) docker.Authorizer {
 	return docker.NewDockerAuthorizer(
 		docker.WithAuthCreds(getAuthCreds(cfg)),
-		docker.WithAuthClient(&http.Client{
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout: connectTimeout,
-				}).DialContext,
-			},
-		}),
+		docker.WithAuthClient(client),
 	)
 }
 
