@@ -28,6 +28,7 @@ var (
 	arch              string
 	dockerHost        string
 	connectTimeout    int
+	readTimeout       int
 	defConnectTimeout string
 	showConfigFile    bool
 
@@ -81,6 +82,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&dockerHost, "host", "H", "", "path to the socket on which the Docker daemon listens")
 	rootCmd.PersistentFlags().IntVarP(&connectTimeout, "connect-timeout", "", int(config.ConnectTimeout.Seconds()),
 		"timeout in seconds for establishing a connection to a container registry and an authentication service")
+	rootCmd.PersistentFlags().IntVarP(&readTimeout, "read-timeout", "", int(config.ReadTimeout.Seconds()),
+		"timeout in seconds for reading data from a socket buffer when communicating with a container registry or an authentication service")
 	rootCmd.PersistentFlags().BoolVarP(&showConfigFile, "show-config", "C", false, "print paths of the applied config files")
 	rootCmd.AddCommand(updatectl.UpdateCmd)
 	rootCmd.AddCommand(versionCmd)
@@ -95,6 +98,7 @@ func initConfig() {
 	config.StoreRoot = storeRoot
 	config.ComposeRoot = composeRoot
 	config.ConnectTimeout = time.Duration(connectTimeout) * time.Second
+	config.ReadTimeout = time.Duration(readTimeout) * time.Second
 	config.DockerCfg = cfg
 	config.DockerHost = dockerHost
 	if len(arch) > 0 {

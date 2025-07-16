@@ -16,6 +16,7 @@ type (
 		StoreRoot      string
 		ComposeRoot    string
 		ConnectTimeout time.Duration
+		ReadTimeout    time.Duration
 		SkopeoSupport  bool
 		UpdateDBPath   string
 	}
@@ -27,6 +28,7 @@ const (
 	DefaultStoreDir       = "store"
 	DefaultComposeDir     = "projects"
 	DefaultConnectTimeout = time.Duration(2) * time.Minute
+	DefaultReadTimeout    = time.Duration(15) * time.Minute
 	DefaultDBFileName     = "updates.db"
 )
 
@@ -63,6 +65,7 @@ func WithConnectTimeout(timeout time.Duration) ConfigOpt {
 func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 	opts := &ConfigOpts{
 		ConnectTimeout: DefaultConnectTimeout,
+		ReadTimeout:    DefaultReadTimeout,
 	}
 	for _, opt := range options {
 		opt(opts)
@@ -121,6 +124,7 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		DockerCfg:      dockerCfg,
 		Platform:       platform,
 		ConnectTimeout: opts.ConnectTimeout,
+		ReadTimeout:    opts.ReadTimeout,
 		AppLoader:      NewAppLoader(),
 		AppStoreFactory: func() (compose.AppStore, error) {
 			return NewAppStore(opts.StoreRoot, platform, opts.SkopeoSupport)

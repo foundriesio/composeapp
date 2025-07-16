@@ -1,23 +1,39 @@
 package compose
 
 import (
+	"context"
 	"crypto/tls"
 	"net"
 	"net/http"
 	"time"
 )
 
-func NewHttpClient(connectTimeout time.Duration) *http.Client {
+type (
+	// deadlineConn wraps net.Conn to apply SetReadDeadline before each Read call.
+	deadlineConn struct {
+		net.Conn
+		timeout time.Duration
+	}
+)
+
+func NewHttpClient(connectTimeout time.Duration, readTimeout time.Duration) *http.Client {
 	// Make a copy of the default transport to avoid modifying the global default
 	t := http.DefaultTransport.(*http.Transport).Clone()
 
 	// Set the transport's DialContext to use a custom dialer with:
 	// 1. the TCP connection timeout
 	// 2. a keep-alive period of 30 seconds
-	t.DialContext = (&net.Dialer{
-		Timeout:   connectTimeout,
-		KeepAlive: 30 * time.Second,
-	}).DialContext
+	// 3. a custom deadlineConn that applies a read timeout
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{
+			Timeout:   connectTimeout,
+			KeepAlive: 30 * time.Second,
+		}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &deadlineConn{Conn: conn, timeout: readTimeout}, nil
+	}
 
 	// Set the transport's TLSHandshakeTimeout and ResponseHeaderTimeout,
 	// so a client will not hang indefinitely if the server does not respond or network goes down.
@@ -50,4 +66,9 @@ func NewHttpClient(connectTimeout time.Duration) *http.Client {
 	return &http.Client{
 		Transport: t,
 	}
+}
+
+func (c *deadlineConn) Read(b []byte) (int, error) {
+	_ = c.SetReadDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Read(b)
 }

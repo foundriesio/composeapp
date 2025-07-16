@@ -15,6 +15,7 @@ type (
 		DockerHost      string
 		Platform        specs.Platform
 		ConnectTimeout  time.Duration
+		ReadTimeout     time.Duration
 		AppLoader       AppLoader
 		AppStoreFactory func() (AppStore, error)
 		BlockSize       int64
