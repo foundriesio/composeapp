@@ -21,9 +21,10 @@ const (
 type (
 	BlobFetchProgress struct {
 		BlobInfo
-		BytesFetched   int64     `json:"bytes_fetched"`
+		BytesFetched   int64     `json:"bytes_fetched"` // overall bytes read for this blob and written to the local storage;
 		FetchStartTime time.Time `json:"fetch_start_time"`
 		FetchSpeedAvg  int64     `json:"fetch_speed_avg"` // bytes per second
+		BytesRead      int64     `json:"bytes_read"`      // total blob bytes read from network during the last fetch attempt
 	}
 	FetchProgress struct {
 		Blobs        map[digest.Digest]*BlobFetchProgress // per-blob metadata and progress
@@ -219,5 +220,9 @@ func getOrderedBlobsToFetch(blobs map[digest.Digest]*BlobFetchProgress) (blobsTo
 }
 
 func (r *readMonitor) Read(p []byte) (n int, err error) {
-	return r.ReadSeekCloser.Read(p)
+	n, err = r.ReadSeekCloser.Read(p)
+	if n > 0 {
+		r.b.BytesRead += int64(n)
+	}
+	return
 }
