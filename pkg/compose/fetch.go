@@ -76,6 +76,8 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 		totalBlobsFetchSize += blob.Descriptor.Size
 		blobsToFetch[d] = &BlobFetchProgress{
 			BlobInfo: *blob,
+			// Initialize with amount of bytes already fetched and written to local storage
+			BytesFetched: blob.BytesFetched,
 		}
 	}
 
