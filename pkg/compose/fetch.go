@@ -9,6 +9,7 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/foundriesio/composeapp/internal/progress"
 	"github.com/opencontainers/go-digest"
+	"io"
 	"sync"
 	"time"
 )
@@ -38,6 +39,11 @@ type (
 
 	FetchOption       func(*FetchOptions)
 	FetchProgressFunc func(*FetchProgress)
+
+	readMonitor struct {
+		io.ReadSeekCloser
+		b *BlobFetchProgress
+	}
 )
 
 func WithFetchProgress(pf FetchProgressFunc) FetchOption {
@@ -133,8 +139,12 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 				return fmt.Errorf("failed to initiate request to fetch blob %s: %v", bi.Descriptor.Digest, err)
 			}
 			defer r.Close()
+			blobReader, ok := r.(io.ReadSeekCloser)
+			if !ok {
+				return fmt.Errorf("blob fetch reader for %s does not implement io.ReadSeekCloser", bi.Ref())
+			}
 			bi.FetchStartTime = time.Now()
-			if err := CopyBlob(ctx, r, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
+			if err := CopyBlob(ctx, &readMonitor{blobReader, bi}, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
 				return fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
 			}
 			return nil
@@ -206,4 +216,8 @@ func getOrderedBlobsToFetch(blobs map[digest.Digest]*BlobFetchProgress) (blobsTo
 	blobsToFetch = append(blobsToFetch, resumeData...)
 	blobsToFetch = append(blobsToFetch, startData...)
 	return
+}
+
+func (r *readMonitor) Read(p []byte) (n int, err error) {
+	return r.ReadSeekCloser.Read(p)
 }
