@@ -21,10 +21,11 @@ const (
 type (
 	BlobFetchProgress struct {
 		BlobInfo
-		BytesFetched   int64     `json:"bytes_fetched"` // overall bytes read for this blob and written to the local storage;
-		FetchStartTime time.Time `json:"fetch_start_time"`
-		FetchSpeedAvg  int64     `json:"fetch_speed_avg"` // bytes per second
-		BytesRead      int64     `json:"bytes_read"`      // total blob bytes read from network during the last fetch attempt
+		BytesFetched   int64         `json:"bytes_fetched"` // overall bytes read for this blob and written to the local storage;
+		FetchStartTime time.Time     `json:"fetch_start_time"`
+		BytesRead      int64         `json:"bytes_read"`     // total blob bytes read from network during the last fetch attempt
+		ReadTime       time.Duration `json:"read_time"`      // aggregate time spent reading this blob data from the network
+		ReadSpeedAvg   int64         `json:"read_speed_avg"` // average read speed in bytes per second
 	}
 	FetchProgress struct {
 		Blobs        map[digest.Digest]*BlobFetchProgress // per-blob metadata and progress
@@ -41,9 +42,18 @@ type (
 	FetchOption       func(*FetchOptions)
 	FetchProgressFunc func(*FetchProgress)
 
+	readStat struct {
+		bytes int64
+		start time.Time
+		end   time.Time
+	}
 	readMonitor struct {
 		io.ReadSeekCloser
-		b *BlobFetchProgress
+		ctx      context.Context
+		b        *BlobFetchProgress
+		stopChan chan struct{}
+		wg       sync.WaitGroup
+		statChan chan readStat
 	}
 )
 
@@ -145,7 +155,10 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 				return fmt.Errorf("blob fetch reader for %s does not implement io.ReadSeekCloser", bi.Ref())
 			}
 			bi.FetchStartTime = time.Now()
-			if err := CopyBlob(ctx, &readMonitor{blobReader, bi}, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
+			rm := NewReadMonitor(ctx, blobReader, bi)
+			rm.Start()
+			defer rm.Stop()
+			if err := CopyBlob(ctx, rm, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
 				return fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
 			}
 			return nil
@@ -179,8 +192,6 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 			b.BytesFetched = s.Offset
 			if b.State != BlobFetching {
 				b.State = BlobFetching
-			} else {
-				b.FetchSpeedAvg = int64(float64(b.BytesFetched-b.BlobInfo.BytesFetched) / time.Since(b.FetchStartTime).Seconds())
 			}
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
@@ -188,7 +199,6 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 				b.BytesFetched = i.Size
 				b.State = BlobOk
 				fetchProgress.FetchedCount++
-				b.FetchSpeedAvg = int64(float64(b.BytesFetched-b.BlobInfo.BytesFetched) / time.Since(b.FetchStartTime).Seconds())
 			}
 		}
 	}
@@ -219,10 +229,58 @@ func getOrderedBlobsToFetch(blobs map[digest.Digest]*BlobFetchProgress) (blobsTo
 	return
 }
 
+func NewReadMonitor(ctx context.Context, r io.ReadSeekCloser, b *BlobFetchProgress) *readMonitor {
+	return &readMonitor{
+		ReadSeekCloser: r,
+		ctx:            ctx,
+		b:              b,
+		stopChan:       make(chan struct{}),
+		statChan:       make(chan readStat, 100),
+	}
+}
+
 func (r *readMonitor) Read(p []byte) (n int, err error) {
+	readStartTime := time.Now()
 	n, err = r.ReadSeekCloser.Read(p)
 	if n > 0 {
-		r.b.BytesRead += int64(n)
+		r.statChan <- readStat{
+			bytes: int64(n),
+			start: readStartTime,
+			end:   time.Now(),
+		}
 	}
 	return
+}
+
+func (r *readMonitor) Start() {
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		ticker := time.NewTicker(time.Duration(1) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case stat := <-r.statChan:
+				r.b.BytesRead += stat.bytes
+				r.b.ReadTime += stat.end.Sub(stat.start)
+			case <-ticker.C:
+				if r.b.ReadTime.Seconds() == 0 || r.b.BytesRead == 0 {
+					continue
+				}
+				r.b.ReadSpeedAvg = int64(float64(r.b.BytesRead) / r.b.ReadTime.Seconds())
+			case <-r.stopChan:
+				return
+			case <-r.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (r *readMonitor) Stop() {
+	select {
+	case r.stopChan <- struct{}{}:
+	default:
+	}
+	r.wg.Wait()
 }

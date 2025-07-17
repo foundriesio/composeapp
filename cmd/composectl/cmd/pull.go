@@ -121,7 +121,7 @@ func getFetchProgressHandler() func(progress *compose.FetchProgress) {
 				compose.FormatBytesInt64(b.BytesFetched),
 				compose.FormatBytesInt64(b.Descriptor.Size),
 				int((float64(b.BytesFetched)/float64(b.Descriptor.Size))*100),
-				compose.FormatBytesInt64(b.FetchSpeedAvg))
+				compose.FormatBytesInt64(b.ReadSpeedAvg))
 
 			if b.BytesFetched == b.Descriptor.Size {
 				fmt.Printf("; done at %s",
