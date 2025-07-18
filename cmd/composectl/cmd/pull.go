@@ -117,11 +117,12 @@ func getFetchProgressHandler() func(progress *compose.FetchProgress) {
 				b.FetchStartTime.UTC().Format(time.TimeOnly),
 				compose.FormatBytesInt64(b.BlobInfo.BytesFetched))
 
-			fmt.Printf("%10s / %10s; %4d%%; %10s/s",
+			fmt.Printf("%10s / %10s; %4d%%; avg: %10s/s cur: %10s/s",
 				compose.FormatBytesInt64(b.BytesFetched),
 				compose.FormatBytesInt64(b.Descriptor.Size),
 				int((float64(b.BytesFetched)/float64(b.Descriptor.Size))*100),
-				compose.FormatBytesInt64(b.ReadSpeedAvg))
+				compose.FormatBytesInt64(b.ReadSpeedAvg),
+				compose.FormatBytesInt64(b.ReadSpeedCur))
 
 			if b.BytesFetched == b.Descriptor.Size {
 				fmt.Printf("; done at %s",

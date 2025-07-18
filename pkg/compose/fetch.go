@@ -23,9 +23,10 @@ type (
 		BlobInfo
 		BytesFetched   int64         `json:"bytes_fetched"` // overall bytes read for this blob and written to the local storage;
 		FetchStartTime time.Time     `json:"fetch_start_time"`
-		BytesRead      int64         `json:"bytes_read"`     // total blob bytes read from network during the last fetch attempt
-		ReadTime       time.Duration `json:"read_time"`      // aggregate time spent reading this blob data from the network
-		ReadSpeedAvg   int64         `json:"read_speed_avg"` // average read speed in bytes per second
+		BytesRead      int64         `json:"bytes_read"`      // total blob bytes read from network during the last fetch attempt
+		ReadTime       time.Duration `json:"read_time"`       // aggregate time spent reading this blob data from the network
+		ReadSpeedAvg   int64         `json:"read_speed_avg"`  // average read speed in bytes per second
+		ReadSpeedCur   int64         `json:"read_speed_curr"` // current read speed in bytes per second
 	}
 	FetchProgress struct {
 		Blobs        map[digest.Digest]*BlobFetchProgress // per-blob metadata and progress
@@ -253,21 +254,70 @@ func (r *readMonitor) Read(p []byte) (n int, err error) {
 }
 
 func (r *readMonitor) Start() {
+	const (
+		windowSize     = 5 * time.Second // sliding window duration
+		maxSamples     = 200             // maximum number of samples to keep in the window
+		tickerInterval = windowSize / 4
+	)
+
+	var window []readStat
+
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		ticker := time.NewTicker(time.Duration(1) * time.Second)
+		ticker := time.NewTicker(tickerInterval)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case stat := <-r.statChan:
 				r.b.BytesRead += stat.bytes
 				r.b.ReadTime += stat.end.Sub(stat.start)
+				window = append(window, stat)
+
 			case <-ticker.C:
-				if r.b.ReadTime.Seconds() == 0 || r.b.BytesRead == 0 {
-					continue
+				now := time.Now()
+				// Drop old samples outside the window
+				cutoff := now.Add(-windowSize)
+				i := 0
+				for ; i < len(window); i++ {
+					if window[i].end.After(cutoff) {
+						break
+					}
 				}
-				r.b.ReadSpeedAvg = int64(float64(r.b.BytesRead) / r.b.ReadTime.Seconds())
+				window = window[i:]
+
+				// Enforce max number of samples constraint
+				if len(window) > maxSamples {
+					window = window[len(window)-maxSamples:]
+				}
+
+				// Optionally reset the backing array if it has grown too much, 2x the size of the window
+				if cap(window) > 2*len(window) {
+					newWindow := make([]readStat, len(window))
+					copy(newWindow, window)
+					window = newWindow
+				}
+
+				// Calculate speed over the window
+				var (
+					bytesInWindow int64
+					timeInWindow  time.Duration
+				)
+				for _, s := range window {
+					bytesInWindow += s.bytes
+					timeInWindow += s.end.Sub(s.start)
+				}
+
+				r.b.ReadSpeedCur = 0
+				if timeInWindow > 0 {
+					r.b.ReadSpeedCur = int64(float64(bytesInWindow) / timeInWindow.Seconds())
+				}
+
+				if r.b.ReadTime > 0 && r.b.BytesRead > 0 {
+					r.b.ReadSpeedAvg = int64(float64(r.b.BytesRead) / r.b.ReadTime.Seconds())
+				}
+
 			case <-r.stopChan:
 				return
 			case <-r.ctx.Done():
