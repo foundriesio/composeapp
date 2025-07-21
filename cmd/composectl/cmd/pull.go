@@ -9,6 +9,7 @@ import (
 	"github.com/moby/term"
 	"github.com/spf13/cobra"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -118,11 +119,11 @@ func getFetchProgressHandler() func(progress *compose.FetchProgress) {
 				compose.FormatBytesInt64(b.BlobInfo.BytesFetched))
 
 			fmt.Printf("progress: %10s / %10s (%3.0f%%) avg: %10s/s cur: %10s/s",
-				compose.FormatBytesInt64(b.BytesFetched),
+				compose.FormatBytesInt64(atomic.LoadInt64(&b.BytesFetched)),
 				compose.FormatBytesInt64(b.Descriptor.Size),
 				100*float64(b.BytesFetched)/float64(b.Descriptor.Size),
-				compose.FormatBytesInt64(b.ReadSpeedAvg),
-				compose.FormatBytesInt64(b.ReadSpeedCur))
+				compose.FormatBytesInt64(atomic.LoadInt64(&b.ReadSpeedAvg)),
+				compose.FormatBytesInt64(atomic.LoadInt64(&b.ReadSpeedCur)))
 
 			if b.BytesFetched == b.Descriptor.Size {
 				fmt.Printf("; done at %s",
