@@ -11,6 +11,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -190,14 +191,14 @@ func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress,
 		}
 		if s, err := ls.Status(ctx, b.Ref()); err == nil {
 			fetchProgress.CurrentBytes += s.Offset - b.BytesFetched
-			b.BytesFetched = s.Offset
+			atomic.StoreInt64(&b.BytesFetched, s.Offset)
 			if b.State != BlobFetching {
 				b.State = BlobFetching
 			}
 		} else if errors.Is(err, errdefs.ErrNotFound) {
 			if i, err := ls.Info(ctx, b.Descriptor.Digest); err == nil {
 				fetchProgress.CurrentBytes += i.Size - b.BytesFetched
-				b.BytesFetched = i.Size
+				atomic.StoreInt64(&b.BytesFetched, i.Size)
 				b.State = BlobOk
 				fetchProgress.FetchedCount++
 			}
@@ -311,11 +312,11 @@ func (r *readMonitor) Start() {
 
 				r.b.ReadSpeedCur = 0
 				if timeInWindow > 0 {
-					r.b.ReadSpeedCur = int64(float64(bytesInWindow) / timeInWindow.Seconds())
+					atomic.StoreInt64(&r.b.ReadSpeedCur, int64(float64(bytesInWindow)/timeInWindow.Seconds()))
 				}
 
 				if r.b.ReadTime > 0 && r.b.BytesRead > 0 {
-					r.b.ReadSpeedAvg = int64(float64(r.b.BytesRead) / r.b.ReadTime.Seconds())
+					atomic.StoreInt64(&r.b.ReadSpeedAvg, int64(float64(r.b.BytesRead)/r.b.ReadTime.Seconds()))
 				}
 
 			case <-r.stopChan:
