@@ -27,8 +27,8 @@ const (
 	DefaultRootDir        = ".composeapps"
 	DefaultStoreDir       = "store"
 	DefaultComposeDir     = "projects"
-	DefaultConnectTimeout = time.Duration(2) * time.Minute
-	DefaultReadTimeout    = time.Duration(15) * time.Minute
+	DefaultConnectTimeout = time.Duration(120) * time.Second
+	DefaultReadTimeout    = time.Duration(900) * time.Second
 	DefaultDBFileName     = "updates.db"
 )
 
