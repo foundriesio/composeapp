@@ -177,7 +177,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 		}
 		progressWg.Wait()
 	}
-	if err != nil {
+	if ctx.Err() == nil && err != nil {
 		return err
 	}
 	return ctx.Err()
