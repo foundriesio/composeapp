@@ -1,6 +1,6 @@
 module github.com/foundriesio/composeapp
 
-go 1.24
+go 1.22.12
 
 require (
 	github.com/compose-spec/compose-go v1.20.2
@@ -11,6 +11,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/google/uuid v1.3.1
 	github.com/moby/patternmatcher v0.6.0
+	github.com/moby/term v0.5.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0
 	github.com/pkg/errors v0.9.1
@@ -51,7 +52,6 @@ require (
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
 	github.com/moby/sys/user v0.1.0 // indirect
-	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.17.0 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
