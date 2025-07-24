@@ -78,7 +78,7 @@ func getFetchProgressHandler() func(progress *compose.FetchProgress) {
 		blob *compose.BlobFetchProgress
 		done bool
 	}
-	isTty := term.IsTerminal(os.Stdout.Fd())
+	isTty := term.IsTerminal(os.Stdout.Fd()) || os.Getenv("PARENT_HAS_TTY") == "1"
 	return func(p *compose.FetchProgress) {
 		currentBlobsBeingFetchedNumb := len(blobsBeingFetched)
 		for _, bi := range p.Blobs {
