@@ -263,67 +263,77 @@ func (r *readMonitor) Start() {
 
 	var window []readStat
 
+	calcReadStat := func() {
+		now := time.Now()
+		// Drop old samples outside the window
+		cutoff := now.Add(-windowSize)
+		i := 0
+		for ; i < len(window); i++ {
+			if window[i].end.After(cutoff) {
+				break
+			}
+		}
+		window = window[i:]
+
+		// Enforce max number of samples constraint
+		if len(window) > maxSamples {
+			window = window[len(window)-maxSamples:]
+		}
+
+		// Optionally reset the backing array if it has grown too much, 2x the size of the window
+		if cap(window) > 2*len(window) {
+			newWindow := make([]readStat, len(window))
+			copy(newWindow, window)
+			window = newWindow
+		}
+
+		// Calculate speed over the window
+		var (
+			bytesInWindow int64
+			timeInWindow  time.Duration
+		)
+		for _, s := range window {
+			bytesInWindow += s.bytes
+			timeInWindow += s.end.Sub(s.start)
+		}
+
+		r.b.ReadSpeedCur = 0
+		if timeInWindow > 0 {
+			atomic.StoreInt64(&r.b.ReadSpeedCur, int64(float64(bytesInWindow)/timeInWindow.Seconds()))
+		}
+
+		if r.b.ReadTime > 0 && r.b.BytesRead > 0 {
+			atomic.StoreInt64(&r.b.ReadSpeedAvg, int64(float64(r.b.BytesRead)/r.b.ReadTime.Seconds()))
+		}
+	}
+
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
 		ticker := time.NewTicker(tickerInterval)
 		defer ticker.Stop()
 
+		newStatData := false
+	done:
 		for {
 			select {
 			case stat := <-r.statChan:
 				r.b.BytesRead += stat.bytes
 				r.b.ReadTime += stat.end.Sub(stat.start)
 				window = append(window, stat)
-
+				newStatData = true
 			case <-ticker.C:
-				now := time.Now()
-				// Drop old samples outside the window
-				cutoff := now.Add(-windowSize)
-				i := 0
-				for ; i < len(window); i++ {
-					if window[i].end.After(cutoff) {
-						break
-					}
-				}
-				window = window[i:]
-
-				// Enforce max number of samples constraint
-				if len(window) > maxSamples {
-					window = window[len(window)-maxSamples:]
-				}
-
-				// Optionally reset the backing array if it has grown too much, 2x the size of the window
-				if cap(window) > 2*len(window) {
-					newWindow := make([]readStat, len(window))
-					copy(newWindow, window)
-					window = newWindow
-				}
-
-				// Calculate speed over the window
-				var (
-					bytesInWindow int64
-					timeInWindow  time.Duration
-				)
-				for _, s := range window {
-					bytesInWindow += s.bytes
-					timeInWindow += s.end.Sub(s.start)
-				}
-
-				r.b.ReadSpeedCur = 0
-				if timeInWindow > 0 {
-					atomic.StoreInt64(&r.b.ReadSpeedCur, int64(float64(bytesInWindow)/timeInWindow.Seconds()))
-				}
-
-				if r.b.ReadTime > 0 && r.b.BytesRead > 0 {
-					atomic.StoreInt64(&r.b.ReadSpeedAvg, int64(float64(r.b.BytesRead)/r.b.ReadTime.Seconds()))
-				}
-
+				calcReadStat()
+				newStatData = false
 			case <-r.stopChan:
-				return
+				break done
 			case <-r.ctx.Done():
-				return
+				break done
 			}
+		}
+		if newStatData {
+			// Final calculation of read speed if there was new data just before stopping
+			calcReadStat()
 		}
 	}()
 }
