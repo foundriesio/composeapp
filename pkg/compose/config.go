@@ -9,17 +9,17 @@ import (
 
 type (
 	Config struct {
-		StoreRoot       string
-		ComposeRoot     string
-		DockerCfg       *configfile.ConfigFile
-		DockerHost      string
-		Platform        specs.Platform
-		ConnectTimeout  time.Duration
-		ReadTimeout     time.Duration
-		AppLoader       AppLoader
-		AppStoreFactory func() (AppStore, error)
-		BlockSize       int64
-		DBFilePath      string
+		StoreRoot           string
+		ComposeRoot         string
+		DockerCfg           *configfile.ConfigFile
+		DockerHost          string
+		Platform            specs.Platform
+		ConnectTimeout      time.Duration
+		ReadTimeout         time.Duration
+		AppLoader           AppLoader
+		AppStoreFactoryFunc func(c *Config) (AppStore, error)
+		BlockSize           int64
+		DBFilePath          string
 	}
 )
 
@@ -33,4 +33,8 @@ func (c *Config) GetBlobsRoot() string {
 
 func GetBlobsRootFor(storeRoot string) string {
 	return filepath.Join(storeRoot, "blobs", "sha256")
+}
+
+func (c *Config) AppStoreFactory() (AppStore, error) {
+	return c.AppStoreFactoryFunc(c)
 }

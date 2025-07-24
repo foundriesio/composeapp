@@ -126,8 +126,8 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		ConnectTimeout: opts.ConnectTimeout,
 		ReadTimeout:    opts.ReadTimeout,
 		AppLoader:      NewAppLoader(),
-		AppStoreFactory: func() (compose.AppStore, error) {
-			return NewAppStore(opts.StoreRoot, platform, opts.SkopeoSupport)
+		AppStoreFactoryFunc: func(c *compose.Config) (compose.AppStore, error) {
+			return NewAppStore(c.StoreRoot, c.Platform, opts.SkopeoSupport)
 		},
 		BlockSize:  s.BlockSize,
 		DBFilePath: opts.UpdateDBPath,
