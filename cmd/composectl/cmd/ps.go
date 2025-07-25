@@ -3,6 +3,7 @@ package composectl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/types/container"
@@ -77,23 +78,43 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 	store, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
 	apps := map[string]compose.App{}
+	appStatuses := map[string]*App{}
+
 	for _, appRef := range appRefs {
+		appStatus := &App{
+			URI:     appRef,
+			InStore: false,
+			State:   "undefined",
+		}
 		app, err := v1.NewAppLoader().LoadAppTree(ctx, store, platforms.OnlyStrict(config.Platform), appRef)
-		DieNotNil(err)
+		if err == nil {
+			appStatus.Name = app.Name()
+			appStatus.InStore = true
+			appStatus.State = "found in store"
+		} else {
+			if errors.Is(err, compose.ErrAppNotFound) {
+				appStatus.State = "not found in store"
+			} else {
+				appStatus.State = err.Error()
+			}
+			if ref, err := compose.ParseAppRef(appRef); err == nil {
+				appStatus.Name = ref.Name
+			} else {
+				appStatus.Name = "unknown app name for " + appRef
+			}
+		}
+		appStatuses[appRef] = appStatus
 		apps[appRef] = app
 	}
 
-	appStatuses := map[string]*App{}
 	for appRef, app := range apps {
+		if !appStatuses[appRef].InStore {
+			// If the app is not in store then we don't need to check if it is running
+			continue
+		}
 		runningApp, ok := runningApps[app.Name()]
 		if !ok {
-			appStatuses[appRef] = &App{
-				URI:   appRef,
-				Name:  app.Name(),
-				State: "not running",
-				// app is present in the store because its tree was loaded successfully prior to executing this check
-				InStore: true,
-			}
+			appStatuses[appRef].State = "not running"
 			continue
 		}
 		if !runningApp.InStore {
@@ -109,11 +130,7 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 		// In this case we assume that a caller/user would like to check status of the app version
 		// specified via `appRefs`.
 		if len(runningApp.URI) > 0 && runningApp.URI != appRef {
-			appStatuses[appRef] = &App{
-				URI:   appRef,
-				Name:  app.Name(),
-				State: "running another app version than found in the store" + runningApp.URI,
-			}
+			appStatuses[appRef].State = "running another app version than found in the store" + runningApp.URI
 			continue
 		}
 
@@ -171,18 +188,18 @@ func getAppsStatus(ctx context.Context, appRefs []string, runningApps map[string
 				appState = "not running"
 			}
 		}
-
-		appStatuses[appRef] = &App{
-			URI:      appRef,
-			Name:     app.Name(),
-			State:    appState,
-			Services: appServices,
-			InStore:  true,
-		}
+		appStatuses[appRef].State = appState
+		appStatuses[appRef].Services = appServices
 	}
 
 	if checkInstall {
-		checkInstallResult, err := checkIfInstalled(ctx, appRefs, store, config.DockerHost)
+		var appsToCheckInstall []string
+		for appRef, appStatus := range appStatuses {
+			if appStatus.InStore {
+				appsToCheckInstall = append(appsToCheckInstall, appRef)
+			}
+		}
+		checkInstallResult, err := checkIfInstalled(ctx, appsToCheckInstall, store, config.DockerHost)
 		DieNotNil(err)
 		for app, ir := range checkInstallResult {
 			appStatuses[app].BundleErrors = ir.BundleErrors
@@ -204,17 +221,7 @@ func printAppStatuses(appStatuses map[string]*App, format string) {
 		}
 	} else {
 		for _, app := range appStatuses {
-			var appUri string
-			if app.InStore {
-				if len(app.URI) > 0 {
-					appUri = app.URI
-				} else {
-					appUri = "multiple versions of app found in the app store"
-				}
-			} else {
-				appUri = "not found in the app store"
-			}
-			fmt.Printf("%s (%s) -> %s\n", app.Name, app.State, appUri)
+			fmt.Printf("%s (%s) -> %s\n", app.Name, app.State, app.URI)
 			for _, srv := range app.Services {
 				id := "------------"
 				if len(srv.CtrID) > 0 {
