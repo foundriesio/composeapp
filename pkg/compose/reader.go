@@ -12,11 +12,12 @@ type (
 	SecureReadOptions func(opts *SecureReadParams)
 
 	SecureReadParams struct {
-		Ref            string
-		ExpectedDigest digest.Digest
-		ExpectedSize   int64
-		ReadLimit      int64
-		Descriptor     ocispec.Descriptor
+		Ref               string
+		ExpectedDigest    digest.Digest
+		ExpectedSize      int64
+		ReadLimit         int64
+		Descriptor        ocispec.Descriptor
+		DisableSecureRead bool
 	}
 
 	ErrBlobDigestMismatch struct {
@@ -148,6 +149,12 @@ func WithReadLimit(limit int64) func(opts *SecureReadParams) {
 func WithDescriptor(desc ocispec.Descriptor) func(opts *SecureReadParams) {
 	return func(opts *SecureReadParams) {
 		opts.Descriptor = desc
+	}
+}
+
+func WithSecureReadOff() func(opts *SecureReadParams) {
+	return func(opts *SecureReadParams) {
+		opts.DisableSecureRead = true
 	}
 }
 

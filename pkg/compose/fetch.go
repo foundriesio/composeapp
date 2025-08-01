@@ -38,7 +38,8 @@ type (
 
 	FetchOptions struct {
 		ProgressHandler      FetchProgressFunc
-		ProgressPollInterval int // interval between polling/checking blob download status in milliseconds
+		ProgressPollInterval int    // interval between polling/checking blob download status in milliseconds
+		SourcePath           string // path to the source directory containing blobs to fetch, if specified, the blobs will be fetched from this directory instead of remote registry
 	}
 
 	FetchOption       func(*FetchOptions)
@@ -68,6 +69,12 @@ func WithFetchProgress(pf FetchProgressFunc) FetchOption {
 func WithProgressPollInterval(pollInterval int) FetchOption {
 	return func(opts *FetchOptions) {
 		opts.ProgressPollInterval = pollInterval
+	}
+}
+
+func WithSourcePath(sourcePath string) FetchOption {
+	return func(opts *FetchOptions) {
+		opts.SourcePath = sourcePath
 	}
 }
 
@@ -107,7 +114,13 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 		TotalBytes:   totalBlobsFetchSize,
 	}
 
-	blobProvider := NewRemoteBlobProviderFromConfig(cfg)
+	var blobProvider BlobProvider
+	if opts.SourcePath == "" {
+		blobProvider = NewRemoteBlobProviderFromConfig(cfg)
+	} else {
+		blobProvider = NewStoreBlobProvider(GetBlobsRootFor(opts.SourcePath))
+	}
+
 	ls, err := local.NewStore(cfg.StoreRoot)
 	if err != nil {
 		return err
@@ -147,7 +160,8 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 		err = func() error {
 			// Get the reader without digest calculation and verification because the writer/ingester of
 			// the local store (`ls`) will do that.
-			r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor))
+			//r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor))
+			r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor), WithSecureReadOff())
 			if err != nil {
 				return fmt.Errorf("failed to initiate request to fetch blob %s: %v", bi.Descriptor.Digest, err)
 			}
