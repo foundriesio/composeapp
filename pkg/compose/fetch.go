@@ -250,7 +250,7 @@ func NewReadMonitor(ctx context.Context, r io.ReadSeekCloser, b *BlobFetchProgre
 		ReadSeekCloser: r,
 		ctx:            ctx,
 		b:              b,
-		stopChan:       make(chan struct{}),
+		stopChan:       make(chan struct{}, 1),
 		statChan:       make(chan readStat, 100),
 	}
 }
