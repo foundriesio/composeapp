@@ -101,7 +101,12 @@ func (store *storeBlobProvider) GetReadCloser(ctx context.Context, opts ...Secur
 	if err != nil {
 		return nil, err
 	}
-	return NewSecureReadCloser(f, newOpts...)
+	if p.DisableSecureRead {
+		// If secure read is disabled, we return the file object directly
+		return f, nil
+	} else {
+		return NewSecureReadCloser(f, newOpts...)
+	}
 }
 
 func (store *storeBlobProvider) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
@@ -147,10 +152,10 @@ func (r *remoteBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureRe
 	if len(p.Ref) == 0 {
 		return nil, fmt.Errorf("missing mandatory parameter `SecureReadParams.Ref`")
 	}
-	if len(p.ExpectedDigest) > 0 || p.ExpectedSize > 0 || p.ReadLimit > 0 {
-		return r.getSecureReadCloser(ctx, &p, opts...)
-	} else {
+	if p.DisableSecureRead {
 		return r.getReadCloser(ctx, &p)
+	} else {
+		return r.getSecureReadCloser(ctx, &p, opts...)
 	}
 }
 

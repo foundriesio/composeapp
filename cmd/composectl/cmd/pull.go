@@ -62,7 +62,8 @@ func pullApps(cmd *cobra.Command, args []string) {
 
 		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
 			compose.WithProgressPollInterval(1000),
-			compose.WithFetchProgress(getFetchProgressHandler()))
+			compose.WithFetchProgress(getFetchProgressHandler()),
+			compose.WithSourcePath(*pullSrcStorePath))
 		DieNotNil(err, "failed to fetch blobs")
 		fmt.Println("\n\nApp blobs pull completed at " + time.Now().UTC().Format("15:04:05 02 Jan 2006"))
 	}
