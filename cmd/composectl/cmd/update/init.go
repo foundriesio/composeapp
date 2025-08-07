@@ -9,7 +9,8 @@ import (
 
 type (
 	initOptions struct {
-		UpdateRef string
+		UpdateRef         string
+		AllowEmptyAppList bool // Allow empty app list to initialize the new update, which means update to the "no apps" state, hence removing all current apps.
 	}
 )
 
@@ -30,6 +31,8 @@ func init() {
 
 	initCmd.Flags().StringVar(&opts.UpdateRef, "ref", "",
 		"Update reference/ID to associate the update with.")
+	initCmd.Flags().BoolVarP(&opts.AllowEmptyAppList, "allow-empty-app-list", "r", false,
+		"Initialize the update to the \"no apps\" state")
 
 	initCmd.Run = func(cmd *cobra.Command, args []string) {
 		initUpdateCmd(cmd, args, &opts)
@@ -46,29 +49,43 @@ func initUpdateCmd(cmd *cobra.Command, args []string, opts *initOptions) {
 	var checkBlobProgress *progressbar.ProgressBar
 
 	var updateCtl update.Runner
-	if len(args) == 0 {
-		updateCtl, err = update.GetCurrentUpdate(cfg)
-		ExitIfNotNil(err)
-		bar = progressbar.Default(int64(len(updateCtl.Status().URIs)))
-	} else {
+	var renderProgress bool
+
+	if len(args) > 0 || opts.AllowEmptyAppList {
 		updateCtl, err = update.NewUpdate(cfg, opts.UpdateRef)
-		ExitIfNotNil(err)
+	} else {
+		updateCtl, err = update.GetCurrentUpdate(cfg)
+	}
+	ExitIfNotNil(err)
+
+	if len(args) > 0 {
 		bar = progressbar.Default(int64(len(args)))
+		renderProgress = true
+	} else if len(updateCtl.Status().URIs) > 0 {
+		bar = progressbar.Default(int64(len(updateCtl.Status().URIs)))
+		renderProgress = true
 	}
 
-	err = updateCtl.Init(cmd.Context(), args, update.WithInitProgress(func(status *update.InitProgress) {
-		if status.State == update.UpdateInitStateLoadingTree {
-			if err := bar.Set(status.Current); err != nil {
-				cmd.Printf("Error setting progress bar: %s\n", err.Error())
+	initOpts := []update.InitOption{
+		update.WithInitAllowEmptyAppList(opts.AllowEmptyAppList),
+		update.WithInitCheckStatus(true),
+	}
+	if renderProgress {
+		initOpts = append(initOpts, update.WithInitProgress(func(status *update.InitProgress) {
+			if status.State == update.UpdateInitStateLoadingTree {
+				if err := bar.Set(status.Current); err != nil {
+					cmd.Printf("Error setting progress bar: %s\n", err.Error())
+				}
+			} else {
+				if checkBlobProgress == nil {
+					checkBlobProgress = progressbar.Default(int64(status.Total))
+				}
+				if err := checkBlobProgress.Set(status.Current); err != nil {
+					cmd.Printf("Error setting progress bar: %s\n", err.Error())
+				}
 			}
-		} else {
-			if checkBlobProgress == nil {
-				checkBlobProgress = progressbar.Default(int64(status.Total))
-			}
-			if err := checkBlobProgress.Set(status.Current); err != nil {
-				cmd.Printf("Error setting progress bar: %s\n", err.Error())
-			}
-		}
-	}))
-	ExitIfNotNil(err)
+		}))
+	}
+
+	ExitIfNotNil(updateCtl.Init(cmd.Context(), args, initOpts...))
 }
