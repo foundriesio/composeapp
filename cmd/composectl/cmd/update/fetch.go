@@ -36,14 +36,17 @@ func fetchUpdateCmd(cmd *cobra.Command, args []string, opts *fetchOptions) {
 	updateCtl, err := update.GetCurrentUpdate(cfg)
 	ExitIfNotNil(err)
 
-	bar := progressbar.DefaultBytes(updateCtl.Status().TotalBlobsBytes)
-
-	err = updateCtl.Fetch(cmd.Context(), compose.WithFetchProgress(func(status *compose.FetchProgress) {
-		if err := bar.Set64(status.CurrentBytes); err != nil {
-			cmd.Printf("Error setting progress bar: %s\n", err.Error())
-		}
-	}),
-		compose.WithProgressPollInterval(500))
-	ExitIfNotNil(err)
+	fetchOpts := []compose.FetchOption{
+		compose.WithProgressPollInterval(500),
+	}
+	if len(updateCtl.Status().URIs) > 0 {
+		bar := progressbar.DefaultBytes(updateCtl.Status().TotalBlobsBytes)
+		fetchOpts = append(fetchOpts, compose.WithFetchProgress(func(status *compose.FetchProgress) {
+			if err := bar.Set64(status.CurrentBytes); err != nil {
+				cmd.Printf("Error setting progress bar: %s\n", err.Error())
+			}
+		}))
+	}
+	ExitIfNotNil(updateCtl.Fetch(cmd.Context(), fetchOpts...))
 
 }
