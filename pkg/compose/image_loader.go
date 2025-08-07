@@ -231,6 +231,11 @@ func LoadImages(ctx context.Context,
 			break
 		}
 
+		if jm.Error != nil {
+			err = fmt.Errorf("dockerd err: %s", jm.Error)
+			break
+		}
+
 		switch p.State {
 		case ImageLoadStateImageWaiting:
 			{
