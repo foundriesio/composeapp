@@ -2,7 +2,7 @@ package compose
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"github.com/docker/docker/api/types/filters"
 	"os"
 )
@@ -12,6 +12,10 @@ type (
 		Prune bool
 	}
 	UninstallOpt func(*UninstallOpts)
+)
+
+var (
+	ErrUninstallRunningApps = errors.New("failed to uninstall apps: some apps are still running, please stop them first")
 )
 
 func WithImagePruning() UninstallOpt {
@@ -33,7 +37,7 @@ func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options .
 		return err
 	}
 	if status.AreRunning() {
-		return fmt.Errorf("cannot uninstall running app(s)")
+		return ErrUninstallRunningApps
 	}
 
 	store, err := cfg.AppStoreFactory()
