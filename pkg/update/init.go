@@ -20,7 +20,9 @@ type (
 	InitProgressFunc func(initProgress *InitProgress)
 
 	InitOptions struct {
-		ProgressReporter progress.Reporter[InitProgress]
+		ProgressReporter  progress.Reporter[InitProgress]
+		AllowEmptyAppList bool // Allow specifying an empty app list, which means updating to "no apps" state, hence removing all current apps.
+		CheckStatus       bool // Check the status of the specified apps and move the update state to the state that corresponds to this status.
 	}
 
 	InitOption func(options *InitOptions)
@@ -35,6 +37,18 @@ func WithInitProgress(pf InitProgressFunc) InitOption {
 	return func(o *InitOptions) {
 		o.ProgressReporter = progress.NewReporter[InitProgress](20)
 		o.ProgressReporter.Start(pf)
+	}
+}
+
+func WithInitAllowEmptyAppList(allowEmptyList bool) InitOption {
+	return func(o *InitOptions) {
+		o.AllowEmptyAppList = allowEmptyList
+	}
+}
+
+func WithInitCheckStatus(checkStatus bool) InitOption {
+	return func(o *InitOptions) {
+		o.CheckStatus = checkStatus
 	}
 }
 

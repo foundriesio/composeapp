@@ -152,12 +152,16 @@ func (u *runnerImpl) Status() Update {
 }
 
 func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...InitOption) error {
+	opts := InitOptions{}
+	for _, o := range options {
+		o(&opts)
+	}
 	return u.store.lock(func(db *session) error {
 		var err error
 		switch u.State {
 		case StateCreated:
 			{
-				if len(appURIs) == 0 {
+				if len(appURIs) == 0 && !opts.AllowEmptyAppList {
 					return fmt.Errorf("no app URIs for an update are specified")
 				}
 				u.URIs = appURIs
@@ -185,7 +189,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 		defer func() {
 			if err == nil {
 				u.Progress = 100
-				if len(u.Blobs) == 0 && u.TotalBlobsBytes == 0 {
+				if opts.CheckStatus && len(u.Blobs) == 0 && u.TotalBlobsBytes == 0 {
 					if s, err := compose.CheckAppsStatus(ctx, u.config, u.URIs); err == nil {
 						if s.AreFetched() {
 							u.State = StateFetched
@@ -197,7 +201,6 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 							u.State = StateStarted
 						}
 					}
-
 				} else {
 					u.State = StateInitialized
 				}
@@ -377,7 +380,7 @@ func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error
 			if err == nil {
 				u.Progress = 100
 				u.State = StateCompleted
-			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, compose.ErrUninstallRunningApps) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
