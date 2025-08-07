@@ -137,26 +137,9 @@ func LoadImages(ctx context.Context,
 		defer options.ProgressReporter.Stop(true)
 	}
 
-	layersMap := make(map[string]string)
-	var imageLoadManifests []*imageLoadManifest
-	var imageURIs []string
-	// Generate the image load manifests
-	for _, imageRoot := range app.GetComposeRoot().Children {
-		// Generate the image load manifest
-		manifest, imageConfig, err := generateImageLoadManifest(ctx, imageRoot, blobsRoot, options)
-		if err != nil {
-			return err
-		}
-		imageLoadManifests = append(imageLoadManifests, manifest)
-		imageURIs = append(imageURIs, imageRoot.Ref())
-		for index, diffID := range imageConfig.RootFS.DiffIDs {
-			// The first 12 characters of the diffID are used as a key to the layers map,
-			// the map between the diffID and the layer distribution hash.
-			layerID := diffID.Encoded()[:12]
-			if _, ok := layersMap[layerID]; !ok {
-				layersMap[layerID] = manifest.Layers[index]
-			}
-		}
+	imageLoadManifests, imageURIs, layersMap, err := generateImageLoadingManifestForApp(ctx, app, blobsRoot, options)
+	if err != nil {
+		return fmt.Errorf("failed to generate image load manifests: %w", err)
 	}
 
 	var blobPaths []string
@@ -230,7 +213,6 @@ func LoadImages(ctx context.Context,
 			}
 			break
 		}
-
 		if jm.Error != nil {
 			err = fmt.Errorf("dockerd err: %s", jm.Error)
 			break
@@ -318,6 +300,30 @@ func reportProgressIfEnabled(opts *LoadImageOptions, p *LoadImageProgress) {
 
 	// TODO: check whether the progress message was dropped and print log message if so
 	opts.ProgressReporter.Update(*p)
+}
+
+func generateImageLoadingManifestForApp(ctx context.Context, app App, blobsRoot string, options *LoadImageOptions) (imageLoadManifests []*imageLoadManifest, imageURIs []string, layersMap map[string]string, err error) {
+	layersMap = make(map[string]string)
+	// Generate the image load manifests
+	for _, imageRoot := range app.GetComposeRoot().Children {
+		// Generate the image load manifest
+		manifest, imageConfig, manifestErr := generateImageLoadManifest(ctx, imageRoot, blobsRoot, options)
+		if manifestErr != nil {
+			err = manifestErr
+			break
+		}
+		imageLoadManifests = append(imageLoadManifests, manifest)
+		imageURIs = append(imageURIs, imageRoot.Ref())
+		for index, diffID := range imageConfig.RootFS.DiffIDs {
+			// The first 12 characters of the diffID are used as a key to the layers map,
+			// the map between the diffID and the layer distribution hash.
+			layerID := diffID.Encoded()[:12]
+			if _, ok := layersMap[layerID]; !ok {
+				layersMap[layerID] = manifest.Layers[index]
+			}
+		}
+	}
+	return
 }
 
 func generateImageLoadManifest(
