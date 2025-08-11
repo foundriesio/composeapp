@@ -14,5 +14,5 @@ func ExitIfNotNil(err error) {
 	if !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
 	}
-	os.Exit(-1)
+	os.Exit(1)
 }

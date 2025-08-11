@@ -16,12 +16,12 @@ var UpdateCmd = &cobra.Command{
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt)
 		go func() {
-			sig := <-sigChan
-			fmt.Printf(" Received signal: %v, stopping...", sig)
+			<-sigChan
+			// TODO: Add debug level log printing the signal details
 			cancel()
-			fmt.Println("ok")
+			// TODO: Add debug level log informing that the command was cancelled
+			fmt.Println()
 		}()
-
 		cmd.SetContext(ctx)
 	},
 }
