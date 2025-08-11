@@ -1,7 +1,9 @@
 package updatectl
 
 import (
-	"github.com/sirupsen/logrus"
+	"context"
+	"fmt"
+	"github.com/pkg/errors"
 	"os"
 )
 
@@ -9,6 +11,8 @@ func ExitIfNotNil(err error) {
 	if err == nil {
 		return
 	}
-	logrus.Errorf("%v", err)
-	os.Exit(-1)
+	if !errors.Is(err, context.Canceled) {
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
+	}
+	os.Exit(1)
 }
