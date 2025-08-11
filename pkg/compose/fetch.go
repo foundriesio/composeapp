@@ -21,7 +21,7 @@ const (
 
 type (
 	BlobFetchProgress struct {
-		BlobInfo
+		*BlobInfo
 		BytesFetched   int64         `json:"bytes_fetched"` // overall bytes read for this blob and written to the local storage;
 		FetchStartTime time.Time     `json:"fetch_start_time"`
 		BytesRead      int64         `json:"bytes_read"`      // total blob bytes read from network during the last fetch attempt
@@ -101,7 +101,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 	for d, blob := range blobs {
 		totalBlobsFetchSize += blob.Descriptor.Size
 		blobsToFetch[d] = &BlobFetchProgress{
-			BlobInfo: *blob,
+			BlobInfo: blob,
 			// Initialize with amount of bytes already fetched and written to local storage
 			BytesFetched: blob.BytesFetched,
 		}
