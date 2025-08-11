@@ -147,12 +147,12 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobI
 				case <-ctx.Done():
 					break done
 				case <-stopChan:
+					checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
 					break done
 				case <-ticker.C:
 					checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
 				}
 			}
-			checkAndUpdateBlobStatus(ctx, &fetchProgress, ls, progressReporter)
 		}(stopChan)
 	}
 
@@ -345,8 +345,8 @@ func (r *readMonitor) Start() {
 				break done
 			}
 		}
-		if newStatData {
-			// Final calculation of read speed if there was new data just before stopping
+		if newStatData && r.ctx.Err() == nil {
+			// Final calculation of read speed if there was new data just before stopping and context was not cancelled
 			calcReadStat()
 		}
 	}()
