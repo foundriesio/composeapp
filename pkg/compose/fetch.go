@@ -97,6 +97,8 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 	}()
 
 	var totalBlobsFetchSize int64
+	var totalCurrentBytes int64
+	var totalFetchedCount int
 	blobsToFetch := map[digest.Digest]*BlobFetchProgress{}
 	for d, blob := range blobs {
 		totalBlobsFetchSize += blob.Descriptor.Size
@@ -105,12 +107,16 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 			// Initialize with amount of bytes already fetched and written to local storage
 			BytesFetched: blob.BytesFetched,
 		}
+		if blob.State == BlobOk {
+			totalFetchedCount++
+		}
+		totalCurrentBytes += blob.BytesFetched
 	}
 
 	fetchProgress := FetchProgress{
 		Blobs:        blobsToFetch,
-		FetchedCount: 0,
-		CurrentBytes: 0,
+		FetchedCount: totalFetchedCount,
+		CurrentBytes: totalCurrentBytes,
 		TotalBytes:   totalBlobsFetchSize,
 	}
 
@@ -157,6 +163,10 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 	}
 
 	for _, bi := range getOrderedBlobsToFetch(blobsToFetch) {
+		if bi.State == BlobOk {
+			// Blob is already fetched and stored, skip fetching it
+			continue
+		}
 		err = func() error {
 			// Get the reader without digest calculation and verification because the writer/ingester of
 			// the local store (`ls`) will do that.

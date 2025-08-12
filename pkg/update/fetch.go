@@ -20,6 +20,16 @@ func (u *runnerImpl) fetch(
 	// override the progress reporter if one is provided
 	fetchOptions = append(fetchOptions,
 		compose.WithFetchProgress(func(p *compose.FetchProgress) {
+			for d, b := range p.Blobs {
+				if u.Blobs[d].State == compose.BlobOk {
+					// if the blob is already fetched, skip it
+					continue
+				}
+				// update the blob state in the session, bytes fetched and state
+				u.Blobs[d].BytesFetched = b.BytesFetched
+				u.Blobs[d].State = b.State
+			}
+			// update the overall update state, overall fetched bytes and the number of blobs fetched so far
 			u.FetchedBytes = p.CurrentBytes
 			u.FetchedBlobs = p.FetchedCount
 			if u.TotalBlobsBytes != 0 {
