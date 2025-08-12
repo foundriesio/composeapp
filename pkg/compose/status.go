@@ -27,12 +27,13 @@ type (
 		*InstallStatus
 		*RunningStatus
 	}
+	BlobsInfo   map[digest.Digest]*BlobInfo
 	FetchReport struct {
-		BlobsStatus map[digest.Digest]*BlobInfo
+		BlobsStatus BlobsInfo
 	}
 	FetchStatus struct {
 		BlobsStatus  map[digest.Digest]FetchReport
-		MissingBlobs map[digest.Digest]*BlobInfo
+		MissingBlobs BlobsInfo
 	}
 
 	InstallReport struct {
@@ -217,7 +218,7 @@ func CheckAppsFetchStatus(
 	apps []App,
 	quick bool) (*FetchStatus, error) {
 	fetchStatus := &FetchStatus{
-		MissingBlobs: map[digest.Digest]*BlobInfo{},
+		MissingBlobs: BlobsInfo{},
 		BlobsStatus:  map[digest.Digest]FetchReport{},
 	}
 	ls, err := local.NewStore(cfg.StoreRoot)
@@ -225,7 +226,7 @@ func CheckAppsFetchStatus(
 		return nil, err
 	}
 	for _, app := range apps {
-		fetchReport := FetchReport{BlobsStatus: map[digest.Digest]*BlobInfo{}}
+		fetchReport := FetchReport{BlobsStatus: BlobsInfo{}}
 		err := app.Tree().Walk(func(node *TreeNode, depth int) error {
 			bi, checkBlobErr := checkNodeBlob(ctx, cfg, app, node, blobProvider, quick)
 			if checkBlobErr != nil {
