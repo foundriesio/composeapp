@@ -24,18 +24,18 @@ type (
 	State string
 
 	Update struct {
-		ID              string                       `json:"id"`
-		ClientRef       string                       `json:"client_ref"`
-		State           State                        `json:"state"`
-		Progress        int                          `json:"progress"`
-		CreationTime    time.Time                    `json:"timestamp"`
-		UpdateTime      time.Time                    `json:"update_time"`
-		URIs            []string                     `json:"uris"`
-		Blobs           map[string]*compose.BlobInfo `json:"blobs"`
-		TotalBlobsBytes int64                        `json:"total_blobs_bytes"` // total size of all blobs in bytes
-		LoadedImages    map[string]struct{}          `json:"loaded_images"`     // images that have been loaded into the docker storage
-		FetchedBytes    int64                        `json:"fetched_bytes"`     // total bytes fetched so far
-		FetchedBlobs    int                          `json:"fetched_blobs"`     // number of blobs fetched so far
+		ID              string              `json:"id"`
+		ClientRef       string              `json:"client_ref"`
+		State           State               `json:"state"`
+		Progress        int                 `json:"progress"`
+		CreationTime    time.Time           `json:"timestamp"`
+		UpdateTime      time.Time           `json:"update_time"`
+		URIs            []string            `json:"uris"`
+		Blobs           compose.BlobsInfo   `json:"blobs"`
+		TotalBlobsBytes int64               `json:"total_blobs_bytes"` // total size of all blobs in bytes
+		LoadedImages    map[string]struct{} `json:"loaded_images"`     // images that have been loaded into the docker storage
+		FetchedBytes    int64               `json:"fetched_bytes"`     // total bytes fetched so far
+		FetchedBlobs    int                 `json:"fetched_blobs"`     // number of blobs fetched so far
 	}
 
 	runnerImpl struct {

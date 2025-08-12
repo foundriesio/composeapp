@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/foundriesio/composeapp/pkg/compose"
-	"github.com/opencontainers/go-digest"
 )
 
 func (u *runnerImpl) fetch(
@@ -17,11 +16,6 @@ func (u *runnerImpl) fetch(
 		o(&opts)
 	}
 
-	blobsToFetch := make(map[digest.Digest]*compose.BlobInfo)
-	for ref, b := range u.Blobs {
-		d := digest.FromString(ref)
-		blobsToFetch[d] = b
-	}
 	fetchOptions := options
 	// override the progress reporter if one is provided
 	fetchOptions = append(fetchOptions,
@@ -46,5 +40,5 @@ func (u *runnerImpl) fetch(
 			}
 		}))
 
-	return compose.FetchBlobs(ctx, u.config, blobsToFetch, fetchOptions...)
+	return compose.FetchBlobs(ctx, u.config, u.Blobs, fetchOptions...)
 }

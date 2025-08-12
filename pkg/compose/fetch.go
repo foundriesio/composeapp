@@ -78,7 +78,7 @@ func WithSourcePath(sourcePath string) FetchOption {
 	}
 }
 
-func FetchBlobs(ctx context.Context, cfg *Config, blobs map[digest.Digest]*BlobInfo, options ...FetchOption) error {
+func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...FetchOption) error {
 	opts := FetchOptions{}
 	for _, o := range options {
 		o(&opts)
