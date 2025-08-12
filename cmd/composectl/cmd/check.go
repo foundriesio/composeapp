@@ -10,7 +10,6 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
 	"os"
 )
@@ -26,10 +25,10 @@ type (
 	}
 
 	CheckAppResult struct {
-		MissingBlobs     map[digest.Digest]*compose.BlobInfo `json:"missing_blobs"`
-		TotalPullSize    int64                               `json:"total_pull_size"`
-		TotalStoreSize   int64                               `json:"total_store_size"`
-		TotalRuntimeSize int64                               `json:"total_runtime_size"`
+		MissingBlobs     compose.BlobsInfo `json:"missing_blobs"`
+		TotalPullSize    int64             `json:"total_pull_size"`
+		TotalStoreSize   int64             `json:"total_store_size"`
+		TotalRuntimeSize int64             `json:"total_runtime_size"`
 	}
 
 	CheckAndInstallResult struct {
