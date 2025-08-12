@@ -102,9 +102,6 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 	var downloadSizeTotal int64 = 0
 	var totalSize int64 = 0
 
-	missingBlobs := map[string]*compose.BlobInfo{}
-	u.Blobs = missingBlobs
-
 	if opts.ProgressReporter != nil {
 		p.State = UpdateInitStateCheckingBlobs
 		p.Total = blobCounter
@@ -112,6 +109,9 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 		opts.ProgressReporter.Update(p)
 	}
 
+	if u.Blobs == nil {
+		u.Blobs = make(compose.BlobsInfo)
+	}
 	for appURI, app := range apps {
 		err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 			select {
@@ -119,11 +119,11 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				return ctx.Err()
 			default:
 			}
-			blobURI := node.Descriptor.URLs[0]
+			blobDigest := node.Descriptor.Digest
 			checkOpts := []compose.SecureReadOptions{
 				compose.WithExpectedSize(node.Descriptor.Size),
 				compose.WithExpectedDigest(node.Descriptor.Digest),
-				compose.WithRef(blobURI),
+				compose.WithRef(node.Ref()),
 			}
 			bs, stateCheckErr := compose.CheckBlob(compose.WithAppRef(compose.WithBlobType(ctx, node.Type),
 				apps[appURI].Ref()),
@@ -133,11 +133,11 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				return stateCheckErr
 			}
 
-			if bs != compose.BlobOk && missingBlobs[blobURI] == nil {
+			if bs != compose.BlobOk && u.Blobs[blobDigest] == nil {
 				blobStoreSize := compose.AlignToBlockSize(node.Descriptor.Size, u.config.BlockSize)
 				blobRuntimeSize := app.GetBlobRuntimeSize(node.Descriptor, u.config.Platform.Architecture, u.config.BlockSize)
 
-				missingBlobs[blobURI] = &compose.BlobInfo{
+				u.Blobs[blobDigest] = &compose.BlobInfo{
 					Descriptor:   node.Descriptor,
 					State:        bs,
 					Type:         node.Type,
