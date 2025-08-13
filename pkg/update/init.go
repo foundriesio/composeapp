@@ -1,6 +1,7 @@
 package update
 
 import (
+	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/internal/progress"
 	"github.com/foundriesio/composeapp/pkg/compose"
@@ -97,6 +98,11 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 		return err
 	}
 
+	ls, err := local.NewStore(u.config.StoreRoot)
+	if err != nil {
+		return err
+	}
+
 	var storeSizeTotal int64 = 0
 	var runtimeSizeTotal int64 = 0
 	var downloadSizeTotal int64 = 0
@@ -109,9 +115,8 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 		opts.ProgressReporter.Update(p)
 	}
 
-	if u.Blobs == nil {
-		u.Blobs = make(compose.BlobsInfo)
-	}
+	u.Blobs = make(compose.BlobsFetchProgress)
+
 	for appURI, app := range apps {
 		err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
 			select {
@@ -137,17 +142,36 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				blobStoreSize := compose.AlignToBlockSize(node.Descriptor.Size, u.config.BlockSize)
 				blobRuntimeSize := app.GetBlobRuntimeSize(node.Descriptor, u.config.Platform.Architecture, u.config.BlockSize)
 
-				u.Blobs[blobDigest] = &compose.BlobInfo{
-					Descriptor:   node.Descriptor,
-					State:        bs,
-					Type:         node.Type,
-					StoreSize:    blobStoreSize,
-					RuntimeSize:  blobRuntimeSize,
-					BytesFetched: 0,
+				state := bs
+				var bytesFetched int64
+				switch bs {
+				case compose.BlobMissing:
+					{
+						if fetchStatus, err := ls.Status(ctx, node.Ref()); err == nil {
+							state = compose.BlobFetching
+							bytesFetched = fetchStatus.Offset
+						}
+					}
+				case compose.BlobOk:
+					{
+						bytesFetched = node.Descriptor.Size
+					}
 				}
+
+				u.Blobs[blobDigest] = &compose.BlobFetchProgress{
+					BlobInfo: compose.BlobInfo{
+						Descriptor:   node.Descriptor,
+						State:        state,
+						Type:         node.Type,
+						StoreSize:    blobStoreSize,
+						RuntimeSize:  blobRuntimeSize,
+						BytesFetched: bytesFetched,
+					},
+				}
+
 				storeSizeTotal += blobStoreSize
 				runtimeSizeTotal += blobStoreSize
-				downloadSizeTotal += node.Descriptor.Size
+				downloadSizeTotal += node.Descriptor.Size - bytesFetched
 				totalSize += blobStoreSize + blobStoreSize
 			}
 			if opts.ProgressReporter != nil {
