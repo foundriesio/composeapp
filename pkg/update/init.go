@@ -1,6 +1,7 @@
 package update
 
 import (
+	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/internal/progress"
 	"github.com/foundriesio/composeapp/pkg/compose"
@@ -96,6 +97,10 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 	if err != nil {
 		return err
 	}
+	ls, err := local.NewStore(u.config.StoreRoot)
+	if err != nil {
+		return err
+	}
 
 	var storeSizeTotal int64 = 0
 	var runtimeSizeTotal int64 = 0
@@ -136,19 +141,27 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				blobStoreSize := compose.AlignToBlockSize(node.Descriptor.Size, u.config.BlockSize)
 				blobRuntimeSize := app.GetBlobRuntimeSize(node.Descriptor, u.config.Platform.Architecture, u.config.BlockSize)
 
+				state := bs
+				var bytesFetched int64
+				if fetchStatus, err := ls.Status(ctx, node.Ref()); err == nil {
+					state = compose.BlobFetching
+					bytesFetched = fetchStatus.Offset
+				}
+
 				u.Blobs[blobDigest] = &compose.BlobFetchProgress{
 					BlobInfo: compose.BlobInfo{
 						Descriptor:   node.Descriptor,
-						State:        bs,
+						State:        state,
 						Type:         node.Type,
 						StoreSize:    blobStoreSize,
 						RuntimeSize:  blobRuntimeSize,
-						BytesFetched: 0,
+						BytesFetched: bytesFetched,
 					},
+					BytesFetched: bytesFetched,
 				}
 				storeSizeTotal += blobStoreSize
 				runtimeSizeTotal += blobStoreSize
-				downloadSizeTotal += node.Descriptor.Size
+				downloadSizeTotal += node.Descriptor.Size - bytesFetched
 				totalSize += blobStoreSize + blobStoreSize
 			}
 			if opts.ProgressReporter != nil {
