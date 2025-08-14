@@ -21,7 +21,7 @@ const (
 
 type (
 	BlobFetchProgress struct {
-		BlobInfo
+		BlobInfo       `json:"blob_info"`
 		BytesFetched   int64         `json:"bytes_fetched"` // overall bytes read for this blob and written to the local storage;
 		FetchStartTime time.Time     `json:"fetch_start_time"`
 		BytesRead      int64         `json:"bytes_read"`      // total blob bytes read from network during the last fetch attempt
@@ -29,11 +29,12 @@ type (
 		ReadSpeedAvg   int64         `json:"read_speed_avg"`  // average read speed in bytes per second
 		ReadSpeedCur   int64         `json:"read_speed_curr"` // current read speed in bytes per second
 	}
-	FetchProgress struct {
-		Blobs        map[digest.Digest]*BlobFetchProgress // per-blob metadata and progress
-		FetchedCount int                                  // number of fully fetched blobs
-		CurrentBytes int64                                // total bytes downloaded so far
-		TotalBytes   int64                                // total bytes expected to download
+	BlobsFetchProgress map[digest.Digest]*BlobFetchProgress
+	FetchProgress      struct {
+		Blobs        BlobsFetchProgress // per-blob metadata and progress
+		FetchedCount int                // number of fully fetched blobs
+		CurrentBytes int64              // total bytes downloaded so far
+		TotalBytes   int64              // total bytes expected to download
 	}
 
 	FetchOptions struct {
