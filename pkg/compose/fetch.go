@@ -228,6 +228,8 @@ func getOrderedBlobsToFetch(blobs map[digest.Digest]*BlobFetchProgress) (blobsTo
 	for _, bi := range blobs {
 		isData := bi.Type == BlobTypeImageLayer
 		switch {
+		case bi.State == BlobOk:
+			// Already fetched, nothing to do
 		case bi.State == BlobFetching && !isData:
 			resumeMeta = append(resumeMeta, bi)
 		case bi.State == BlobFetching && isData:
