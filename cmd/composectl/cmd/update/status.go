@@ -67,13 +67,23 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 		cmd.Printf("\t\t%s\n", appURI)
 	}
 
+	cmd.Println("Blobs:")
+	cmd.Printf("\t\t%-64s | %9s | %9s | %9s | %2s\n\n", "Digest", "Size", "From", "Current", "%")
+	for d, b := range u.Blobs {
+		cmd.Printf("\t\t%s | %9s | %9s | %9s | %.2f\n", d.Encoded(),
+			compose.FormatBytesInt64(b.Descriptor.Size),
+			compose.FormatBytesInt64(b.BlobInfo.BytesFetched),
+			compose.FormatBytesInt64(b.BytesFetched),
+			(float64(b.BytesFetched)/float64(b.Descriptor.Size))*100)
+	}
+
 	if opts.CheckApps {
 		appsStatus, err := compose.CheckAppsStatus(cmd.Context(), cfg, u.URIs)
 		ExitIfNotNil(err)
 
 		fmt.Println()
 		yesno := map[bool]string{false: "no", true: "yes"}
-		fmt.Printf("BytesFetched: \t%s\n", yesno[appsStatus.AreFetched()])
+		fmt.Printf("Fetched: \t%s\n", yesno[appsStatus.AreFetched()])
 		fmt.Printf("Installed: \t%s\n", yesno[appsStatus.AreInstalled()])
 		fmt.Printf("Running: \t%s\n", yesno[appsStatus.AreRunning()])
 	}
