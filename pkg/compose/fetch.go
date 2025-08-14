@@ -97,21 +97,28 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 		}
 	}()
 
+	var totalFetchedCount int
+	var totalCurrentBytes int64
 	var totalBlobsFetchSize int64
 	blobsToFetch := map[digest.Digest]*BlobFetchProgress{}
 	for d, blob := range blobs {
-		totalBlobsFetchSize += blob.Descriptor.Size
+		totalBlobsFetchSize += blob.Descriptor.Size - blob.BytesFetched
 		blobsToFetch[d] = &BlobFetchProgress{
 			BlobInfo: *blob,
 			// Initialize with amount of bytes already fetched and written to local storage
 			BytesFetched: blob.BytesFetched,
 		}
+		if blob.State == BlobOk {
+			totalFetchedCount++
+			totalCurrentBytes += blob.Descriptor.Size - blob.BytesFetched
+			blobsToFetch[d].BytesFetched = blob.Descriptor.Size
+		}
 	}
 
 	fetchProgress := FetchProgress{
 		Blobs:        blobsToFetch,
-		FetchedCount: 0,
-		CurrentBytes: 0,
+		FetchedCount: totalFetchedCount,
+		CurrentBytes: totalCurrentBytes,
 		TotalBytes:   totalBlobsFetchSize,
 	}
 
