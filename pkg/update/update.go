@@ -174,6 +174,8 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 				}
 				u.Blobs = nil
 				u.TotalBlobsBytes = 0
+				u.FetchedBlobs = 0
+				u.FetchedBytes = 0
 				u.Progress = 0
 			}
 		default:
