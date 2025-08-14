@@ -40,5 +40,9 @@ func (u *runnerImpl) fetch(
 			}
 		}))
 
-	return compose.FetchBlobs(ctx, u.config, u.Blobs, fetchOptions...)
+	blobsToFetch := make(compose.BlobsInfo)
+	for d, b := range u.Blobs {
+		blobsToFetch[d] = &b.BlobInfo
+	}
+	return compose.FetchBlobs(ctx, u.config, blobsToFetch, fetchOptions...)
 }

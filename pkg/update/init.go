@@ -109,7 +109,7 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 		opts.ProgressReporter.Update(p)
 	}
 
-	u.Blobs = make(compose.BlobsInfo)
+	u.Blobs = make(compose.BlobsFetchProgress)
 
 	for appURI, app := range apps {
 		err = app.Tree().Walk(func(node *compose.TreeNode, depth int) error {
@@ -136,13 +136,15 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 				blobStoreSize := compose.AlignToBlockSize(node.Descriptor.Size, u.config.BlockSize)
 				blobRuntimeSize := app.GetBlobRuntimeSize(node.Descriptor, u.config.Platform.Architecture, u.config.BlockSize)
 
-				u.Blobs[blobDigest] = &compose.BlobInfo{
-					Descriptor:   node.Descriptor,
-					State:        bs,
-					Type:         node.Type,
-					StoreSize:    blobStoreSize,
-					RuntimeSize:  blobRuntimeSize,
-					BytesFetched: 0,
+				u.Blobs[blobDigest] = &compose.BlobFetchProgress{
+					BlobInfo: compose.BlobInfo{
+						Descriptor:   node.Descriptor,
+						State:        bs,
+						Type:         node.Type,
+						StoreSize:    blobStoreSize,
+						RuntimeSize:  blobRuntimeSize,
+						BytesFetched: 0,
+					},
 				}
 				storeSizeTotal += blobStoreSize
 				runtimeSizeTotal += blobStoreSize
