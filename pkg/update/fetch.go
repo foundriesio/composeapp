@@ -21,6 +21,10 @@ func (u *runnerImpl) fetch(
 	fetchOptions = append(fetchOptions,
 		compose.WithFetchProgress(func(p *compose.FetchProgress) {
 			for d, b := range p.Blobs {
+				if u.Blobs[d].State == compose.BlobOk {
+					// Blob is already fetched and its state has been already updated, so move to the next blob
+					continue
+				}
 				*u.Blobs[d] = *b
 			}
 			u.FetchedBytes = p.CurrentBytes
