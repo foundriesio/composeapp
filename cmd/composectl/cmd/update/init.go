@@ -1,9 +1,10 @@
 package updatectl
 
 import (
+	"fmt"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -45,9 +46,6 @@ func initUpdateCmd(cmd *cobra.Command, args []string, opts *initOptions) {
 	cfg, err := v1.NewDefaultConfig()
 	ExitIfNotNil(err)
 
-	var bar *progressbar.ProgressBar
-	var checkBlobProgress *progressbar.ProgressBar
-
 	var updateCtl update.Runner
 	var renderProgress bool
 
@@ -59,10 +57,8 @@ func initUpdateCmd(cmd *cobra.Command, args []string, opts *initOptions) {
 	ExitIfNotNil(err)
 
 	if len(args) > 0 {
-		bar = progressbar.Default(int64(len(args)))
 		renderProgress = true
 	} else if len(updateCtl.Status().URIs) > 0 {
-		bar = progressbar.Default(int64(len(updateCtl.Status().URIs)))
 		renderProgress = true
 	}
 
@@ -71,21 +67,11 @@ func initUpdateCmd(cmd *cobra.Command, args []string, opts *initOptions) {
 		update.WithInitCheckStatus(true),
 	}
 	if renderProgress {
-		initOpts = append(initOpts, update.WithInitProgress(func(status *update.InitProgress) {
-			if status.State == update.UpdateInitStateLoadingTree {
-				if err := bar.Set(status.Current); err != nil {
-					cmd.Printf("Error setting progress bar: %s\n", err.Error())
-				}
-			} else {
-				if checkBlobProgress == nil {
-					checkBlobProgress = progressbar.Default(int64(status.Total))
-				}
-				if err := checkBlobProgress.Set(status.Current); err != nil {
-					cmd.Printf("Error setting progress bar: %s\n", err.Error())
-				}
-			}
-		}))
+		initOpts = append(initOpts, update.WithInitProgress(update.GetInitProgressPrinter()))
 	}
 
-	ExitIfNotNil(updateCtl.Init(cmd.Context(), args, initOpts...))
+	err = updateCtl.Init(cmd.Context(), args, initOpts...)
+	ExitIfNotNil(err)
+	us := updateCtl.Status()
+	fmt.Printf("Diff summary:\t\t\t\t  %d blobs (%s) to fetch\n", len(us.Blobs), compose.FormatBytesInt64(us.TotalBlobsBytes))
 }
