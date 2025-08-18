@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+type (
+	imageLoadingContext struct {
+		curImageID string
+		curLayerID string
+	}
+)
+
 func GetInitProgressPrinter() func(status *InitProgress) {
 	var stateSwitch bool
 	return func(status *InitProgress) {
@@ -117,6 +124,63 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 			elapsed.Round(time.Second),
 			etaStr,
 		)
+	}
+}
+
+func GetInstallProgressPrinter() func(status *compose.InstallProgress) {
+
+	ctx := &imageLoadingContext{}
+
+	return func(p *compose.InstallProgress) {
+		// TODO: handle and render info about the compose.AppInstallStateComposeChecking state
+		switch p.AppInstallState {
+		case compose.AppInstallStateComposeInstalling:
+			{
+				fmt.Printf("Installing app %s\n", p.AppID)
+			}
+		case compose.AppInstallStateImagesLoading:
+			{
+				renderImageLoadingProgress(ctx, p)
+			}
+		}
+	}
+}
+
+func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProgress) {
+	switch p.ImageLoadState {
+	case compose.ImageLoadStateLayerLoading:
+		{
+			if ctx.curImageID != p.ImageID {
+				fmt.Printf("  Loading image %s", p.ImageID)
+				ctx.curImageID = p.ImageID
+				ctx.curLayerID = ""
+			}
+			if ctx.curLayerID != p.ID {
+				ctx.curLayerID = p.ID
+				fmt.Println()
+			}
+
+			pct := float64(p.Current) / float64(p.Total)
+			fmt.Printf("\r\033[K\t%s %4.0f%%  %s", p.ID, pct*100, renderBar(pct, 25))
+		}
+	case compose.ImageLoadStateLayerSyncing:
+		{
+			// TODO: render layer syncing progress
+		}
+	case compose.ImageLoadStateLayerLoaded:
+		{
+			ctx.curLayerID = ""
+		}
+	case compose.ImageLoadStateImageLoaded:
+		{
+			fmt.Printf("\n  Image loaded: %s\n", p.ImageID)
+		}
+	case compose.ImageLoadStateImageExist:
+		{
+			fmt.Printf("  Already exists: %s\n", p.ImageID)
+		}
+	default:
+		fmt.Printf("  Unknown state %s\n", p.ImageLoadState)
 	}
 }
 
