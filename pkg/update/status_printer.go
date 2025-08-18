@@ -7,6 +7,33 @@ import (
 	"time"
 )
 
+func GetInitProgressPrinter() func(status *InitProgress) {
+	var stateSwitch bool
+	return func(status *InitProgress) {
+		switch status.State {
+		case UpdateInitStateLoadingTree:
+			{
+				pct := float64(status.Current) / float64(status.Total)
+				fmt.Printf("\r\033[KLoading app metadata:\t\t\t %4.0f%%  %s %d/%d",
+					pct*100, renderBar(pct, 25), status.Current, status.Total)
+			}
+		case UpdateInitStateCheckingBlobs:
+			{
+				if !stateSwitch {
+					fmt.Println()
+					stateSwitch = true
+				}
+				pct := float64(status.Current) / float64(status.Total)
+				fmt.Printf("\r\033[KChecking app blobs & calculating diff:\t %4.0f%%  %s %d/%d",
+					pct*100, renderBar(pct, 25), status.Current, status.Total)
+				if status.Current == status.Total {
+					fmt.Println()
+				}
+			}
+		}
+	}
+}
+
 func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 	const (
 		etaAlpha = 0.5 // smoothing factor: 0=no change, 1=instant change
