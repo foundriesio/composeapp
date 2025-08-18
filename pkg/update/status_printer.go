@@ -58,9 +58,13 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		etaStr      = na
 		curSpeedStr = na
 		avgSpeedStr = na
+		done        = false
 	)
 
 	return func(status *compose.FetchProgress) {
+		if done {
+			return
+		}
 		var blobsBeingFetched int
 		var curSpeedTotal int64
 		var avgSpeedTotal int64
@@ -107,6 +111,7 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 
 		if status.CurrentBytes >= status.TotalBytes {
 			etaStr = time.Now().UTC().Format(time.TimeOnly) + " (done)\n"
+			done = true
 		} else if smoothedETA > 0 {
 			etaStr = smoothedETA.Round(time.Second).String()
 		}
