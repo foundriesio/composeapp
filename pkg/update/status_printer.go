@@ -3,6 +3,8 @@ package update
 import (
 	"fmt"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	"github.com/moby/term"
+	"os"
 	"strings"
 	"time"
 )
@@ -14,6 +16,10 @@ type (
 	}
 )
 
+var (
+	isTty = isTTY()
+)
+
 func GetInitProgressPrinter() func(status *InitProgress) {
 	var stateSwitch bool
 	return func(status *InitProgress) {
@@ -21,7 +27,7 @@ func GetInitProgressPrinter() func(status *InitProgress) {
 		case UpdateInitStateLoadingTree:
 			{
 				pct := float64(status.Current) / float64(status.Total)
-				fmt.Printf("\r\033[KLoading app metadata:\t\t\t %4.0f%%  %s %d/%d",
+				printf("Loading app metadata:\t\t\t %4.0f%%  %s %d/%d",
 					pct*100, renderBar(pct, 25), status.Current, status.Total)
 			}
 		case UpdateInitStateCheckingBlobs:
@@ -31,7 +37,7 @@ func GetInitProgressPrinter() func(status *InitProgress) {
 					stateSwitch = true
 				}
 				pct := float64(status.Current) / float64(status.Total)
-				fmt.Printf("\r\033[KChecking app blobs & calculating diff:\t %4.0f%%  %s %d/%d",
+				printf("Checking app blobs & calculating diff:\t %4.0f%%  %s %d/%d",
 					pct*100, renderBar(pct, 25), status.Current, status.Total)
 				if status.Current == status.Total {
 					fmt.Println()
@@ -112,7 +118,7 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		}
 
 		// Print the progress line
-		fmt.Printf("\r\033[K%4.0f%%  %s  %9s / %-9s | %d/%d blobs | Cur: %11s | Avg: %11s | Time: %s | ETA: %s",
+		printf("%4.0f%%  %s  %9s / %-9s | %d/%d blobs | Cur: %11s | Avg: %11s | Time: %s | ETA: %s",
 			pct*100,
 			renderBar(pct, 25),
 			compose.FormatBytesInt64(status.CurrentBytes),
@@ -161,7 +167,7 @@ func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProg
 			}
 
 			pct := float64(p.Current) / float64(p.Total)
-			fmt.Printf("\r\033[K\t%s %4.0f%%  %s", p.ID, pct*100, renderBar(pct, 25))
+			printf("\t%s %4.0f%%  %s", p.ID, pct*100, renderBar(pct, 25))
 		}
 	case compose.ImageLoadStateLayerSyncing:
 		{
@@ -184,10 +190,23 @@ func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProg
 	}
 }
 
+func printf(format string, a ...any) {
+	if isTty {
+		fmt.Printf("\r\033[K") // clear the current line if we are in a TTY
+	} else {
+		fmt.Print("\n") // just print a new line if not in a TTY
+	}
+	fmt.Printf(format, a...)
+}
+
 func renderBar(pct float64, width int) string {
 	if pct > 1 {
 		pct = 1
 	}
 	filled := int(pct * float64(width))
 	return "[" + strings.Repeat("=", filled) + strings.Repeat(" ", width-filled) + "]"
+}
+
+func isTTY() bool {
+	return term.IsTerminal(os.Stdout.Fd()) || os.Getenv("PARENT_HAS_TTY") == "1"
 }
