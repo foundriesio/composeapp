@@ -119,7 +119,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 		if errors.Is(err, compose.ErrAppNotFound) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("failed to read app manifest: %s", err)
+		return nil, fmt.Errorf("failed to read app manifest: %w", err)
 	}
 	appTree := compose.AppTree{Descriptor: rootDesc, Type: compose.BlobTypeAppManifest}
 

@@ -7,6 +7,7 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/google/uuid"
+	"net"
 	"time"
 )
 
@@ -206,7 +207,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 				} else {
 					u.State = StateInitialized
 				}
-			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !isConnectionTimeout(err) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -250,7 +251,7 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) 
 						fmt.Printf("failed to add info about fetched apps to the store: %v\n", err)
 					}
 				}
-			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !isConnectionTimeout(err) {
 				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
@@ -398,4 +399,16 @@ func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error
 		err = u.complete(ctx, options...)
 		return err
 	})
+}
+
+func isConnectionTimeout(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.Timeout()
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return false
 }
