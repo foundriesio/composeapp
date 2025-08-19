@@ -112,12 +112,12 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		if status.CurrentBytes >= status.TotalBytes {
 			etaStr = time.Now().UTC().Format(time.TimeOnly) + " (done)\n"
 			done = true
-		} else if smoothedETA > 0 {
+		} else if curSpeed > 0 {
 			etaStr = smoothedETA.Round(time.Second).String()
+		} else {
+			etaStr = "∞"
 		}
-		if curSpeed > 0 {
-			curSpeedStr = fmt.Sprintf("%s/s", compose.FormatBytesInt64(int64(curSpeed)))
-		}
+		curSpeedStr = fmt.Sprintf("%s/s", compose.FormatBytesInt64(int64(curSpeed)))
 		if avgSpeed > 0 {
 			avgSpeedStr = fmt.Sprintf("%s/s", compose.FormatBytesInt64(int64(avgSpeed)))
 		}
