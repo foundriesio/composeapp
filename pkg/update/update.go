@@ -214,7 +214,9 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 				fmt.Printf("failed to write update: %v\n", err)
 			}
 		}()
-		err = u.initUpdate(ctx, db, options...)
+		if len(u.URIs) > 0 {
+			err = u.initUpdate(ctx, db, options...)
+		}
 		return err
 	})
 }
@@ -257,7 +259,9 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) 
 			}
 		}()
 
-		err = u.fetch(ctx, db, options...)
+		if len(u.URIs) > 0 {
+			err = u.fetch(ctx, db, options...)
+		}
 		return err
 	})
 }

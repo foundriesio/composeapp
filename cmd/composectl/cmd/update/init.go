@@ -73,5 +73,7 @@ func initUpdateCmd(cmd *cobra.Command, args []string, opts *initOptions) {
 	err = updateCtl.Init(cmd.Context(), args, initOpts...)
 	ExitIfNotNil(err)
 	us := updateCtl.Status()
-	fmt.Printf("Diff summary:\t\t\t\t  %d blobs (%s) to fetch\n", len(us.Blobs), compose.FormatBytesInt64(us.TotalBlobsBytes))
+	if len(us.URIs) > 0 {
+		fmt.Printf("Diff summary:\t\t\t\t  %d blobs (%s) to fetch\n", len(us.Blobs), compose.FormatBytesInt64(us.TotalBlobsBytes))
+	}
 }
