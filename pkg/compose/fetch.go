@@ -171,7 +171,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 			//r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor))
 			r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor), WithSecureReadOff())
 			if err != nil {
-				return fmt.Errorf("failed to initiate request to fetch blob %s: %v", bi.Descriptor.Digest, err)
+				return fmt.Errorf("failed to initiate request to fetch blob %s: %w", bi.Descriptor.Digest, err)
 			}
 			defer r.Close()
 			blobReader, ok := r.(io.ReadSeekCloser)
@@ -183,7 +183,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 			rm.Start()
 			defer rm.Stop()
 			if err := CopyBlob(ctx, rm, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
-				return fmt.Errorf("failed to fetch blob %s: %v", bi.Descriptor.Digest, err)
+				return fmt.Errorf("failed to fetch blob %s: %w", bi.Descriptor.Digest, err)
 			}
 			return nil
 		}()
