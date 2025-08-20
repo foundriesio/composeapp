@@ -334,7 +334,10 @@ func CheckAppsRunningStatus(
 		for _, imageNode := range appComposeRoot.Children {
 			if srv := foundAppServices.find(imageNode); srv != nil {
 				appServices = append(appServices, srv)
-				if srv.State != "running" {
+				if srv.State != "running" && srv.Health != "healthy" {
+					// if the service is not running and not healthy, we consider the app as not running
+					// in some cases, service can be not running but healthy, e.g.,
+					// when it is exited with a success code (e.g. one shot service/container)
 					running = false
 				}
 				// if at least one service is unhealthy, the app is considered unhealthy
