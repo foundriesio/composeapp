@@ -268,22 +268,7 @@ func getAllAppStatuses(ctx context.Context, quiet bool) map[string]*App {
 			}
 			continue
 		}
-		var health string
-		if cInfo, err := dockerClient.ContainerInspect(ctx, c.ID); err == nil && cInfo.State != nil {
-			if cInfo.State.Health != nil {
-				// if health check is defined, use its status
-				health = cInfo.State.Health.Status
-			} else if cInfo.State.Status == "created" ||
-				cInfo.State.Status == "running" ||
-				(cInfo.State.Status == "exited" && cInfo.State.ExitCode == 0) {
-				// if no health check is defined, but container is created or running or
-				// exited with zero exit code (one shot services), then consider it healthy.
-				// The container statuses are: [created|restarting|running|removing|paused|exited|dead]
-				health = "healthy"
-			} else {
-				health = "unhealthy"
-			}
-		}
+		health := compose.GetServiceHealth(ctx, dockerClient, c.ID)
 
 		appName := path.Base(workDir)
 		srv := &Service{

@@ -11,6 +11,7 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	dockerClient "github.com/docker/docker/client"
 	"github.com/opencontainers/go-digest"
 	"path"
 )
@@ -327,6 +328,7 @@ func CheckAppsRunningStatus(
 
 	for _, app := range apps {
 		var running = true
+		health := "healthy"
 		var appServices []*Service
 		appComposeRoot := app.GetComposeRoot()
 		for _, imageNode := range appComposeRoot.Children {
@@ -335,16 +337,21 @@ func CheckAppsRunningStatus(
 				if srv.State != "running" {
 					running = false
 				}
+				// if at least one service is unhealthy, the app is considered unhealthy
+				if srv.Health != "healthy" {
+					health = "unhealthy"
+				}
 			} else {
 				appServices = append(appServices, &Service{
 					State: "not created",
 				})
 				running = false
+				health = "unhealthy"
 			}
 		}
 		runningStatus.AppsRunningStatus[app.Ref().Digest] = RunningReport{
 			Services: appServices,
-			Health:   "todo",
+			Health:   health,
 		}
 		if !running {
 			runningStatus.NotRunningApps[app.Ref().Digest] = struct{}{}
@@ -405,8 +412,7 @@ func GetAppServicesStatus(ctx context.Context, cfg *Config) (Services, error) {
 			CtrID:  ctr.ID,
 			State:  ctr.State,
 			Status: ctr.Status,
-			// TODO: check health if needed
-			//Health: health,
+			Health: GetServiceHealth(ctx, cli, ctr.ID),
 		})
 	}
 	return services, nil
@@ -508,4 +514,23 @@ func loadAppTrees(ctx context.Context,
 		apps = append(apps, app)
 	}
 	return apps, nil
+}
+
+func GetServiceHealth(ctx context.Context, dockerClient *dockerClient.Client, containerID string) (health string) {
+	if cInfo, err := dockerClient.ContainerInspect(ctx, containerID); err == nil && cInfo.State != nil {
+		if cInfo.State.Health != nil {
+			// if health check is defined, use its status
+			health = cInfo.State.Health.Status
+		} else if cInfo.State.Status == "created" ||
+			cInfo.State.Status == "running" ||
+			(cInfo.State.Status == "exited" && cInfo.State.ExitCode == 0) {
+			// if no health check is defined, but container is created or running or
+			// exited with zero exit code (one shot services), then consider it healthy.
+			// The container statuses are: [created|restarting|running|removing|paused|exited|dead]
+			health = "healthy"
+		} else {
+			health = "unhealthy"
+		}
+	}
+	return
 }
