@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/moby/term"
+	"github.com/opencontainers/go-digest"
 	"os"
 	"strings"
 	"time"
@@ -53,12 +54,13 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		na       = "--"
 	)
 	var (
-		start       time.Time
-		smoothedETA time.Duration
-		etaStr      = na
-		curSpeedStr = na
-		avgSpeedStr = na
-		done        = false
+		start        time.Time
+		smoothedETA  time.Duration
+		etaStr       = na
+		curSpeedStr  = na
+		avgSpeedStr  = na
+		done         = false
+		fetchedBlobs = make(map[digest.Digest]interface{})
 	)
 
 	return func(status *compose.FetchProgress) {
@@ -68,20 +70,23 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		var blobsBeingFetched int
 		var curSpeedTotal int64
 		var avgSpeedTotal int64
-		for _, b := range status.Blobs {
-			if b.State == compose.BlobOk || b.FetchStartTime.IsZero() {
-				// Blob is already fetched or has not being started yet
+		for d, b := range status.Blobs {
+			if _, ok := fetchedBlobs[d]; ok {
+				// blob has already been fetched, skip it
 				continue
 			}
-			// Count blobs that are currently being fetched
+			// Count blobs that are currently being fetched or have been completely fetched since the last print
 			blobsBeingFetched++
-			// Calculate the total current speed of all blobs being fetched
+			// Calculate the total current speed of all blobs being fetched or have been completely fetched since the last print
 			curSpeedTotal += b.ReadSpeedCur
-			// Calculate the total average speed of all blobs being fetched
+			// Calculate the total average speed of all blobs being fetched or have been completely fetched since the last print
 			avgSpeedTotal += b.ReadSpeedAvg
 			// Set the fetch start time to the start time of the first blob if not set
 			if start.IsZero() || (!b.FetchStartTime.IsZero() && b.FetchStartTime.Before(start)) {
 				start = b.FetchStartTime
+			}
+			if b.BytesFetched >= b.Descriptor.Size {
+				fetchedBlobs[d] = struct{}{} // mark blob as fetched
 			}
 		}
 		var curSpeed int64
