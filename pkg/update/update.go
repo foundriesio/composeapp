@@ -260,7 +260,7 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) 
 			}
 		}()
 
-		if len(u.URIs) > 0 {
+		if len(u.Blobs) > 0 {
 			err = u.fetch(ctx, db, options...)
 		}
 		return err
