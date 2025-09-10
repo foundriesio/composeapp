@@ -327,7 +327,8 @@ func (u *runnerImpl) Start(ctx context.Context) error {
 			}
 		}()
 
-		return u.run(ctx, db)
+		err = u.run(ctx, db)
+		return err
 	})
 }
 
