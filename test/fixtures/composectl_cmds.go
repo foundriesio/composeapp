@@ -1,8 +1,6 @@
 package fixtures
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/images"
@@ -160,8 +158,7 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 
 	t.Run("publish app", func(t *testing.T) {
 		digestFile := path.Join(a.Dir, "digest.sha256")
-		tag, err := randomStringCrypto(7)
-		Check(t, err)
+		tag := randomString(7)
 		args := []string{
 			"publish", "-d", digestFile, baseUri + ":" + tag, "amd64",
 		}
@@ -440,18 +437,8 @@ func runCmd(t *testing.T, appDir string, args ...string) []byte {
 	return output
 }
 
-func randomStringCrypto(length int) (string, error) {
-	bytes := make([]byte, length)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "", err
-	}
-
-	return base64.URLEncoding.EncodeToString(bytes)[:length], nil
-}
-
 func randomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyz"
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	seededRand := rand2.New(rand2.NewSource(time.Now().UnixNano()))
 	b := make([]byte, length)
 	for i := range b {
