@@ -11,11 +11,11 @@ func StopApps(ctx context.Context, cfg *Config, appRefs []string) error {
 	if err != nil {
 		return err
 	}
-	if !status.AreInstalled() {
-		return fmt.Errorf("cannot stop not installed app(s)")
-	}
-	// TODO: use the docker compose API to start apps
 	for _, app := range status.Apps {
+		if _, ok := status.NotInstalledCompose[app.Ref().Digest]; ok {
+			// skip stopping apps with non-installed compose project
+			continue
+		}
 		cmd := exec.Command("docker", "compose", "down")
 		cmd.Dir = cfg.GetAppComposeDir(app.Name())
 		if _, err := cmd.CombinedOutput(); err != nil {
