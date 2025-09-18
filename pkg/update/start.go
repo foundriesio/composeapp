@@ -7,6 +7,10 @@ import (
 )
 
 func (u *runnerImpl) run(ctx context.Context, b *session) error {
+	if len(u.URIs) == 0 {
+		u.Progress = 100
+		return nil
+	}
 	progressStep := 100 / len(u.URIs)
 	if err := compose.StartApps(ctx, u.config, u.URIs,
 		compose.WithVerboseStart(false),
