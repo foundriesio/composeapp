@@ -98,6 +98,14 @@ func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 	return u, nil
 }
 
+func GetLastUpdate(cfg *compose.Config) (*Update, error) {
+	s, err := newStore(cfg.DBFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return s.getLastUpdateWithAnyOfStates(nil)
+}
+
 func GetFinalizedUpdate(cfg *compose.Config) (*Update, error) {
 	s, err := newStore(cfg.DBFilePath)
 	if err != nil {
