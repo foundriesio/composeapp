@@ -118,11 +118,9 @@ func (s *store) getLastUpdateWithAnyOfStates(states []State) (*Update, error) {
 				return nil
 			}
 			// Check if the given update has one of the specified states
-			for _, s := range states {
-				if u.State == s {
-					foundUpdate = &u
-					return nil
-				}
+			if u.State.IsOneOf(states...) {
+				foundUpdate = &u
+				return nil
 			}
 		}
 		return nil
