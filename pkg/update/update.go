@@ -67,6 +67,15 @@ func (s State) String() string {
 	return string(s[len("update:state:"):])
 }
 
+func (s State) IsOneOf(states ...State) bool {
+	for _, st := range states {
+		if s == st {
+			return true
+		}
+	}
+	return false
+}
+
 func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 	_, err := GetCurrentUpdate(cfg)
 	if err == nil {
@@ -231,14 +240,12 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 
 func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) error {
 	return u.store.lock(func(db *session) error {
-		var err error
-		switch u.State {
-		case StateFetching, StateInitialized:
-			// the current state is correct to fetch updates
-		default:
-			return fmt.Errorf("cannot fetch update when it is in state '%s'", u.State.String())
+		// Allow re-fetching when it is already fetched
+		if !u.State.IsOneOf(StateInitialized, StateFetching, StateFetched) {
+			return fmt.Errorf("cannot fetch update when it is in state %q", u.State)
 		}
 
+		var err error
 		u.State = StateFetching
 		u.Progress = 0
 		err = db.write(&u.Update)
@@ -276,13 +283,12 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) 
 
 func (u *runnerImpl) Install(ctx context.Context, options ...compose.InstallOption) error {
 	return u.store.lock(func(db *session) error {
-		var err error
-		switch u.State {
-		case StateFetched, StateInstalling, StateInstalled:
-			// the current state is correct to install updates
-		default:
-			return fmt.Errorf("cannot install update when it is in state '%s'", u.State.String())
+		// Allow re-installing an update that is already installed.
+		if !u.State.IsOneOf(StateFetched, StateInstalling, StateInstalled) {
+			return fmt.Errorf("cannot install update when it is in state %q", u.State)
 		}
+
+		var err error
 		u.State = StateInstalling
 		u.Progress = 0
 		err = db.write(&u.Update)
@@ -309,11 +315,9 @@ func (u *runnerImpl) Install(ctx context.Context, options ...compose.InstallOpti
 
 func (u *runnerImpl) Start(ctx context.Context) error {
 	return u.store.lock(func(db *session) error {
-		switch u.State {
-		case StateInstalled, StateStarting:
-			// the current state is correct to start updates
-		default:
-			return fmt.Errorf("cannot start update when it is in state '%s'", u.State.String())
+		// Allow re-starting an update that is already started.
+		if !u.State.IsOneOf(StateInstalled, StateStarting, StateStarted) {
+			return fmt.Errorf("cannot start update when it is in state %q", u.State)
 		}
 
 		u.State = StateStarting
@@ -342,14 +346,12 @@ func (u *runnerImpl) Start(ctx context.Context) error {
 
 func (u *runnerImpl) Cancel(ctx context.Context) error {
 	return u.store.lock(func(db *session) error {
-		var err error
-		switch u.State {
-		case StateCreated, StateInitializing, StateInitialized, StateFetching, StateFetched, StateInstalling, StateInstalled:
-			// the current state is correct to cancel updates
-		default:
-			return fmt.Errorf("cannot cancel update when it is in state '%s'", u.State.String())
+		if !u.State.IsOneOf(StateCreated, StateInitializing, StateInitialized,
+			StateFetching, StateFetched, StateInstalling, StateInstalled) {
+			return fmt.Errorf("cannot cancel update when it is in state %q", u.State)
 		}
 
+		var err error
 		u.State = StateCancelling
 		u.Progress = 0
 		err = db.write(&u.Update)
@@ -376,14 +378,11 @@ func (u *runnerImpl) Cancel(ctx context.Context) error {
 
 func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error {
 	return u.store.lock(func(db *session) error {
-		var err error
-		switch u.State {
-		case StateStarted, StateCompleting:
-			// the current state is correct to complete updates
-		default:
-			return fmt.Errorf("cannot complete update when it is in state '%s'", u.State.String())
+		if !u.State.IsOneOf(StateStarted, StateCompleting) {
+			return fmt.Errorf("cannot complete update when it is in state %q", u.State)
 		}
 
+		var err error
 		u.State = StateCompleting
 		u.Progress = 0
 		err = db.write(&u.Update)
