@@ -50,12 +50,11 @@ func GetInitProgressPrinter() func(status *InitProgress) {
 
 func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 	const (
-		etaAlpha = 0.5 // smoothing factor: 0=no change, 1=instant change
-		na       = "--"
+		na = "--"
 	)
 	var (
 		start        time.Time
-		smoothedETA  time.Duration
+		startBytes   int64
 		etaStr       = na
 		curSpeedStr  = na
 		avgSpeedStr  = na
@@ -84,16 +83,15 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 			// Set the fetch start time to the start time of the first blob if not set
 			if start.IsZero() || (!b.FetchStartTime.IsZero() && b.FetchStartTime.Before(start)) {
 				start = b.FetchStartTime
+				startBytes = status.CurrentBytes
 			}
 			if b.BytesFetched >= b.Descriptor.Size {
 				fetchedBlobs[d] = struct{}{} // mark blob as fetched
 			}
 		}
 		var curSpeed int64
-		var avgSpeed int64
 		if blobsBeingFetched > 0 {
 			curSpeed = curSpeedTotal / int64(blobsBeingFetched)
-			avgSpeed = avgSpeedTotal / int64(blobsBeingFetched)
 		}
 
 		// progress in percentage
@@ -101,24 +99,26 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 
 		// calculate elapsed time if fetch of at least one blob has started
 		var elapsed time.Duration
+		var avgSpeed int64
 		if !start.IsZero() {
 			elapsed = time.Since(start).Round(time.Second)
+			avgSpeed = (status.CurrentBytes - startBytes) / int64(elapsed.Seconds())
 		}
 		var eta time.Duration
-		if curSpeed > 0 {
-			eta = time.Duration((status.TotalBytes-status.CurrentBytes)/curSpeed) * time.Second
-			// apply smoothing if we already have a previous value
-			if smoothedETA != 0 {
-				eta = time.Duration(float64(smoothedETA)*(1-etaAlpha) + float64(eta)*etaAlpha)
+
+		if avgSpeed > 0 {
+			estimatedSpeed := avgSpeed
+			if curSpeed > 0 {
+				estimatedSpeed = int64(float64(avgSpeed)*0.6 + float64(curSpeed)*0.4)
 			}
-			smoothedETA = eta
+			eta = time.Duration((status.TotalBytes-status.CurrentBytes)/estimatedSpeed) * time.Second
 		}
 
 		if status.CurrentBytes >= status.TotalBytes {
 			etaStr = time.Now().UTC().Format(time.TimeOnly) + " (done)\n"
 			done = true
-		} else if curSpeed > 0 {
-			etaStr = smoothedETA.Round(time.Second).String()
+		} else if avgSpeed > 0 {
+			etaStr = eta.Round(time.Second).String()
 		} else {
 			etaStr = "∞"
 		}
