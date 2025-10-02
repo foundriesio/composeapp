@@ -102,7 +102,9 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		var avgSpeed int64
 		if !start.IsZero() {
 			elapsed = time.Since(start).Round(time.Second)
-			avgSpeed = (status.CurrentBytes - startBytes) / int64(elapsed.Seconds())
+			if elapsed > 0 {
+				avgSpeed = (status.CurrentBytes - startBytes) / int64(elapsed.Seconds())
+			}
 		}
 		var eta time.Duration
 
