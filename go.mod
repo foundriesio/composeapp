@@ -9,9 +9,9 @@ require (
 	github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker v25.0.3+incompatible
 	github.com/docker/go-units v0.5.0
-	github.com/google/uuid v1.3.1
 	github.com/moby/patternmatcher v0.6.0
 	github.com/moby/term v0.5.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0
 	github.com/pkg/errors v0.9.1

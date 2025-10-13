@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/foundriesio/composeapp/pkg/compose"
-	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
-	"github.com/google/uuid"
+	"math/rand"
 	"net"
 	"time"
+
+	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
+	"github.com/oklog/ulid/v2"
 )
 
 type (
@@ -84,6 +86,13 @@ func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 		return nil, err
 	}
 
+	// Generate an update ID as a ULID that is unique and chronologically sortable.
+	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
+	id, err := ulid.New(ulid.Timestamp(time.Now()), entropy)
+	if err != nil {
+		return nil, err
+	}
+
 	s, err := newStore(cfg.DBFilePath)
 	if err != nil {
 		return nil, err
@@ -91,7 +100,7 @@ func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 
 	u := &runnerImpl{
 		Update: Update{
-			ID:           uuid.New().String(),
+			ID:           id.String(),
 			ClientRef:    ref,
 			State:        StateCreated,
 			Progress:     0,
@@ -100,7 +109,8 @@ func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 		config: cfg,
 		store:  s,
 	}
-	err = s.saveUpdate(&u.Update)
+	// The update record is combination of the ID and the client ref to allow searching by both ID and a client ref.
+	err = s.saveUpdate([]byte(fmt.Sprintf("%s:cref:%s", u.ID, u.ClientRef)), &u.Update)
 	if err != nil {
 		return nil, err
 	}
