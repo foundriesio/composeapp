@@ -2,10 +2,10 @@ package update
 
 import (
 	"encoding/json"
-	"fmt"
+	"time"
+
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
-	"time"
 )
 
 type (
@@ -48,7 +48,7 @@ func newStore(dbFilePath string) (*store, error) {
 	return &store{path: dbFilePath}, nil
 }
 
-func (s *store) saveUpdate(u *Update) error {
+func (s *store) saveUpdate(key []byte, u *Update) error {
 	db, err := bbolt.Open(s.path, 0600, bbolt.DefaultOptions)
 	if err != nil {
 		return err
@@ -61,7 +61,6 @@ func (s *store) saveUpdate(u *Update) error {
 		if err != nil {
 			return err
 		}
-		key := []byte(fmt.Sprintf("%020d:%store", u.CreationTime.UnixNano(), u.ID))
 		return b.Put(key, data)
 	})
 }
