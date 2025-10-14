@@ -117,6 +117,14 @@ func NewUpdate(cfg *compose.Config, ref string) (Runner, error) {
 	return u, nil
 }
 
+func CountFailedUpdates(cfg *compose.Config, clientRef string) (int, error) {
+	s, err := newStore(cfg.DBFilePath)
+	if err != nil {
+		return 0, err
+	}
+	return s.countFailedUpdates("cref:" + clientRef)
+}
+
 func GetLastUpdate(cfg *compose.Config) (*Update, error) {
 	s, err := newStore(cfg.DBFilePath)
 	if err != nil {
