@@ -473,3 +473,81 @@ services:
 	f.Check(t, compose.UninstallApps(ctx, cfg, appURIs, compose.WithImagePruning()))
 	f.Check(t, compose.RemoveApps(ctx, cfg, appURIs))
 }
+
+func TestAppUpdateFailure(t *testing.T) {
+	appComposeDefBroken := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8080:80
+  srvs-02:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8080:80 # port conflict with srvs-01 to make the update fail
+`
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8080:80
+`
+	badApp := f.NewApp(t, appComposeDefBroken)
+	badApp.Publish(t)
+
+	cfg := f.NewTestConfig(t)
+
+	var updateRunner update.Runner
+	var err error
+	ctx := context.Background()
+
+	// Try to run the update 3 times, it should fail every time
+	for i := 1; i < 4; i++ {
+		updateRunner, err = update.NewUpdate(cfg, "target-1")
+		f.Check(t, err)
+
+		f.Check(t, updateRunner.Init(ctx, []string{badApp.PublishedUri}))
+		f.Check(t, updateRunner.Fetch(ctx))
+		f.Check(t, updateRunner.Install(ctx))
+		if err := updateRunner.Start(ctx); err == nil {
+			t.Fatal("update start is expected to fail")
+		}
+		if updateRunner.Status().State != update.StateFailed {
+			t.Fatalf("update is supposed to be in failed state, but it's in %s\n", updateRunner.Status().State)
+		}
+		failureCount, err := update.CountFailedUpdates(cfg, "target-1")
+		f.Check(t, err)
+		if failureCount != i {
+			t.Fatalf("there is/are %d failed updates, expected %d\n", failureCount, i)
+		}
+	}
+	// We need to run "bad" app stop before trying to install a new valid app because one of the bad app containers
+	// could have started before the other failed to start, and it would interfere with the new app installation.
+	badApp.Stop(t)
+	defer badApp.Uninstall(t)
+	defer badApp.Remove(t)
+
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	updateRunner, err = update.NewUpdate(cfg, "target-1")
+	defer finalizeUpdate(t, ctx, updateRunner)
+	f.Check(t, err)
+	f.Check(t, updateRunner.Init(ctx, []string{app.PublishedUri}))
+	f.Check(t, updateRunner.Fetch(ctx))
+	defer app.Remove(t)
+	f.Check(t, updateRunner.Install(ctx))
+	defer app.Uninstall(t)
+	f.Check(t, updateRunner.Start(ctx))
+	defer app.Stop(t)
+	f.Check(t, updateRunner.Complete(ctx))
+	failureCount, err := update.CountFailedUpdates(cfg, "target-1")
+	f.Check(t, err)
+	if failureCount != 0 {
+		t.Fatalf("there is/are %d failed updates, expected %d\n", failureCount, 0)
+	}
+}

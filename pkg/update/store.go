@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
@@ -92,6 +93,37 @@ func (b *bucket) write(u *Update) error {
 		panic("no key found in bucket, this should not happen")
 	}
 	return b.b.Put(key, data)
+}
+
+func (s *store) countFailedUpdates(keySuffix string) (int, error) {
+	db, err := bbolt.Open(s.path, 0600, &bbolt.Options{ReadOnly: true})
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	var count int
+	err = db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(UpdatesBucketName))
+		cursor := b.Cursor()
+		for k, v := cursor.Last(); k != nil && bytes.HasSuffix(k, []byte(keySuffix)); k, v = cursor.Prev() {
+			var u Update
+			err := json.Unmarshal(v, &u)
+			if err != nil {
+				return err
+			}
+			if u.State == StateFailed {
+				count++
+			} else if u.State == StateCompleted {
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (s *store) getLastUpdateWithAnyOfStates(states []State) (*Update, error) {
