@@ -220,12 +220,11 @@ func checkIfInstalled(ctx context.Context, appRefs []string, blobProvider compos
 	}
 	installedImages := map[string]bool{}
 	for _, i := range images {
-		if len(i.RepoDigests) > 0 {
-			installedImages[i.RepoDigests[0]] = true
+		for _, d := range i.RepoDigests {
+			installedImages[d] = true
 		}
-		if len(i.RepoTags) > 0 {
-			// unpatch docker won't store the digest URI of loaded image
-			installedImages[i.RepoTags[0]] = true
+		for _, t := range i.RepoTags {
+			installedImages[t] = true
 		}
 	}
 
