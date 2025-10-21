@@ -2,32 +2,26 @@ package update
 
 import (
 	"context"
-	"fmt"
 	"github.com/foundriesio/composeapp/pkg/compose"
 )
 
-func (u *runnerImpl) run(ctx context.Context, b *session) error {
-	if len(u.URIs) == 0 {
-		u.Progress = 100
-		return nil
+func (u *runnerImpl) start(ctx context.Context, b *session, options ...compose.StartOption) error {
+	opts := compose.StartOptions{}
+	for _, o := range options {
+		o(&opts)
 	}
 	progressStep := 100 / len(u.URIs)
-	if err := compose.StartApps(ctx, u.config, u.URIs,
-		compose.WithVerboseStart(false),
+	startOptions := options
+	// override the progress reporter if one is provided
+	startOptions = append(startOptions,
 		compose.WithStartProgressHandler(func(app compose.App, status compose.AppStartStatus, any interface{}) {
-			switch status {
-			case compose.AppStartStatusStarting:
-				fmt.Printf("\tstarting %s --> %s ... ", app.Name(), app.Ref().String())
-			case compose.AppStartStatusStarted:
-				fmt.Println("done")
-				u.Progress += progressStep
-			case compose.AppStartStatusFailed:
-				fmt.Println("failed")
+			if status == compose.AppStartStatusStarted || status == compose.AppStartStatusFailed {
 				u.Progress += progressStep
 			}
-		}),
-	); err != nil {
-		return err
-	}
-	return nil
+			// invoke the progress reporter if one is provided by a caller
+			if opts.ProgressHandler != nil {
+				opts.ProgressHandler(app, status, any)
+			}
+		}))
+	return compose.StartApps(ctx, u.config, u.URIs, startOptions...)
 }
