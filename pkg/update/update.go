@@ -19,7 +19,7 @@ type (
 		Init(context.Context, []string, ...InitOption) error
 		Fetch(context.Context, ...compose.FetchOption) error
 		Install(context.Context, ...compose.InstallOption) error
-		Start(context.Context) error
+		Start(context.Context, ...compose.StartOption) error
 		Cancel(context.Context) error
 		Complete(context.Context, ...CompleteOpt) error
 	}
@@ -331,7 +331,7 @@ func (u *runnerImpl) Install(ctx context.Context, options ...compose.InstallOpti
 	})
 }
 
-func (u *runnerImpl) Start(ctx context.Context) error {
+func (u *runnerImpl) Start(ctx context.Context, options ...compose.StartOption) error {
 	return u.store.lock(func(db *session) error {
 		// Allow re-starting an update that is already started.
 		if !u.State.IsOneOf(StateInstalled, StateStarting, StateStarted) {
@@ -347,6 +347,7 @@ func (u *runnerImpl) Start(ctx context.Context) error {
 
 		defer func() {
 			if err == nil {
+				u.Progress = 100
 				u.State = StateStarted
 			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				u.State = StateFailed
@@ -357,7 +358,9 @@ func (u *runnerImpl) Start(ctx context.Context) error {
 			}
 		}()
 
-		err = u.run(ctx, db)
+		if len(u.URIs) > 0 {
+			err = u.start(ctx, db, options...)
+		}
 		return err
 	})
 }
