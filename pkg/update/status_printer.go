@@ -15,11 +15,23 @@ type (
 		curImageID string
 		curLayerID string
 	}
+
+	ProgressPrinterOpts struct {
+		// Indentation specifies the number of spaces to indent each line
+		Indentation int
+	}
+	ProgressPrinterOption func(*ProgressPrinterOpts)
 )
 
 var (
 	isTty = isTTY()
 )
+
+func WithIndentation(indentation int) ProgressPrinterOption {
+	return func(opts *ProgressPrinterOpts) {
+		opts.Indentation = indentation
+	}
+}
 
 func GetInitProgressPrinter() func(status *InitProgress) {
 	var stateSwitch bool
@@ -48,7 +60,8 @@ func GetInitProgressPrinter() func(status *InitProgress) {
 	}
 }
 
-func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
+func GetFetchProgressPrinter(options ...ProgressPrinterOption) func(status *compose.FetchProgress) {
+	opts := parseProgressPrinterOptions(options...)
 	const (
 		na = "--"
 	)
@@ -130,7 +143,8 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 		}
 
 		// Print the progress line
-		printf("%4.0f%%  %s  %9s / %-9s | %d/%d blobs | Cur: %11s | Avg: %11s | Time: %s | ETA: %s",
+		printf("%*s%4.0f%%  %s  %9s / %-9s | %d/%d blobs | Cur: %11s | Avg: %11s | Time: %s | ETA: %s",
+			opts.Indentation, "",
 			pct*100,
 			renderBar(pct, 25),
 			compose.FormatBytesInt64(status.CurrentBytes),
@@ -145,7 +159,8 @@ func GetFetchProgressPrinter() func(status *compose.FetchProgress) {
 	}
 }
 
-func GetInstallProgressPrinter() func(status *compose.InstallProgress) {
+func GetInstallProgressPrinter(options ...ProgressPrinterOption) func(status *compose.InstallProgress) {
+	opts := parseProgressPrinterOptions(options...)
 
 	ctx := &imageLoadingContext{}
 
@@ -154,22 +169,22 @@ func GetInstallProgressPrinter() func(status *compose.InstallProgress) {
 		switch p.AppInstallState {
 		case compose.AppInstallStateComposeInstalling:
 			{
-				fmt.Printf("Installing app %s\n", p.AppID)
+				fmt.Printf("%*sInstalling app %s\n", opts.Indentation, "", p.AppID)
 			}
 		case compose.AppInstallStateImagesLoading:
 			{
-				renderImageLoadingProgress(ctx, p)
+				renderImageLoadingProgress(ctx, p, opts.Indentation)
 			}
 		}
 	}
 }
 
-func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProgress) {
+func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProgress, indentation int) {
 	switch p.ImageLoadState {
 	case compose.ImageLoadStateLayerLoading:
 		{
 			if ctx.curImageID != p.ImageID {
-				fmt.Printf("  Loading image %s", p.ImageID)
+				fmt.Printf("%*sLoading image %s", indentation, "", p.ImageID)
 				ctx.curImageID = p.ImageID
 				ctx.curLayerID = ""
 			}
@@ -179,7 +194,7 @@ func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProg
 			}
 
 			pct := float64(p.Current) / float64(p.Total)
-			printf("\t%s %4.0f%%  %s", p.ID, pct*100, renderBar(pct, 25))
+			printf("%*s\t%s %4.0f%%  %s", indentation, "", p.ID, pct*100, renderBar(pct, 25))
 		}
 	case compose.ImageLoadStateLayerSyncing:
 		{
@@ -191,11 +206,11 @@ func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProg
 		}
 	case compose.ImageLoadStateImageLoaded:
 		{
-			fmt.Printf("\n  Image loaded: %s\n", p.ImageID)
+			fmt.Printf("\n%*sImage loaded: %s\n", indentation, "", p.ImageID)
 		}
 	case compose.ImageLoadStateImageExist:
 		{
-			fmt.Printf("  Already exists: %s\n", p.ImageID)
+			fmt.Printf("%*sAlready exists: %s\n", indentation, "", p.ImageID)
 		}
 	default:
 		fmt.Printf("  Unknown state %s\n", p.ImageLoadState)
@@ -221,4 +236,12 @@ func renderBar(pct float64, width int) string {
 
 func isTTY() bool {
 	return term.IsTerminal(os.Stdout.Fd()) || os.Getenv("PARENT_HAS_TTY") == "1"
+}
+
+func parseProgressPrinterOptions(options ...ProgressPrinterOption) *ProgressPrinterOpts {
+	opts := &ProgressPrinterOpts{}
+	for _, option := range options {
+		option(opts)
+	}
+	return opts
 }
