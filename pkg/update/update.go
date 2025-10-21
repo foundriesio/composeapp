@@ -31,7 +31,9 @@ type (
 		ClientRef       string                     `json:"client_ref"`
 		State           State                      `json:"state"`
 		Progress        int                        `json:"progress"`
-		CreationTime    time.Time                  `json:"timestamp"`
+		CreationTime    time.Time                  `json:"creation_time"`
+		InitTime        time.Time                  `json:"init_time"`
+		FetchTime       time.Time                  `json:"fetch_time"`
 		UpdateTime      time.Time                  `json:"update_time"`
 		URIs            []string                   `json:"uris"`
 		Blobs           compose.BlobsFetchProgress `json:"blobs"`
@@ -241,6 +243,7 @@ func (u *runnerImpl) Init(ctx context.Context, appURIs []string, options ...Init
 						}
 					}
 				}
+				u.InitTime = time.Now()
 			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !isConnectionTimeout(err) {
 				u.State = StateFailed
 			}
@@ -275,6 +278,7 @@ func (u *runnerImpl) Fetch(ctx context.Context, options ...compose.FetchOption) 
 			if err == nil {
 				u.Progress = 100
 				u.State = StateFetched
+				u.FetchTime = time.Now()
 				if appStore, err := v1.NewAppStore(u.config.StoreRoot, u.config.Platform, false); err != nil {
 					// log the error but do not return it
 					fmt.Printf("failed to create app store: %v\n", err)
