@@ -106,7 +106,10 @@ func (s *store) countFailedUpdates(keySuffix string) (int, error) {
 	err = db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(UpdatesBucketName))
 		cursor := b.Cursor()
-		for k, v := cursor.Last(); k != nil && bytes.HasSuffix(k, []byte(keySuffix)); k, v = cursor.Prev() {
+		for k, v := cursor.Last(); k != nil; k, v = cursor.Prev() {
+			if !bytes.HasSuffix(k, []byte(keySuffix)) {
+				continue
+			}
 			var u Update
 			err := json.Unmarshal(v, &u)
 			if err != nil {
