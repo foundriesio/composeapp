@@ -7,6 +7,8 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
+	"github.com/foundriesio/fioconfig/sotatoml"
+	"github.com/foundriesio/fioconfig/transport"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
@@ -60,7 +62,16 @@ func NewLocalBlobProvider(fileProvider content.Store) BlobProvider {
 }
 
 func NewRemoteBlobProviderFromConfig(config *Config) BlobProvider {
-	client := NewHttpClient(config.ConnectTimeout, config.ReadTimeout)
+	tomlConfigPaths := []string{"/work/fio/prjs/lmp-device-register/device"}
+	tomlConfig, err := sotatoml.NewAppConfig(tomlConfigPaths)
+	if err != nil {
+		panic(err)
+	}
+	client, err := transport.CreateClient(tomlConfig, "dg.org", "8443")
+	if err != nil {
+		panic(err)
+	}
+	//client := NewHttpClient(config.ConnectTimeout, config.ReadTimeout)
 	authorizer := NewRegistryAuthorizer(config.DockerCfg, client)
 	resolver := NewResolver(authorizer, client)
 	return newRemoteBlobProvider(resolver)
