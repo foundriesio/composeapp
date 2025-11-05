@@ -1,10 +1,13 @@
 package compose
 
 import (
-	"github.com/docker/cli/cli/config/configfile"
-	specs "github.com/opencontainers/image-spec/specs-go/v1"
+	"crypto/x509"
+	"net/url"
 	"path/filepath"
 	"time"
+
+	"github.com/docker/cli/cli/config/configfile"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type (
@@ -20,6 +23,9 @@ type (
 		AppStoreFactoryFunc func(c *Config) (AppStore, error)
 		BlockSize           int64
 		DBFilePath          string
+
+		ProxyURL   *url.URL
+		ProxyCerts *x509.CertPool
 	}
 )
 
