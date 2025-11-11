@@ -1,14 +1,17 @@
 package v1
 
 import (
+	"crypto/x509"
 	"fmt"
-	"github.com/containerd/containerd/platforms"
-	dockercfg "github.com/docker/cli/cli/config"
-	"github.com/foundriesio/composeapp/pkg/compose"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
+
+	"github.com/containerd/containerd/platforms"
+	dockercfg "github.com/docker/cli/cli/config"
+	"github.com/foundriesio/composeapp/pkg/compose"
 )
 
 type (
@@ -110,6 +113,29 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		return nil, fmt.Errorf("failed to get file system stat; path: %s, err: %s", opts.StoreRoot, err.Error())
 	}
 
+	var proxyURL *url.URL
+	var proxyCerts *x509.CertPool
+
+	proxyEnv := os.Getenv("COMPOSE_APPS_PROXY")
+	if len(proxyEnv) > 0 {
+		proxyURL, err = url.Parse(proxyEnv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid COMPOSE_APPS_PROXY: %s: %w", proxyEnv, err)
+		}
+
+		proxyCa := os.Getenv("COMPOSE_APPS_PROXY_CA")
+		if len(proxyCa) > 0 {
+			proxyCerts = x509.NewCertPool()
+
+			pemData, err := os.ReadFile(proxyCa)
+			if err != nil {
+				return nil, fmt.Errorf("unable to read COMPOSE_APPS_PROXY_CA: %w", err)
+			} else if ok := proxyCerts.AppendCertsFromPEM(pemData); !ok {
+				return nil, fmt.Errorf("failed to set COMPOSE_APPS_PROXY_CA: %w", err)
+			}
+		}
+	}
+
 	// Load docker config
 	dockerCfg, err := dockercfg.Load("")
 	if err != nil {
@@ -131,5 +157,7 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		},
 		BlockSize:  s.BlockSize,
 		DBFilePath: opts.UpdateDBPath,
+		ProxyURL:   proxyURL,
+		ProxyCerts: proxyCerts,
 	}, nil
 }

@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"io"
-	"os"
-	"path"
 )
 
 type (
@@ -59,8 +62,43 @@ func NewLocalBlobProvider(fileProvider content.Store) BlobProvider {
 	}
 }
 
+type tokenProxyTripper struct {
+	base http.RoundTripper
+	host *url.URL
+}
+
+func (t tokenProxyTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	reqBodyClosed := false
+	if req.Body != nil {
+		defer func() {
+			if !reqBodyClosed {
+				req.Body.Close()
+			}
+		}()
+	}
+
+	req2 := req.Clone(req.Context())
+	req2.URL = t.host.JoinPath(req2.URL.Path)
+	req2.Host = t.host.Host
+
+	// req.Body is assumed to be closed by the base RoundTripper.
+	reqBodyClosed = true
+	return t.base.RoundTrip(req2)
+}
+
 func NewRemoteBlobProviderFromConfig(config *Config) BlobProvider {
 	client := NewHttpClient(config.ConnectTimeout, config.ReadTimeout)
+	if config.ProxyURL != nil {
+		tpt := tokenProxyTripper{
+			base: client.Transport,
+			host: config.ProxyURL,
+		}
+
+		if config.ProxyCerts != nil {
+			client.Transport.(*http.Transport).TLSClientConfig.RootCAs = config.ProxyCerts
+		}
+		client.Transport = tpt
+	}
 	authorizer := NewRegistryAuthorizer(config.DockerCfg, client)
 	resolver := NewResolver(authorizer, client)
 	return newRemoteBlobProvider(resolver)
