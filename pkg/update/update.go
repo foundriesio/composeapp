@@ -372,7 +372,7 @@ func (u *runnerImpl) Start(ctx context.Context, options ...compose.StartOption) 
 func (u *runnerImpl) Cancel(ctx context.Context) error {
 	return u.store.lock(func(db *session) error {
 		if !u.State.IsOneOf(StateCreated, StateInitializing, StateInitialized,
-			StateFetching, StateFetched, StateInstalling, StateInstalled) {
+			StateFetching, StateFetched, StateInstalling, StateInstalled, StateCompleting) {
 			return fmt.Errorf("cannot cancel update when it is in state %q", u.State)
 		}
 
