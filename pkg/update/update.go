@@ -424,8 +424,6 @@ func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error
 			if err == nil || (opts.Force && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)) {
 				u.Progress = 100
 				u.State = StateCompleted
-			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, compose.ErrUninstallRunningApps) {
-				u.State = StateFailed
 			}
 			if err := db.write(&u.Update); err != nil {
 				// log the error but do not return it
