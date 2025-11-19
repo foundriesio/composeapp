@@ -11,6 +11,7 @@ import (
 type (
 	CompleteOpts struct {
 		Prune bool
+		Force bool
 	}
 	CompleteOpt func(*CompleteOpts)
 )
@@ -18,6 +19,12 @@ type (
 func CompleteWithPruning() CompleteOpt {
 	return func(opts *CompleteOpts) {
 		opts.Prune = true
+	}
+}
+
+func CompleteWithForce() CompleteOpt {
+	return func(opts *CompleteOpts) {
+		opts.Force = true
 	}
 }
 

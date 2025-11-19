@@ -407,6 +407,11 @@ func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error
 			return fmt.Errorf("cannot complete update when it is in state %q", u.State)
 		}
 
+		opts := CompleteOpts{}
+		for _, o := range options {
+			o(&opts)
+		}
+
 		var err error
 		u.State = StateCompleting
 		u.Progress = 0
@@ -416,7 +421,7 @@ func (u *runnerImpl) Complete(ctx context.Context, options ...CompleteOpt) error
 		}
 
 		defer func() {
-			if err == nil {
+			if err == nil || (opts.Force && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)) {
 				u.Progress = 100
 				u.State = StateCompleted
 			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, compose.ErrUninstallRunningApps) {
