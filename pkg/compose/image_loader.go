@@ -236,13 +236,11 @@ func LoadImages(ctx context.Context,
 						curImageIndex++
 						curLayerID = ""
 						p.State = ImageLoadStateImageWaiting
-						if curImageIndex < len(imageURIs) {
-							p.ImageID = imageURIs[curImageIndex].URI
-						}
+						p.ImageID = getImageID(imageURIs, curImageIndex)
 					}
 				} else {
 					curLayerID = jm.ID
-					p.ImageID = imageURIs[curImageIndex].URI
+					p.ImageID = getImageID(imageURIs, curImageIndex)
 					if _, ok := layersMap[curLayerID]; ok {
 						p.ID = layersMap[curLayerID][:7]
 					} else {
@@ -275,9 +273,7 @@ func LoadImages(ctx context.Context,
 
 						curImageIndex++
 						curLayerID = ""
-						if curImageIndex < len(imageURIs) {
-							p.ImageID = imageURIs[curImageIndex].URI
-						}
+						p.ImageID = getImageID(imageURIs, curImageIndex)
 						p.State = ImageLoadStateImageWaiting
 					}
 
@@ -424,4 +420,13 @@ func generateImageLoadManifest(
 	}
 
 	return loadManifest, &imageConfig, nil
+}
+
+func getImageID(imageURIs []imageURI2RefCounter, imageIndex int) string {
+	if imageIndex < len(imageURIs) {
+		return imageURIs[imageIndex].URI
+	} else {
+		fmt.Printf("Warning: image index %d is out of range (max %d)\n", imageIndex, len(imageURIs))
+		return "unknown"
+	}
 }
