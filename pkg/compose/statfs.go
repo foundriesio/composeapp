@@ -14,16 +14,18 @@ type (
 	}
 
 	UsageInfo struct {
-		Path       string  `json:"path"`
-		SizeB      uint64  `json:"size_b"`
-		Free       uint64  `json:"free"`
-		FreeP      float32 `json:"free_p"`
-		Reserved   uint64  `json:"reserved"`
-		ReservedP  float32 `json:"reserved_p"`
-		Available  uint64  `json:"available"`
-		AvailableP float32 `json:"available_p"`
-		Required   uint64  `json:"required"`
-		RequiredP  float32 `json:"required_p"`
+		Path       string   `json:"path"`
+		SizeB      uint64   `json:"size_b"`
+		Free       uint64   `json:"free"`
+		FreeP      float32  `json:"free_p"`
+		Reserved   uint64   `json:"reserved"`
+		ReservedP  float32  `json:"reserved_p"`
+		Available  uint64   `json:"available"`
+		AvailableP float32  `json:"available_p"`
+		Required   uint64   `json:"required"`
+		RequiredP  float32  `json:"required_p"`
+		MinToFree  *uint64  `json:"min_to_free,omitempty"`
+		MinToFreeP *float32 `json:"min_to_free_p,omitempty"`
 	}
 )
 
@@ -69,6 +71,12 @@ func GetUsageInfo(path string, required int64, watermark uint) (*UsageInfo, erro
 	} else {
 		ui.Available = 0
 		ui.AvailableP = 0
+	}
+	if ui.Required > ui.Available {
+		minToFree := ui.Required - (ui.Free - ui.Reserved)
+		minToFreeP := (float32(minToFree) / float32(ui.SizeB)) * 100.0
+		ui.MinToFree = &minToFree
+		ui.MinToFreeP = &minToFreeP
 	}
 	return &ui, nil
 }
