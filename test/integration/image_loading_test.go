@@ -169,7 +169,7 @@ services:
     ports:
     - 8080:80
   busybox:
-    image: ghcr.io/foundriesio/busybox:1.36
+    image: ghcr.io/foundriesio/busybox:1.36-multiarch
     command: sh -c "while true; do sleep 60; done"
 `
 	app := f.NewApp(t, appComposeDef)
