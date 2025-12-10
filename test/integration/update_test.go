@@ -551,3 +551,91 @@ services:
 		t.Fatalf("there is/are %d failed updates, expected %d\n", failureCount, 0)
 	}
 }
+
+func TestAppPruning(t *testing.T) {
+	appComposeDef01 := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8081:81
+  busybox-1:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+  busybox-2:
+    image: ghcr.io/foundriesio/busybox:1.36-multiarch
+    command: sh -c "while true; do sleep 120; done"
+`
+	appComposeDef02 := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+    ports:
+    - 8082:82
+  busybox-1:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 70; done"
+  busybox-2:
+    image: ghcr.io/foundriesio/busybox:1.36-multiarch
+    command: sh -c "while true; do sleep 110; done"
+`
+	var appURIs []string
+	for _, appDef := range []string{appComposeDef01, appComposeDef02} {
+		app := f.NewApp(t, appDef)
+		app.Publish(t)
+		appURIs = append(appURIs, app.PublishedUri)
+	}
+
+	cfg := f.NewTestConfig(t)
+	ctx := context.Background()
+
+	updateRunner, err := update.NewUpdate(cfg, "target-10")
+	f.Check(t, err)
+
+	// do update
+	f.Check(t, updateRunner.Init(ctx, appURIs))
+	f.Check(t, updateRunner.Fetch(ctx))
+	f.Check(t, updateRunner.Install(ctx))
+	f.Check(t, updateRunner.Start(ctx))
+	f.Check(t, updateRunner.Complete(ctx, update.CompleteWithPruning()))
+
+	// check that both apps are running
+	appsStatus, err := compose.CheckAppsStatus(ctx, cfg, nil)
+	f.Check(t, err)
+	if !appsStatus.AreRunning() {
+		t.Fatal("apps are expected to be running")
+	}
+
+	// do sync update, remove the second app
+	updateRunner, err = update.NewUpdate(cfg, "target-10")
+	f.Check(t, err)
+	oneAppURI := []string{appURIs[0]}
+	f.Check(t, updateRunner.Init(ctx, oneAppURI, update.WithInitCheckStatus(false)))
+	f.Check(t, updateRunner.Fetch(ctx))
+	// Stop apps before installing the update, which effectively removes the second app
+	f.Check(t, compose.StopApps(ctx, cfg, appURIs))
+	f.Check(t, updateRunner.Install(ctx))
+	// Start only the first app
+	f.Check(t, updateRunner.Start(ctx))
+	// Complete with pruning to remove the second app
+	f.Check(t, updateRunner.Complete(ctx, update.CompleteWithPruning()))
+
+	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, nil)
+	f.Check(t, err)
+	if !appsStatus.AreRunning() {
+		t.Fatal("app is expected to be running")
+	}
+	if len(appsStatus.Apps) > 1 || len(appsStatus.Apps) == 0 {
+		t.Fatalf("only one app is expected to be running, found %d", len(appsStatus.Apps))
+	}
+	if appsStatus.Apps[0].Ref().String() != appURIs[0] {
+		t.Fatalf("expected app URI %s, found %s", appURIs[0], appsStatus.Apps[0].Ref().String())
+	}
+
+	// stop, uninstall, and remove all apps
+	f.Check(t, compose.StopApps(ctx, cfg, oneAppURI))
+	f.Check(t, compose.UninstallApps(ctx, cfg, oneAppURI, compose.WithImagePruning()))
+	f.Check(t, compose.RemoveApps(ctx, cfg, oneAppURI))
+}
