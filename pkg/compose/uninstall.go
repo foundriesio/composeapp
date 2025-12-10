@@ -64,16 +64,16 @@ func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options .
 	}
 
 	if opts.Prune {
-		// Prune unused images, it should remove app images of stopped apps
-		// from the docker store, unless they are used by some 3rd party containers/apps
-		// TODO: don't remove unused images that does not belong to any of the specified apps
-		// If the same image is used by one of the specified apps and some 3rd party app - how
-		// to figure out it so we can skip this image removal
 		cli, errClient := GetDockerClient(cfg.DockerHost)
 		if errClient != nil {
 			return errClient
 		}
-		_, err = cli.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "false")))
+		// Prune only dangling images.
+		// The dangling images are the ones that are not tagged and not referenced by any container.
+		// TODO: consider pruning volumes and networks if needed.
+		// TODO: consider pruning only those images that are related to the uninstalled apps,
+		//       otherwise it prunes all dangling images including those that are not managed by composectl
+		_, err = cli.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "true")))
 	}
 	return err
 }
