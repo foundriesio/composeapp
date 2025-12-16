@@ -88,14 +88,15 @@ func (t tokenProxyTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 func NewRemoteBlobProviderFromConfig(config *Config) BlobProvider {
 	client := NewHttpClient(config.ConnectTimeout, config.ReadTimeout)
-	if config.ProxyURL != nil {
+	if config.Proxy != nil {
+		proxyConfig := config.Proxy()
 		tpt := tokenProxyTripper{
 			base: client.Transport,
-			host: config.ProxyURL,
+			host: proxyConfig.ProxyURL,
 		}
 
-		if config.ProxyCerts != nil {
-			client.Transport.(*http.Transport).TLSClientConfig.RootCAs = config.ProxyCerts
+		if proxyConfig.ProxyCerts != nil {
+			client.Transport.(*http.Transport).TLSClientConfig.RootCAs = proxyConfig.ProxyCerts
 		}
 		client.Transport = tpt
 	}
