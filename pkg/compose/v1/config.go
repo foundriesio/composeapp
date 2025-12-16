@@ -22,6 +22,7 @@ type (
 		ReadTimeout    time.Duration
 		SkopeoSupport  bool
 		UpdateDBPath   string
+		Proxy          compose.ProxyProvider
 	}
 	ConfigOpt func(*ConfigOpts)
 )
@@ -62,6 +63,12 @@ func WithComposeRoot(composeRoot string) ConfigOpt {
 func WithConnectTimeout(timeout time.Duration) ConfigOpt {
 	return func(opts *ConfigOpts) {
 		opts.ConnectTimeout = timeout
+	}
+}
+
+func WithProxy(proxy compose.ProxyProvider) ConfigOpt {
+	return func(opts *ConfigOpts) {
+		opts.Proxy = proxy
 	}
 }
 
@@ -113,27 +120,13 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		return nil, fmt.Errorf("failed to get file system stat; path: %s, err: %s", opts.StoreRoot, err.Error())
 	}
 
-	var proxyURL *url.URL
-	var proxyCerts *x509.CertPool
-
-	proxyEnv := os.Getenv("COMPOSE_APPS_PROXY")
-	if len(proxyEnv) > 0 {
-		proxyURL, err = url.Parse(proxyEnv)
-		if err != nil {
-			return nil, fmt.Errorf("invalid COMPOSE_APPS_PROXY: %s: %w", proxyEnv, err)
-		}
-
-		proxyCa := os.Getenv("COMPOSE_APPS_PROXY_CA")
-		if len(proxyCa) > 0 {
-			proxyCerts = x509.NewCertPool()
-
-			pemData, err := os.ReadFile(proxyCa)
-			if err != nil {
-				return nil, fmt.Errorf("unable to read COMPOSE_APPS_PROXY_CA: %w", err)
-			} else if ok := proxyCerts.AppendCertsFromPEM(pemData); !ok {
-				return nil, fmt.Errorf("failed to set COMPOSE_APPS_PROXY_CA: %w", err)
-			}
-		}
+	// Set proxy provider specified via configuration options
+	proxy := opts.Proxy
+	// Override or set proxy provider if specified via environment variable
+	if proxyFromEnv, err := getProxyProviderFromEnvIfSet(); err != nil {
+		return nil, err
+	} else if proxyFromEnv != nil {
+		proxy = proxyFromEnv
 	}
 
 	// Load docker config
@@ -157,7 +150,39 @@ func NewDefaultConfig(options ...ConfigOpt) (*compose.Config, error) {
 		},
 		BlockSize:  s.BlockSize,
 		DBFilePath: opts.UpdateDBPath,
-		ProxyURL:   proxyURL,
-		ProxyCerts: proxyCerts,
+		Proxy:      proxy,
+	}, nil
+}
+
+func getProxyProviderFromEnvIfSet() (compose.ProxyProvider, error) {
+	proxyEnv := os.Getenv("COMPOSE_APPS_PROXY")
+	if len(proxyEnv) == 0 {
+		return nil, nil
+	}
+
+	var proxyURL *url.URL
+	var proxyCerts *x509.CertPool
+	var err error
+
+	if proxyURL, err = url.Parse(proxyEnv); err != nil {
+		return nil, fmt.Errorf("invalid COMPOSE_APPS_PROXY URL: %s: %w", proxyEnv, err)
+	}
+	proxyCa := os.Getenv("COMPOSE_APPS_PROXY_CA")
+	if len(proxyCa) > 0 {
+		proxyCerts = x509.NewCertPool()
+		if b, err := os.ReadFile(proxyCa); err == nil {
+			if ok := proxyCerts.AppendCertsFromPEM(b); !ok {
+				return nil, fmt.Errorf("failed to parse COMPOSE_APPS_PROXY_CA: %s", proxyCa)
+			}
+		} else {
+			return nil, fmt.Errorf("unable to read COMPOSE_APPS_PROXY_CA: %w", err)
+		}
+	}
+
+	return func() *compose.ProxyConfig {
+		return &compose.ProxyConfig{
+			ProxyURL:   proxyURL,
+			ProxyCerts: proxyCerts,
+		}
 	}, nil
 }

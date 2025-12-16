@@ -23,10 +23,13 @@ type (
 		AppStoreFactoryFunc func(c *Config) (AppStore, error)
 		BlockSize           int64
 		DBFilePath          string
-
+		Proxy               ProxyProvider
+	}
+	ProxyConfig struct {
 		ProxyURL   *url.URL
 		ProxyCerts *x509.CertPool
 	}
+	ProxyProvider func() *ProxyConfig
 )
 
 func (c *Config) GetAppComposeDir(appName string) string {
