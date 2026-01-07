@@ -2,9 +2,19 @@ package compose
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/docker/cli/cli/config/configfile"
-	"net/http"
+)
+
+const (
+	DefaultDockerRegistryHost = "registry-1.docker.io"
+	DefaultDockerIndexHost    = "https://index.docker.io/v1/"
+)
+
+type (
+	authCredsFunc func(string) (string, string, error)
 )
 
 func NewRegistryAuthorizer(cfg *configfile.ConfigFile, client *http.Client) docker.Authorizer {
@@ -14,12 +24,13 @@ func NewRegistryAuthorizer(cfg *configfile.ConfigFile, client *http.Client) dock
 	)
 }
 
-type (
-	authCredsFunc func(string) (string, string, error)
-)
-
 func getAuthCreds(cfg *configfile.ConfigFile) authCredsFunc {
 	return func(host string) (string, string, error) {
+		// containerd code translates "docker.io" into "registry-1.docker.io"
+		if host == DefaultDockerRegistryHost {
+			// but docker cli uses "https://index.docker.io/v1/" as the key to store auth config
+			host = DefaultDockerIndexHost
+		}
 		creds, err := cfg.GetAllCredentials()
 		if err != nil {
 			return "", "", err
