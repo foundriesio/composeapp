@@ -164,8 +164,14 @@ func getProxyProviderFromEnvIfSet() (compose.ProxyProvider, error) {
 	var proxyCerts *x509.CertPool
 	var err error
 
-	if proxyURL, err = url.Parse(proxyEnv); err != nil {
+	if proxyURL, err = url.ParseRequestURI(proxyEnv); err != nil {
 		return nil, fmt.Errorf("invalid COMPOSE_APPS_PROXY URL: %s: %w", proxyEnv, err)
+	}
+	if proxyURL.Scheme != "http" && proxyURL.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported COMPOSE_APPS_PROXY URL scheme: %s", proxyEnv)
+	}
+	if proxyURL.Host == "" {
+		return nil, fmt.Errorf("missing host in COMPOSE_APPS_PROXY URL: %s", proxyEnv)
 	}
 	proxyCa := os.Getenv("COMPOSE_APPS_PROXY_CA")
 	if len(proxyCa) > 0 {
