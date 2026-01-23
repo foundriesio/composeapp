@@ -6,6 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path"
+	"strconv"
+
 	"github.com/compose-spec/compose-go/loader"
 	composetypes "github.com/compose-spec/compose-go/types"
 	"github.com/containerd/containerd/errdefs"
@@ -15,10 +20,7 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"io"
-	"os"
-	"path"
-	"strconv"
+	"github.com/sirupsen/logrus"
 )
 
 type (
@@ -480,6 +482,12 @@ func readAndLoadComposeProject(ctx context.Context, provider compose.BlobProvide
 			},
 		},
 	}
+
+	// Temporarily suppress logrus output below Error level during compose project loading
+	prev := logrus.GetLevel()
+	logrus.SetLevel(logrus.ErrorLevel)
+	defer logrus.SetLevel(prev)
+
 	cp, err := loader.LoadWithContext(ctx, cfgDetails, func(options *loader.Options) {
 		// TODO:  check params required to load project correctly
 		//options.SkipNormalization = true
