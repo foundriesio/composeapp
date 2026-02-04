@@ -1,0 +1,20 @@
+composectl (96.0.1) unstable; urgency=medium
+
+  * New Features:
+    - Define proxy providing function in config
+  * Fixes:
+    - Fix image loading if same image referenced multiple times
+    - Support DockerHub for images and compose apps
+  * Improvements:
+    - Add option to force update completion
+
+ -- Mike Sul <mike.sul@foundries.io>  Wed, 07 Jan 2026 15:13:00 +0000
+
+composectl (96.0.0) unstable; urgency=medium
+
+  * Enhancements:
+    - Increase visibility into app blob downloads
+  * Fixes:
+    - Improve various timeout & app behavior
+
+ -- Mike Sul <mike.sul@foundries.io>  Fri, 17 Nov 2025 12:25:00 +0000

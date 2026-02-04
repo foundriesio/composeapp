@@ -1,0 +1,28 @@
+Source: composectl
+Section: utils
+Priority: optional
+Maintainer: Foundries Team <support@foundries.io>
+Uploaders: Andy Doan <andy@foundries.io>, Andre Detsch <andre.detsch@foundries.io>, Mykhaylo Sul <mike.sul@foundries.io>
+Rules-Requires-Root: no
+Build-Depends: debhelper-compat (= 13),
+               golang
+Testsuite: autopkgtest-pkg-go
+Standards-Version: 4.7.0
+Vcs-Browser: htps://github.com/foundriesio/composeapp
+Vcs-Git: https://github.com/foundriesio/composeapp
+Homepage: https://github.com/foundriesio/composeapp
+XS-Go-Import-Path: github.com/foundriesio/composeapp
+
+Package: composectl
+Section: utils
+Architecture: any
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+         docker.io (>= 25.0.0),
+         docker-compose (>= 2.25.0)
+Static-Built-Using: ${misc:Static-Built-Using}
+Description: CLI tool for managing apps using the Compose Specification
+ composectl is a CLI tool used to manage apps defined in accordance with
+ the Compose Specification.
+ .
+ See: https://github.com/compose-spec/compose-spec/blob/main/spec.md
