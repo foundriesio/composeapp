@@ -76,7 +76,7 @@ composectl uninstall <app URI | app name>
 
 #### Run And Stop App
 ```commandline
-composectl run <app name> [<app name>] | --apps=<comma,separated,app,list>; --apps="" - run all apps
+composectl run <app name | app URI> [<app name | app URI>] | --apps=<comma,separated,app,list>; --apps="" - run all apps
 ```
 ```commandline
 composectl stop <app name> [<app name>] | --all
@@ -84,7 +84,7 @@ composectl stop <app name> [<app name>] | --all
 
 #### Remove App And Prune Store
 ```commandline
-composectl rm <app name> [<app name>] [--prune]
+composectl rm <app name | app URI> [<app name | app URI>] [--prune]
 ```
 ```commandline
 composectl prune
