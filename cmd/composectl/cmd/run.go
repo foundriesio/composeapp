@@ -37,7 +37,7 @@ func init() {
 }
 
 func runApps(cmd *cobra.Command, opts *runOptions) {
-	appURIs := checkUserListedApps(cmd.Context(), config, opts.Apps)
+	appURIs := checkUserListedApps(cmd.Context(), config, opts.Apps, true)
 
 	// Make sure all apps are installed before starting any of them
 	for _, appURI := range appURIs {

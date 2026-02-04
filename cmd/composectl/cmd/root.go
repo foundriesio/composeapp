@@ -171,7 +171,7 @@ func getDockerConfig() (*configfile.ConfigFile, error) {
 // many app operations such as "run", "rm", etc.
 // If `userListedApps` is empty, then return all apps from the local store.
 // Return the list of validated app URIs.
-func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApps []string) []string {
+func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApps []string, checkIfExist bool) []string {
 	// Get the list of all apps in the local store
 	apps, err := compose.ListApps(ctx, cfg)
 	DieNotNil(err)
@@ -209,8 +209,11 @@ func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApp
 		}
 
 		if !foundName && !foundURI {
-			// App not found in the local app store
-			DieNotNil(fmt.Errorf("app not found in local app store: %s", appNameOrURI))
+			if checkIfExist {
+				// App not found in the local app store
+				DieNotNil(fmt.Errorf("app not found in local app store: %s", appNameOrURI))
+			}
+			continue
 		}
 
 		if _, exists := checkedApps[foundApp.Name()]; exists {
