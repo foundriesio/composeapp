@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+export CGO_ENABLED=0
+export STOREROOT=/var/sota/reset-apps
+export COMPOSEROOT=/var/sota/compose-apps
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Debian injects C/C++ hardening flags into LDFLAGS (e.g. -Wl,-z,relro),
+	# which must NOT be passed to Go's internal linker.
+	env -u LDFLAGS $(MAKE) composectl
+
+override_dh_auto_install:
+	install -D -m 0755 bin/composectl debian/composectl/usr/bin/composectl
+
+	./bin/composectl completion bash > composectl.bash
+	install -D -m 0644 composectl.bash \
+	    debian/composectl/usr/share/bash-completion/completions/composectl
+
+override_dh_auto_clean:
+	$(MAKE) clean
+
+override_dh_dwz:
+	:

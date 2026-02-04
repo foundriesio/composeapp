@@ -1,4 +1,4 @@
-.PHONY: dir check_connect_timeout
+.PHONY: dir check_connect_timeout deb-image deb deb-lint deb-ci
 
 GO ?= go
 GOBUILDFLAGS ?=
@@ -13,6 +13,10 @@ BASESYSTEMCONFIG ?=
 bd = bin
 exe = composectl
 linter = golangci-lint
+
+DEB_IMAGE ?= ghcr.io/foundriesio/debuild-go-min:trixie
+DEB_DOCKERFILE ?= debian/Dockerfile
+DEB_OUT_DIR ?= $(bd)/deb
 
 commit = $(shell git rev-parse HEAD)
 
@@ -78,3 +82,23 @@ test-e2e: $(exe) preload-images
 
 test-smoke: $(exe) preload-images
 	@$(GO) test -v -run TestSmoke test/integration/smoke_test.go
+
+deb-image:
+	@set -e; \
+	if docker image inspect "$(DEB_IMAGE)" >/dev/null 2>&1; then \
+		echo "Using local image: $(DEB_IMAGE)"; \
+	elif docker pull "$(DEB_IMAGE)"; then \
+		echo "Pulled image: $(DEB_IMAGE)"; \
+	else \
+		echo "Image not found locally or in registry, building: $(DEB_IMAGE)"; \
+		docker build -t "$(DEB_IMAGE)" -f "$(DEB_DOCKERFILE)" .; \
+	fi
+
+deb: deb-image
+	@mkdir -p $(DEB_OUT_DIR)
+	docker run --rm -it -v "$$(pwd)":/src:ro -v "$$(pwd)/$(DEB_OUT_DIR)":/out:rw $(DEB_IMAGE) /src/debian/build-in-docker.sh
+
+deb-lint:
+	docker run --rm -it -u "$$(id -u):$$(id -g)" -v "$$(pwd)/$(DEB_OUT_DIR)":/out:ro $(DEB_IMAGE) bash -lc 'lintian -I /out/*.changes'
+
+deb-ci: deb deb-lint
