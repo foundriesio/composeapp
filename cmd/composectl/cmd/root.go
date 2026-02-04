@@ -1,7 +1,13 @@
 package composectl
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
 	dockercfg "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
 	"github.com/docker/cli/cli/config/credentials"
@@ -9,10 +15,6 @@ import (
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
-	"os"
-	"path/filepath"
-	"strconv"
-	"time"
 )
 
 const (
@@ -157,4 +159,70 @@ func getDockerConfig() (*configfile.ConfigFile, error) {
 		cfg.CredentialsStore = credentials.DetectDefaultStore(cfg.CredentialsStore)
 	}
 	return cfg, err
+}
+
+// Get the list of user listed apps as a command line arguments, specified  as names or URIs, and:
+//  1. Check if the specified apps exist in the local app store.
+//  2. Check if there is no ambiguity:
+//     a) two or more versions of the same app are in the local store and the user specified the app name only.
+//     b) app is referenced by different URIs or by name and URI.
+//
+// This guarantees that each app in the returned list is referenced unambiguously which is necessary for further processing for
+// many app operations such as "run", "rm", etc.
+// If `userListedApps` is empty, then return all apps from the local store.
+// Return the list of validated app URIs.
+func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApps []string) []string {
+	// Get the list of all apps in the local store
+	apps, err := compose.ListApps(ctx, cfg)
+	DieNotNil(err)
+
+	inputAppRefs := userListedApps
+	if len(inputAppRefs) == 0 {
+		// Run all apps found in the local app store
+		for _, app := range apps {
+			inputAppRefs = append(inputAppRefs, app.Name())
+		}
+	}
+
+	checkedApps := map[string]compose.App{}
+	for _, appNameOrURI := range inputAppRefs {
+		var foundName bool
+		var foundURI bool
+		var foundApp compose.App
+
+		// Search for the app in the local app store by name or by URI
+		for _, app := range apps {
+			if app.Name() == appNameOrURI {
+				if foundName {
+					DieNotNil(fmt.Errorf("more than two versions of the same app found in the local app store:"+
+						" %s (%s and %s)", app.Name(), foundApp.Ref().String(), app.Ref().String()))
+				}
+				foundName = true
+				foundApp = app
+				// Continue searching because there might be more than one version of the same app in the store
+			} else if app.Ref().String() == appNameOrURI {
+				foundURI = true
+				foundApp = app
+				// No need to continue searching because app URIs are unique
+				break
+			}
+		}
+
+		if !foundName && !foundURI {
+			// App not found in the local app store
+			DieNotNil(fmt.Errorf("app not found in local app store: %s", appNameOrURI))
+		}
+
+		if _, exists := checkedApps[foundApp.Name()]; exists {
+			DieNotNil(fmt.Errorf("the same app specified more than once: %s", foundApp.Name()))
+		} else {
+			checkedApps[foundApp.Name()] = foundApp
+		}
+	}
+
+	var appURIs []string
+	for _, app := range checkedApps {
+		appURIs = append(appURIs, app.Ref().String())
+	}
+	return appURIs
 }
