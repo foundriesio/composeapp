@@ -1,5 +1,6 @@
 #!/usr/bin/make -f
 
+export GO?=go
 export DH_VERBOSE=1
 export CGO_ENABLED=0
 export STOREROOT=/var/sota/reset-apps
@@ -20,8 +21,14 @@ override_dh_auto_install:
 	install -D -m 0644 composectl.bash \
 	    debian/composectl/usr/share/bash-completion/completions/composectl
 
+	# manpages (Cobra generator)
+	rm -rf debian/tmp-man
+	env -u LDFLAGS $(GO) run ./cmd/composectl/genman debian/tmp-man
+	install -D -m 0644 debian/tmp-man/composectl.1 debian/composectl/usr/share/man/man1/composectl.1
+
 override_dh_auto_clean:
 	$(MAKE) clean
+	rm -rf debian/tmp-man composectl.bash
 
 override_dh_dwz:
 	:
