@@ -1,4 +1,4 @@
-.PHONY: dir check_connect_timeout deb-image deb deb-lint deb-ci
+.PHONY: dir check_connect_timeout deb-image deb deb-lint deb-ci release-prep
 
 GO ?= go
 GOBUILDFLAGS ?=
@@ -102,3 +102,7 @@ deb-lint:
 	docker run --rm -u "$$(id -u):$$(id -g)" -v "$$(pwd)/$(DEB_OUT_DIR)":/out:ro $(DEB_IMAGE) bash -lc 'lintian -I /out/*.changes'
 
 deb-ci: deb deb-lint
+
+release-prep: deb-image
+	@test -n "$(VERSION)" || (echo "Usage: make $@ VERSION=0.1.1" >&2; exit 2)
+	@docker run --rm -it -u "$$(id -u):$$(id -g)" -v "$$PWD":/src:rw -w /src $(DEB_IMAGE) /src/debian/release-prep-changelog-in-docker.sh $(VERSION)

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     golang \
     git \
+    git-buildpackage \
     lintian \
  && rm -rf /var/lib/apt/lists/*
 
