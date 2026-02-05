@@ -96,9 +96,9 @@ deb-image:
 
 deb: deb-image
 	@mkdir -p $(DEB_OUT_DIR)
-	docker run --rm -it -v "$$(pwd)":/src:ro -v "$$(pwd)/$(DEB_OUT_DIR)":/out:rw $(DEB_IMAGE) /src/debian/build-in-docker.sh
+	docker run --rm -v "$$(pwd)":/src:ro -v "$$(pwd)/$(DEB_OUT_DIR)":/out:rw $(DEB_IMAGE) /src/debian/build-in-docker.sh
 
 deb-lint:
-	docker run --rm -it -u "$$(id -u):$$(id -g)" -v "$$(pwd)/$(DEB_OUT_DIR)":/out:ro $(DEB_IMAGE) bash -lc 'lintian -I /out/*.changes'
+	docker run --rm -u "$$(id -u):$$(id -g)" -v "$$(pwd)/$(DEB_OUT_DIR)":/out:ro $(DEB_IMAGE) bash -lc 'lintian -I /out/*.changes'
 
 deb-ci: deb deb-lint

@@ -31,3 +31,32 @@ jobs:
         run: docker compose --env-file=test/compose/.env.test -f test/compose/docker-compose.yml run composectl make test-e2e
       - name: teardown test env
         run: docker compose --env-file=test/compose/.env.test -f test/compose/docker-compose.yml down
+
+  package:
+    strategy:
+      fail-fast: true
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+
+    runs-on: ${{matrix.os}}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Debian packaging
+        run: |
+          set -eux
+          make deb-ci
+
+          docker run --rm -i \
+            -v "$PWD/bin/deb":/host-tmp:ro \
+            debian:trixie \
+            bash -lc '
+              set -eux
+              apt-get update
+              apt-get install -y --no-install-recommends /host-tmp/composectl_*.deb
+              test -x /usr/bin/composectl
+              composectl --help >/dev/null
+            '
