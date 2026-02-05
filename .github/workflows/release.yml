@@ -1,0 +1,119 @@
+on:
+  push:
+    tags:
+      - "v*"
+
+name: Create release
+
+env:
+  version: ${{ github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        hosts:
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+
+    permissions:
+      contents: write
+    runs-on: ${{ matrix.hosts.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up golang
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+
+      - name: Hack around https://github.com/actions/checkout/issues/290
+        run: |
+          git fetch --tags --force
+
+      - name: Set DEB_VERSION
+        run: |
+          set -eux
+          VERSION="${{ env.version }}"
+          echo "DEB_VERSION=${VERSION#v}" >> $GITHUB_ENV
+
+      - name: Build binaries
+        run: |
+          set -eux
+          make composectl
+          ./bin/composectl --help   # sanity test
+          mv bin/composectl bin/composectl_${{ env.DEB_VERSION }}_linux_${{ matrix.hosts.arch }}
+
+      - name: Save binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: composectl_${{ env.DEB_VERSION }}_linux_${{ matrix.hosts.arch }}
+          path: bin/composectl_${{ env.DEB_VERSION }}_linux_${{ matrix.hosts.arch }}
+
+      - name: Build debs
+        run: |
+          set -eux
+          make deb
+          make deb-lint
+
+      - name: Save debs
+        uses: actions/upload-artifact@v6
+        with:
+          name: composectl_${{ env.DEB_VERSION }}_${{ matrix.hosts.arch }}.deb
+          path: bin/deb/composectl_${{ env.DEB_VERSION }}_${{ matrix.hosts.arch }}.deb
+
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Hack around https://github.com/actions/checkout/issues/290
+        run: |
+          git fetch --tags --force
+
+      - name: Generate release notes from commit history
+        run: |
+          set -eux
+
+          # The tag that triggered this workflow (e.g. v96.1.0)
+          this_tag="${{ env.version }}"
+
+          # Previous tag (version sorted)
+          prev_tag="$(git tag --list 'v*' --sort=-version:refname | grep -v "^${this_tag}$" | head -n 1 || true)"
+
+          if [ -z "$prev_tag" ]; then
+            echo "## Commits (first release)" > release-notes.txt
+            echo "" >> release-notes.txt
+            git log --oneline >> release-notes.txt
+          else
+            echo "## Commits since ${prev_tag}" > release-notes.txt
+            echo "" >> release-notes.txt
+            git log --oneline "${prev_tag}..${this_tag}" >> release-notes.txt
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.version }}
+          body_path: release-notes.txt
+          files: |
+            dist/**/composectl_*
