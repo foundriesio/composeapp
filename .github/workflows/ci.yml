@@ -49,14 +49,4 @@ jobs:
         run: |
           set -eux
           make deb-ci
-
-          docker run --rm -i \
-            -v "$PWD/bin/deb":/host-tmp:ro \
-            debian:trixie \
-            bash -lc '
-              set -eux
-              apt-get update
-              apt-get install -y --no-install-recommends /host-tmp/composectl_*.deb
-              test -x /usr/bin/composectl
-              composectl --help >/dev/null
-            '
+          make deb-test
