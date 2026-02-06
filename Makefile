@@ -1,4 +1,4 @@
-.PHONY: dir check_connect_timeout deb-image deb deb-lint deb-ci release-prep
+.PHONY: dir check_connect_timeout deb-image deb deb-lint deb-ci release-prep deb-test
 
 GO ?= go
 GOBUILDFLAGS ?=
@@ -100,6 +100,11 @@ deb: deb-image
 
 deb-lint:
 	docker run --rm -u "$$(id -u):$$(id -g)" -v "$$(pwd)/$(DEB_OUT_DIR)":/out:ro $(DEB_IMAGE) bash -lc 'lintian -I /out/*.changes'
+
+deb-test:
+	docker run --rm -v "$$PWD/bin/deb":/out:ro debian:trixie \
+		bash -lc 'set -eux && apt-get update && apt-get install -y --no-install-recommends /out/composectl_*.deb && composectl --help >/dev/null'
+
 
 deb-ci: deb deb-lint
 

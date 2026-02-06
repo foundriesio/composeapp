@@ -62,6 +62,7 @@ jobs:
           set -eux
           make deb
           make deb-lint
+          make deb-test
 
       - name: Save debs
         uses: actions/upload-artifact@v6
