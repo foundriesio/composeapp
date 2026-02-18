@@ -6,6 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
+	"sort"
+
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/manifest/manifestlist"
@@ -15,8 +19,6 @@ import (
 	"github.com/foundriesio/composeapp/internal"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"os"
-	"sort"
 )
 
 type (
@@ -59,12 +61,24 @@ func GetLayers(ctx context.Context, services map[string]interface{}, archList []
 }
 
 func GetAppLayersFromMap(ctx context.Context, svcImages map[string]string, archList []string) (map[string][]distribution.Descriptor, error) {
-	regClient := internal.NewRegistryClient()
+	isInArchList := func(arch string) bool {
+		if len(archList) == 0 {
+			return true
+		}
 
+		for _, a := range archList {
+			if arch == a {
+				return true
+			}
+		}
+		return false
+	}
+
+	regClient := internal.NewRegistryClient()
 	// Get manifests per architecture and per image, for one architecture there should be one manifest for each service image
 	// One image might have two or more manifests per the same architecture, it's odd, but is true, see nginx's manifest list
-	// Thus, we have to created a map of maps, arch -> image/manifest-service -> manifest-digest, to avoid inclusion
-	// more then manifest per image and per architecture
+	// Thus, we have to create a map of maps, arch -> image/manifest-service -> manifest-digest, to avoid inclusion
+	// more than manifest per image and per architecture
 	archToManifestList := make(ArchManifestServices)
 	for _, image := range svcImages {
 		imageRef, err := reference.ParseNamed(image)
@@ -84,8 +98,22 @@ func GetAppLayersFromMap(ctx context.Context, svcImages map[string]string, archL
 
 		populateFromList := func(manifestList *manifestlist.DeserializedManifestList) {
 			for _, manifest := range manifestList.Manifests {
+				if !isInArchList(manifest.Platform.Architecture) {
+					slog.Debug("skip image manifest with non-target architecture", "image", image, "manifest", manifest.Digest, "arch", manifest.Platform.Architecture)
+					continue
+				}
+				if manifest.Platform.OS != "linux" {
+					slog.Debug("skip image manifest with non-linux OS", "image", image, "manifest", manifest.Digest, "os", manifest.Platform.OS)
+					continue
+				}
 				if _, ok := archToManifestList[manifest.Platform.Architecture]; !ok {
 					archToManifestList[manifest.Platform.Architecture] = make(map[distribution.ManifestService]digest.Digest)
+				}
+				if d, ok := archToManifestList[manifest.Platform.Architecture][imageManifestSvc]; ok {
+					if d != manifest.Digest {
+						fmt.Printf("  |-> WARNING: image %s has more than one manifest for architecture %s,"+
+							" only one will be included in the layers report: %s\n", image, manifest.Platform.Architecture, d)
+					}
 				}
 				archToManifestList[manifest.Platform.Architecture][imageManifestSvc] = manifest.Digest
 			}
@@ -109,7 +137,14 @@ func GetAppLayersFromMap(ctx context.Context, svcImages map[string]string, archL
 			if _, ok := archToManifestList[arch]; !ok {
 				archToManifestList[arch] = make(map[distribution.ManifestService]digest.Digest)
 			}
-			archToManifestList[arch][imageManifestSvc] = imageRef.(reference.Canonical).Digest()
+			imageDigest := imageRef.(reference.Canonical).Digest()
+			if d, ok := archToManifestList[arch][imageManifestSvc]; ok {
+				if d != imageDigest {
+					fmt.Printf("  |-> WARNING: found more than one manifest for image %s of architecture %s,"+
+						" only one will be included in the layers report: %s\n", image, arch, d)
+				}
+			}
+			archToManifestList[arch][imageManifestSvc] = imageDigest
 			return nil
 		}
 
@@ -128,18 +163,6 @@ func GetAppLayersFromMap(ctx context.Context, svcImages map[string]string, archL
 
 	appLayers := make(map[string]map[string]distribution.Descriptor)
 	expectedManNumber := len(svcImages)
-	isInArchList := func(arch string) bool {
-		if len(archList) == 0 {
-			return true
-		}
-
-		for _, a := range archList {
-			if arch == a {
-				return true
-			}
-		}
-		return false
-	}
 	for arch, manifests := range archToManifestList {
 		// Shortlist architectures, we need to include only architectures for which there is one manifest per each service image
 		if len(manifests) != expectedManNumber {
@@ -157,7 +180,7 @@ func GetAppLayersFromMap(ctx context.Context, svcImages map[string]string, archL
 		fmt.Printf("  |-> getting app layers for architecture: %s\n", arch)
 
 		// we use map instead of slice/array of Descriptor in order to avoid layer duplication since
-		// different images can consists of the same layers (layer intersection across images)
+		// different images can consist of the same layers (layer intersection across images)
 		appLayers[arch] = make(map[string]distribution.Descriptor)
 		for manSvc, d := range manifests {
 			manifest, err := manSvc.Get(ctx, d)
