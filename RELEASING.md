@@ -65,3 +65,19 @@ This triggers GitHub Actions to build artifacts and create the GitHub Release:
 
 * Linux binaries for amd64 and arm64.
 * Debian artifacts (`"deb"`) for amd64 and arm64.
+
+### Publish Debian Packages to Archive
+
+Assume we are releasing v1.1.0
+
+```
+ mkdir /tmp/archive
+ ./debian/release-prep-archive.sh /tmp/archive 1.1.0
+ ./debian/release-publish-archive.sh <full path to signing keys>/ /tmp/archive
+```
+
+As a sanity check run `find /tmp/archive` then push to the archive with:
+
+```
+ gsutil rsync -r /tmp/archive/ gs://fioup.foundries.io/
+```
