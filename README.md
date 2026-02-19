@@ -9,6 +9,35 @@ This includes tasks such as installation, running, stopping, etc.
 
 ## Installation
 
+### Install From APT (Debian/Ubuntu)
+
+1. Update the `apt` package index and install packages needed to use the fioup `apt` repository:
+
+   ```
+   sudo apt update
+   sudo apt install -y apt-transport-https ca-certificates curl gnupg
+   ```
+
+1. Download the public signing key for the package repositories:
+
+   ```
+   curl -L https://fioup.foundries.io/pkg/deb/dists/stable/Release.gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/fioup-stable.gpg
+   ```
+
+1. Add the appropriate `apt` repository.
+
+   ```
+   echo 'deb [signed-by=/etc/apt/trusted.gpg.d/fioup-stable.gpg] https://fioup.foundries.io/pkg/deb stable main' | sudo tee /etc/apt/sources.list.d/fioup.list
+   ```
+
+1. Install composectl
+
+   ```
+   sudo apt update && sudo apt install composectl
+   ```
+
+### Install The Development Version (from source)
+
 ```commandline
 git clone https://github.com/foundriesio/composeapp.git
 ```
