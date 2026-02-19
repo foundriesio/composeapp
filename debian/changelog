@@ -1,3 +1,21 @@
+composectl (96.1.0) unstable; urgency=medium
+
+  [ Katrina Prosise ]
+  * Cleanup readme
+
+  [ Mike Sul ]
+  * debian: Add basic blocks for debian packaging
+  * ci: add CI job to check packaging for debian
+  * debian: add man pages generation and packaging
+  * ci: Add CI workflow to make a release
+  * debian: Add changelog preparation script
+  * ci: Add helper make target to test debian package
+  * doc: add guidance on release process
+  * debian: add scripts to publish .deb packages to repo server
+  * fix(layers): avoid using image duplications
+
+ -- Mike Sul <mike.sul@foundries.io>  Thu, 19 Feb 2026 11:13:00 +0000
+
 composectl (96.0.1) unstable; urgency=medium
 
   * New Features:
