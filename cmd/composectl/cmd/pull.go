@@ -45,7 +45,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 	DieNotNil(err)
 
 	cr, ui, apps, err := checkApps(cmd.Context(), args, srcBlobProvider, *pullUsageWatermark,
-		*pullSrcStorePath, false, true)
+		*pullSrcStorePath, false, false)
 	DieNotNil(err, "failed to check apps status")
 	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
