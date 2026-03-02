@@ -3,14 +3,15 @@ package composectl
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync/atomic"
+	"time"
+
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/moby/term"
 	"github.com/spf13/cobra"
-	"os"
-	"sync/atomic"
-	"time"
 )
 
 var (
@@ -45,7 +46,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 	DieNotNil(err)
 
 	cr, ui, apps, err := checkApps(cmd.Context(), args, srcBlobProvider, *pullUsageWatermark,
-		*pullSrcStorePath, false, true)
+		*pullSrcStorePath, false, false)
 	DieNotNil(err, "failed to check apps status")
 	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
