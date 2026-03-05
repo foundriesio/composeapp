@@ -10,15 +10,17 @@ import (
 
 type (
 	CompleteOpts struct {
-		Prune bool
-		Force bool
+		Prune    bool
+		Force    bool
+		KeepApps []string
 	}
 	CompleteOpt func(*CompleteOpts)
 )
 
-func CompleteWithPruning() CompleteOpt {
+func CompleteWithPruning(apps ...string) CompleteOpt {
 	return func(opts *CompleteOpts) {
 		opts.Prune = true
+		opts.KeepApps = apps
 	}
 }
 
@@ -82,12 +84,23 @@ func (u *runnerImpl) complete(ctx context.Context, options ...CompleteOpt) error
 	}
 
 	if opts.Prune {
+		isInKeepList := func(appName string) bool {
+			for _, keepApp := range opts.KeepApps {
+				if appName == keepApp {
+					return true
+				}
+			}
+			return false
+		}
 		currentApps, err := compose.ListApps(ctx, u.config)
 		if err != nil {
 			return err
 		}
 		var appsToPrune []string
 		for _, app := range currentApps {
+			if isInKeepList(app.Name()) {
+				continue
+			}
 			if _, ok := updateApps[app.Ref().String()]; !ok {
 				appsToPrune = append(appsToPrune, app.Ref().String())
 			}
