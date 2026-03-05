@@ -22,7 +22,6 @@ const (
 )
 
 var (
-	commit            string
 	baseSystemConfig  string
 	overrideConfigDir string
 	storeRoot         string
@@ -53,19 +52,6 @@ func Execute() {
 }
 
 func init() {
-	versionCmd := &cobra.Command{
-		Use:   "version",
-		Short: "print a version of the utility",
-		Long:  ``,
-		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			if len(commit) > 0 {
-				fmt.Println(commit)
-			} else {
-				fmt.Println("unknown")
-			}
-		},
-	}
 	cobra.OnInitialize(initConfig)
 	// The `storeRoot`, `composeRoot`, `defConnectTimeout` can be set at compile time
 	configOpts := []v1.ConfigOpt{
@@ -92,7 +78,6 @@ func init() {
 		"timeout in seconds for reading data from a socket buffer when communicating with a container registry or an authentication service")
 	rootCmd.PersistentFlags().BoolVarP(&showConfigFile, "show-config", "C", false, "print paths of the applied config files")
 	rootCmd.AddCommand(updatectl.UpdateCmd)
-	rootCmd.AddCommand(versionCmd)
 }
 
 func initConfig() {
