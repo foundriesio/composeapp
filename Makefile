@@ -18,11 +18,12 @@ DEB_IMAGE ?= ghcr.io/foundriesio/debuild-go-min:trixie
 DEB_DOCKERFILE ?= debian/Dockerfile
 DEB_OUT_DIR ?= $(bd)/deb
 
-commit = $(shell git rev-parse HEAD)
+PKG := github.com/foundriesio/composeapp/cmd/composectl/cmd
+VERSION ?= $(shell git describe --tags --always --dirty --abbrev=7 --match "v*" 2>/dev/null || echo "dev")
+COMMIT  ?= $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "none")
+DATE    ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-ifneq ($(strip $(commit)),)
-	LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.commit=$(commit)'
-endif
+LDFLAGS := -X '$(PKG).Version=$(VERSION)' -X '$(PKG).Commit=$(COMMIT)' -X '$(PKG).Date=$(DATE)'
 
 ifdef DOCKERCFGDIR
     LDFLAGS += -X 'github.com/foundriesio/composeapp/cmd/composectl/cmd.overrideConfigDir=$(DOCKERCFGDIR)'
