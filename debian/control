@@ -19,7 +19,7 @@ Architecture: any
 Depends: ${misc:Depends},
          ${shlibs:Depends},
          docker.io (>= 25.0.0),
-         docker-compose (>= 2.25.0)
+         docker-compose (>= 2.25.0) | docker-compose-v2 (>= 2.25.0) | docker-compose-plugin (>= 2.25.0)
 Static-Built-Using: ${misc:Static-Built-Using}
 Description: CLI tool for managing apps using the Compose Specification
  composectl is a CLI tool used to manage apps defined in accordance with

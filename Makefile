@@ -105,6 +105,8 @@ deb-lint:
 deb-test:
 	docker run --rm -v "$$PWD/bin/deb":/out:ro debian:trixie \
 		bash -lc 'set -eux && apt-get update && apt-get install -y --no-install-recommends /out/composectl_*.deb && composectl --help >/dev/null'
+	docker run --rm -v "$$PWD/bin/deb":/out:ro ubuntu:noble \
+		bash -lc 'set -eux && apt-get update && apt-get install -y --no-install-recommends /out/composectl_*.deb && composectl --help >/dev/null'
 
 
 deb-ci: deb deb-lint
