@@ -3,6 +3,7 @@
 export GO?=go
 export DH_VERBOSE=1
 export CGO_ENABLED=0
+export GOFLAGS=-buildvcs=false
 export STOREROOT=/var/sota/reset-apps
 export COMPOSEROOT=/var/sota/compose-apps
 
