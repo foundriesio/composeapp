@@ -1,3 +1,16 @@
+composectl (96.1.1) unstable; urgency=medium
+
+  * docs: add info about installation from APT
+  * docs: add info on publishing deb package to archive
+  * refact(pull): verify local blob integrity before pulling
+  * feat(update): add param to specify apps to keep during pruning
+  * feat(version): enhance version command with detailed output
+  * ci: grant access to image needed for CI
+  * debian: add golangci-lint installation
+  * debian: update deps to support Ubuntu
+
+ -- Mike Sul <bot@foundries.io>  Fri, 06 Mar 2026 11:54:33 +0000
+
 composectl (96.1.0) unstable; urgency=medium
 
   [ Katrina Prosise ]
