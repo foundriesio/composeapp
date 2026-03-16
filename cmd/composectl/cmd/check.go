@@ -46,8 +46,9 @@ type (
 )
 
 const (
-	MinUsageWatermark = 20
-	MaxUsageWatermark = 95
+	MinUsageWatermark     = 20
+	MaxUsageWatermark     = 99
+	DefaultUsageWatermark = 95
 )
 
 func init() {
@@ -58,8 +59,8 @@ func init() {
 		Args:  cobra.MinimumNArgs(1),
 	}
 	opts := checkOptions{}
-	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", 80,
-		"The maximum allowed storage usage in percentage")
+	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", DefaultUsageWatermark,
+		fmt.Sprintf("The maximum allowed storage usage in percentage in range %d-%d", MinUsageWatermark, MaxUsageWatermark))
 	opts.SrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "",
 		"A path to the source store root directory")
 	opts.Locally = checkCmd.Flags().BoolP("local", "", false,
@@ -76,10 +77,18 @@ func init() {
 			fmt.Fprintf(os.Stderr, "unsupported  `--format` value: %s\n", opts.Format)
 			os.Exit(1)
 		}
+		checkWatermark(*opts.UsageWatermark)
 		checkAppsCmd(cmd, args, &opts)
 	}
 
 	rootCmd.AddCommand(checkCmd)
+}
+
+func checkWatermark(watermark uint) {
+	if watermark < MinUsageWatermark || watermark > MaxUsageWatermark {
+		DieNotNilWithCode(fmt.Errorf("invalid `--storage-usage-watermark` value: %d; should be between %d and %d",
+			watermark, MinUsageWatermark, MaxUsageWatermark), 1, "invalid argument")
+	}
 }
 
 func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
