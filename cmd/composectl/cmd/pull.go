@@ -14,10 +14,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type (
+	pullOptions struct {
+		UsageWatermark uint
+		SrcStorePath   string
+		PrintUsageStat bool
+	}
+)
+
 var (
-	pullUsageWatermark        *uint
-	pullSrcStorePath          *string
-	pullPrintUsageStat        *bool
 	exitCodeInsufficientSpace int = 100
 )
 
@@ -27,31 +32,36 @@ func init() {
 		Short: "pull <ref> [<ref>]",
 		Long:  ``,
 		Args:  cobra.MinimumNArgs(1),
-		Run:   pullApps,
 	}
+	opts := pullOptions{}
+
+	pullCmd.Flags().UintVarP(&opts.UsageWatermark, "storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
+	pullCmd.Flags().StringVarP(&opts.SrcStorePath, "source-store-path", "l", "", "A path to the source store root directory")
+	pullCmd.Flags().BoolVarP(&opts.PrintUsageStat, "print-usage-stat", "p", false, "A flag to enable/disable usage statistic output to stderr")
+	pullCmd.Run = func(cmd *cobra.Command, args []string) {
+		pullApps(cmd, args, &opts)
+	}
+
 	rootCmd.AddCommand(pullCmd)
-	pullUsageWatermark = pullCmd.Flags().UintP("storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
-	pullSrcStorePath = pullCmd.Flags().StringP("source-store-path", "l", "", "A path to the source store root directory")
-	pullPrintUsageStat = pullCmd.Flags().BoolP("print-usage-stat", "p", false, "A flag to enable/disable usage statistic output to stderr")
 }
 
-func pullApps(cmd *cobra.Command, args []string) {
+func pullApps(cmd *cobra.Command, args []string, opts *pullOptions) {
 	if len(args) > 1 {
 		fmt.Printf("Pulling %d apps to %s\n", len(args), config.StoreRoot)
 	} else {
 		fmt.Printf("Pulling %s to %s\n", args[0], config.StoreRoot)
 	}
 
-	srcBlobProvider, cs, err := getAppStoreAndDstBlobProvider(*pullSrcStorePath, false)
+	srcBlobProvider, cs, err := getAppStoreAndDstBlobProvider(opts.SrcStorePath, false)
 	DieNotNil(err)
 
-	cr, ui, apps, err := checkApps(cmd.Context(), args, srcBlobProvider, *pullUsageWatermark,
-		*pullSrcStorePath, false, false)
+	cr, ui, apps, err := checkApps(cmd.Context(), args, srcBlobProvider, opts.UsageWatermark,
+		opts.SrcStorePath, false, false)
 	DieNotNil(err, "failed to check apps status")
 	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
 		if ui.Required > ui.Available {
-			if *pullPrintUsageStat {
+			if opts.PrintUsageStat {
 				if b, err := json.Marshal(ui); err == nil {
 					fmt.Fprintln(os.Stderr, string(b))
 				}
@@ -64,7 +74,7 @@ func pullApps(cmd *cobra.Command, args []string) {
 		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
 			compose.WithProgressPollInterval(1000),
 			compose.WithFetchProgress(getFetchProgressHandler()),
-			compose.WithSourcePath(*pullSrcStorePath))
+			compose.WithSourcePath(opts.SrcStorePath))
 		DieNotNil(err, "failed to fetch blobs")
 		fmt.Println("\n\nApp blobs pull completed at " + time.Now().UTC().Format("15:04:05 02 Jan 2006"))
 	}
