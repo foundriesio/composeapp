@@ -19,6 +19,7 @@ type (
 		UsageWatermark uint
 		SrcStorePath   string
 		PrintUsageStat bool
+		Quick          bool
 	}
 )
 
@@ -38,6 +39,7 @@ func init() {
 	pullCmd.Flags().UintVarP(&opts.UsageWatermark, "storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
 	pullCmd.Flags().StringVarP(&opts.SrcStorePath, "source-store-path", "l", "", "A path to the source store root directory")
 	pullCmd.Flags().BoolVarP(&opts.PrintUsageStat, "print-usage-stat", "p", false, "A flag to enable/disable usage statistic output to stderr")
+	pullCmd.Flags().BoolVar(&opts.Quick, "quick", false, "Skip checking hash of app blobs; verify only their presence and size")
 	pullCmd.Run = func(cmd *cobra.Command, args []string) {
 		pullApps(cmd, args, &opts)
 	}
@@ -56,7 +58,7 @@ func pullApps(cmd *cobra.Command, args []string, opts *pullOptions) {
 	DieNotNil(err)
 
 	cr, ui, apps, err := checkApps(cmd.Context(), args, srcBlobProvider, opts.UsageWatermark,
-		opts.SrcStorePath, false, false)
+		opts.SrcStorePath, false, opts.Quick)
 	DieNotNil(err, "failed to check apps status")
 	if len(cr.MissingBlobs) > 0 {
 		ui.Print()
