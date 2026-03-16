@@ -36,11 +36,13 @@ func init() {
 	}
 	opts := pullOptions{}
 
-	pullCmd.Flags().UintVarP(&opts.UsageWatermark, "storage-usage-watermark", "u", 80, "The maximum allowed storage usage in percentage")
+	pullCmd.Flags().UintVarP(&opts.UsageWatermark, "storage-usage-watermark", "u", DefaultUsageWatermark,
+		fmt.Sprintf("The maximum allowed storage usage in percentage in range %d-%d", MinUsageWatermark, MaxUsageWatermark))
 	pullCmd.Flags().StringVarP(&opts.SrcStorePath, "source-store-path", "l", "", "A path to the source store root directory")
 	pullCmd.Flags().BoolVarP(&opts.PrintUsageStat, "print-usage-stat", "p", false, "A flag to enable/disable usage statistic output to stderr")
 	pullCmd.Flags().BoolVar(&opts.Quick, "quick", false, "Skip checking hash of app blobs; verify only their presence and size")
 	pullCmd.Run = func(cmd *cobra.Command, args []string) {
+		checkWatermark(opts.UsageWatermark)
 		pullApps(cmd, args, &opts)
 	}
 
