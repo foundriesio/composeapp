@@ -3,14 +3,15 @@ package composectl
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync/atomic"
+	"time"
+
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/moby/term"
 	"github.com/spf13/cobra"
-	"os"
-	"sync/atomic"
-	"time"
 )
 
 var (
