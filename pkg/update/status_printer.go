@@ -181,6 +181,13 @@ func GetInstallProgressPrinter(options ...ProgressPrinterOption) func(status *co
 
 func renderImageLoadingProgress(ctx *imageLoadingContext, p *compose.InstallProgress, indentation int) {
 	switch p.ImageLoadState {
+	case compose.ImageLoadStateImageLoading:
+		{
+			if ctx.curImageID != p.ImageID {
+				fmt.Printf("%*sLoading image %s", indentation, "", p.ImageID)
+				ctx.curImageID = p.ImageID
+			}
+		}
 	case compose.ImageLoadStateLayerLoading:
 		{
 			if ctx.curImageID != p.ImageID {

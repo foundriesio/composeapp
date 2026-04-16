@@ -4,9 +4,11 @@ import (
 	"archive/tar"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
+	"strings"
 
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
@@ -81,6 +83,7 @@ const (
 	ImageLoadStateLayerLoading ImageLoadState = "image-load:layer:loading"
 	ImageLoadStateLayerSyncing ImageLoadState = "image-load:layer:syncing"
 	ImageLoadStateLayerLoaded  ImageLoadState = "image-load:layer:loaded"
+	ImageLoadStateImageLoading ImageLoadState = "image-load:image:loading"
 	ImageLoadStateImageLoaded  ImageLoadState = "image-load:image:loaded"
 	ImageLoadStateImageExist   ImageLoadState = "image-load:image:exist"
 )
@@ -197,6 +200,9 @@ func LoadImages(ctx context.Context,
 		}
 	}()
 
+	if isCtrd && options.ProgressReporter != nil {
+		options.ProgressReporter.Update(LoadImageProgress{State: ImageLoadStateImageLoading, ImageID: imageURIs[0].URI})
+	}
 	r, err := client.ImageLoad(ctx, ts.Reader(), false)
 	if err != nil {
 		return err
@@ -204,8 +210,7 @@ func LoadImages(ctx context.Context,
 	defer r.Body.Close()
 
 	if isCtrd {
-		// Containerd doesn't support progress reporting, so we can return early.
-		return nil
+		return reportProgressIfContainerd(r.Body, imageURIs, options.ProgressReporter)
 	}
 
 	// TODO: Read and process the image load progress messages from the response body `r.Body`
@@ -456,11 +461,58 @@ func adjustOptionsIfContainerd(ctx context.Context, client *client.Client, optio
 			// thus, the image load will fail if `options.ReadBlobsFromStore` is set.
 			options.ReadBlobsFromStore = false
 		}
-		if options.ProgressReporter != nil {
-			// The ctrd storage does not support reporting progress of loading image layers, thus, disable progress reporting to avoid confusion.
-			options.ProgressReporter = nil
-		}
 	}
 
 	return isCtrd
+}
+
+func reportProgressIfContainerd(body io.ReadCloser, imageURIs []imageURI2RefCounter, reporter progress.Reporter[LoadImageProgress]) error {
+	// Currently, dockerd using the containerd image store does not provide proper
+	// progress reporting for image loads. As a workaround, parse the response body
+	// and derive progress updates from messages emitted by the current dockerd implementation.
+	//
+	// In particular, progress is inferred from the "Loaded image:" message, which
+	// indicates that an image has been imported successfully:
+	// https://github.com/moby/moby/blob/88e3f1c86461a796a9164d4c7dde72e77339eae4/daemon/containerd/image_exporter.go#L394
+	//
+	// Proper progress support is being tracked in: https://github.com/moby/moby/issues/43910
+	// Ongoing implementation: https://github.com/moby/moby/pull/50250
+	// Revisit this logic once the proper progress reporting becomes available.
+	dec := json.NewDecoder(body)
+
+	for {
+		var jm jsonmessage.JSONMessage
+		// Decode the next message from the response body
+		err := dec.Decode(&jm)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to decode containerd response: %w", err)
+		}
+		if strings.HasPrefix(jm.Stream, "Error unpacking image") {
+			return fmt.Errorf("error unpacking image: %s", jm.Stream)
+		}
+		if strings.HasPrefix(jm.Stream, "Loaded image: ") {
+			imageRef := strings.TrimPrefix(jm.Stream, "Loaded image: ")
+			// Remove end line character if present
+			imageRef = strings.TrimSuffix(imageRef, "\n")
+			for indx, img := range imageURIs {
+				if img.URI == imageRef {
+					reporter.Update(LoadImageProgress{
+						State:   ImageLoadStateImageLoaded,
+						ImageID: img.URI,
+					})
+					if indx < len(imageURIs)-1 {
+						reporter.Update(LoadImageProgress{
+							State:   ImageLoadStateImageLoading,
+							ImageID: imageURIs[indx+1].URI,
+						})
+					}
+					break
+				}
+			}
+		}
+	}
+	return nil
 }
