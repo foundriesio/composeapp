@@ -211,107 +211,10 @@ func LoadImages(ctx context.Context,
 
 	if isCtrd {
 		return reportProgressIfContainerd(r.Body, imageURIs, options.ProgressReporter)
+	} else {
+		return reportProgressIfDocker(r.Body, imageURIs, layersMap, options)
 	}
 
-	// TODO: Read and process the image load progress messages from the response body `r.Body`
-	dec := json.NewDecoder(r.Body)
-
-	curImageIndex := 0
-	curLayerID := ""
-	p := &LoadImageProgress{
-		State:   ImageLoadStateImageWaiting,
-		ImageID: imageURIs[curImageIndex].URI,
-	}
-
-	for {
-		var jm jsonmessage.JSONMessage
-		// Decode the next message from the response body
-		if decodeErr := dec.Decode(&jm); decodeErr != nil {
-			if decodeErr != io.EOF {
-				// An error occurred while decoding the message, except for EOF
-				err = decodeErr
-			}
-			break
-		}
-		if jm.Error != nil {
-			err = fmt.Errorf("dockerd err: %s", jm.Error)
-			break
-		}
-
-		switch p.State {
-		case ImageLoadStateImageWaiting:
-			{
-				if jm.Progress == nil {
-					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
-						p.State = ImageLoadStateImageExist
-						reportProgressIfEnabled(options, p)
-
-						curImageIndex++
-						curLayerID = ""
-						p.State = ImageLoadStateImageWaiting
-						p.ImageID = getImageID(imageURIs, curImageIndex, false)
-					}
-				} else {
-					curLayerID = jm.ID
-					p.ImageID = getImageID(imageURIs, curImageIndex, true)
-					if _, ok := layersMap[curLayerID]; ok {
-						p.ID = layersMap[curLayerID][:7]
-					} else {
-						p.ID = "unknown"
-					}
-					p.State = ImageLoadStateLayerLoading
-					p.Current = jm.Progress.Current
-					p.Total = jm.Progress.Total
-					reportProgressIfEnabled(options, p)
-				}
-			}
-		case ImageLoadStateLayerLoading:
-			{
-				p.Current = jm.Progress.Current
-				p.Total = jm.Progress.Total
-				reportProgressIfEnabled(options, p)
-				if jm.Progress.Current == jm.Progress.Total {
-					// Image layer files were extracted and written to filesystem, now fsyncing has started
-					// Unfortunately, we cannot track progress of fsyncing, so we just report the state
-					p.State = ImageLoadStateLayerSyncing
-					reportProgressIfEnabled(options, p)
-				}
-			}
-		case ImageLoadStateLayerSyncing:
-			{
-				if jm.Progress == nil {
-					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
-						p.State = ImageLoadStateImageLoaded
-						reportProgressIfEnabled(options, p)
-
-						curImageIndex++
-						curLayerID = ""
-						p.ImageID = getImageID(imageURIs, curImageIndex, false)
-						p.State = ImageLoadStateImageWaiting
-					}
-
-				} else if curLayerID != jm.ID {
-					p.State = ImageLoadStateLayerLoaded
-					reportProgressIfEnabled(options, p)
-
-					// Start new image layer loading
-					curLayerID = jm.ID
-					if _, ok := layersMap[curLayerID]; ok {
-						p.ID = layersMap[curLayerID][:7]
-					} else {
-						p.ID = "unknown"
-					}
-					p.State = ImageLoadStateLayerLoading
-
-					p.Current = jm.Progress.Current
-					p.Total = jm.Progress.Total
-					reportProgressIfEnabled(options, p)
-				}
-			}
-		}
-	}
-
-	return err
 }
 
 func reportProgressIfEnabled(opts *LoadImageOptions, p *LoadImageProgress) {
@@ -515,4 +418,105 @@ func reportProgressIfContainerd(body io.ReadCloser, imageURIs []imageURI2RefCoun
 		}
 	}
 	return nil
+}
+
+func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter, layersMap map[string]string, options *LoadImageOptions) error {
+	var err error
+	dec := json.NewDecoder(body)
+
+	curImageIndex := 0
+	curLayerID := ""
+	p := &LoadImageProgress{
+		State:   ImageLoadStateImageWaiting,
+		ImageID: imageURIs[curImageIndex].URI,
+	}
+
+	for {
+		var jm jsonmessage.JSONMessage
+		// Decode the next message from the response body
+		if decodeErr := dec.Decode(&jm); decodeErr != nil {
+			if decodeErr != io.EOF {
+				// An error occurred while decoding the message, except for EOF
+				err = decodeErr
+			}
+			break
+		}
+		if jm.Error != nil {
+			err = fmt.Errorf("dockerd err: %s", jm.Error)
+			break
+		}
+
+		switch p.State {
+		case ImageLoadStateImageWaiting:
+			{
+				if jm.Progress == nil {
+					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
+						p.State = ImageLoadStateImageExist
+						reportProgressIfEnabled(options, p)
+
+						curImageIndex++
+						curLayerID = ""
+						p.State = ImageLoadStateImageWaiting
+						p.ImageID = getImageID(imageURIs, curImageIndex, false)
+					}
+				} else {
+					curLayerID = jm.ID
+					p.ImageID = getImageID(imageURIs, curImageIndex, true)
+					if _, ok := layersMap[curLayerID]; ok {
+						p.ID = layersMap[curLayerID][:7]
+					} else {
+						p.ID = "unknown"
+					}
+					p.State = ImageLoadStateLayerLoading
+					p.Current = jm.Progress.Current
+					p.Total = jm.Progress.Total
+					reportProgressIfEnabled(options, p)
+				}
+			}
+		case ImageLoadStateLayerLoading:
+			{
+				p.Current = jm.Progress.Current
+				p.Total = jm.Progress.Total
+				reportProgressIfEnabled(options, p)
+				if jm.Progress.Current == jm.Progress.Total {
+					// Image layer files were extracted and written to filesystem, now fsyncing has started
+					// Unfortunately, we cannot track progress of fsyncing, so we just report the state
+					p.State = ImageLoadStateLayerSyncing
+					reportProgressIfEnabled(options, p)
+				}
+			}
+		case ImageLoadStateLayerSyncing:
+			{
+				if jm.Progress == nil {
+					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
+						p.State = ImageLoadStateImageLoaded
+						reportProgressIfEnabled(options, p)
+
+						curImageIndex++
+						curLayerID = ""
+						p.ImageID = getImageID(imageURIs, curImageIndex, false)
+						p.State = ImageLoadStateImageWaiting
+					}
+
+				} else if curLayerID != jm.ID {
+					p.State = ImageLoadStateLayerLoaded
+					reportProgressIfEnabled(options, p)
+
+					// Start new image layer loading
+					curLayerID = jm.ID
+					if _, ok := layersMap[curLayerID]; ok {
+						p.ID = layersMap[curLayerID][:7]
+					} else {
+						p.ID = "unknown"
+					}
+					p.State = ImageLoadStateLayerLoading
+
+					p.Current = jm.Progress.Current
+					p.Total = jm.Progress.Total
+					reportProgressIfEnabled(options, p)
+				}
+			}
+		}
+	}
+	return err
 }
