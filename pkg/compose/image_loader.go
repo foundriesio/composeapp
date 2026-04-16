@@ -144,6 +144,8 @@ func LoadImages(ctx context.Context,
 		defer options.ProgressReporter.Stop(true)
 	}
 
+	isCtrd := adjustOptionsIfContainerd(ctx, client, options)
+
 	imageLoadManifests, imageURIs, layersMap, err := generateImageLoadingManifestForApp(ctx, app, blobsRoot, options)
 	if err != nil {
 		return fmt.Errorf("failed to generate image load manifests: %w", err)
@@ -200,6 +202,12 @@ func LoadImages(ctx context.Context,
 		return err
 	}
 	defer r.Body.Close()
+
+	if isCtrd {
+		// Containerd doesn't support progress reporting, so we can return early.
+		return nil
+	}
+
 	// TODO: Read and process the image load progress messages from the response body `r.Body`
 	dec := json.NewDecoder(r.Body)
 
@@ -429,4 +437,30 @@ func getImageID(imageURIs []imageURI2RefCounter, imageIndex int, printWarning bo
 		fmt.Printf("Warning: image index %d is out of range (max %d)\n", imageIndex, len(imageURIs))
 	}
 	return "unknown"
+}
+
+func adjustOptionsIfContainerd(ctx context.Context, client *client.Client, options *LoadImageOptions) bool {
+	var isCtrd = false
+	// Check if the docker daemon is using ctrd storage, which requires special handling when loading images.
+	if dockerInfo, err := client.Info(ctx); err == nil {
+		if dockerInfo.Driver == "overlayfs" &&
+			len(dockerInfo.DriverStatus) > 0 &&
+			dockerInfo.DriverStatus[0][1] == "io.containerd.snapshotter.v1" {
+			isCtrd = true
+		}
+	}
+
+	if isCtrd {
+		if options.ReadBlobsFromStore {
+			// The ctrd storage does not support loading image layers from an external directory,
+			// thus, the image load will fail if `options.ReadBlobsFromStore` is set.
+			options.ReadBlobsFromStore = false
+		}
+		if options.ProgressReporter != nil {
+			// The ctrd storage does not support reporting progress of loading image layers, thus, disable progress reporting to avoid confusion.
+			options.ProgressReporter = nil
+		}
+	}
+
+	return isCtrd
 }
