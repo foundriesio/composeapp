@@ -65,6 +65,7 @@ const (
 
 	AnnotationKeyAppBundleIndexDigest = "org.foundries.app.bundle.index.digest"
 	AnnotationKeyAppBundleIndexSize   = "org.foundries.app.bundle.index.size"
+	AnnotationKeyAppServiceName       = "org.foundries.app.service.name"
 
 	StoreTypeSkopeo     = "skopeo store"
 	StoreTypeComposeCtl = "composectl store"
@@ -187,6 +188,7 @@ func (l *appLoader) LoadAppTree(ctx context.Context, provider compose.BlobProvid
 				imageTree.Descriptor.Annotations[AppServiceHashLabelKey] = srvHash
 			}
 		}
+		imageTree.Descriptor.Annotations[AnnotationKeyAppServiceName] = service.Name
 		composeTree.Children = append(composeTree.Children, imageTree)
 	}
 	appTree.Children = append(appTree.Children, &composeTree)
