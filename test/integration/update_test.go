@@ -2,6 +2,7 @@ package e2e_tests
 
 import (
 	"context"
+	"github.com/docker/docker/api/types"
 	"testing"
 
 	"github.com/foundriesio/composeapp/pkg/compose"
@@ -621,21 +622,35 @@ services:
 	f.Check(t, updateRunner.Start(ctx))
 	// Complete with pruning to remove the second app
 	f.Check(t, updateRunner.Complete(ctx, update.CompleteWithPruning()))
-
 	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, nil)
 	f.Check(t, err)
-	if !appsStatus.AreRunning() {
-		t.Fatal("app is expected to be running")
-	}
 	if len(appsStatus.Apps) > 1 || len(appsStatus.Apps) == 0 {
 		t.Fatalf("only one app is expected to be running, found %d", len(appsStatus.Apps))
 	}
 	if appsStatus.Apps[0].Ref().String() != appURIs[0] {
 		t.Fatalf("expected app URI %s, found %s", appURIs[0], appsStatus.Apps[0].Ref().String())
 	}
+	appsStatus, err = compose.CheckAppsStatus(ctx, cfg, oneAppURI)
+	f.Check(t, err)
+	if !appsStatus.AreRunning() {
+		t.Fatalf("app is expected to be running; uri=%s", oneAppURI[0])
+	}
 
 	// stop, uninstall, and remove all apps
 	f.Check(t, compose.StopApps(ctx, cfg, oneAppURI))
 	f.Check(t, compose.UninstallApps(ctx, cfg, oneAppURI, compose.WithImagePruning()))
 	f.Check(t, compose.RemoveApps(ctx, cfg, oneAppURI))
+
+	// check if no images are left after pruning in the docker storage
+	cli, err := compose.GetDockerClient("")
+	f.Check(t, err)
+	defer cli.Close()
+	images, err := cli.ImageList(ctx, types.ImageListOptions{All: true})
+	f.Check(t, err)
+	if len(images) != 0 {
+		for _, img := range images {
+			t.Logf("unexpected image left after pruning: ID=%s, RepoTags=%v, RepoDigests=%v\n", img.ID, img.RepoTags, img.RepoDigests)
+		}
+		t.Fatalf("no images are expected to be left after pruning, found %d", len(images))
+	}
 }
