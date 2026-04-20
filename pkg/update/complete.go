@@ -3,22 +3,28 @@ package update
 import (
 	"context"
 	"fmt"
+
 	"github.com/containerd/containerd/platforms"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 )
 
 type (
 	CompleteOpts struct {
-		Prune bool
-		Force bool
+		Prune                bool
+		Force                bool
+		PruneAllUnusedImages bool
 	}
 	CompleteOpt func(*CompleteOpts)
 )
 
-func CompleteWithPruning() CompleteOpt {
+func CompleteWithPruning(pruneAllUnusedImages ...bool) CompleteOpt {
 	return func(opts *CompleteOpts) {
 		opts.Prune = true
+		if len(pruneAllUnusedImages) > 0 {
+			opts.PruneAllUnusedImages = pruneAllUnusedImages[0]
+		}
 	}
 }
 
@@ -93,11 +99,19 @@ func (u *runnerImpl) complete(ctx context.Context, options ...CompleteOpt) error
 			}
 		}
 		if len(appsToPrune) > 0 {
-			if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning()); err != nil {
+			if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning(opts.PruneAllUnusedImages)); err != nil {
 				return err
 			}
 			if err := compose.RemoveApps(ctx, u.config, appsToPrune, compose.WithCheckStatus(false)); err != nil {
 				return err
+			}
+		} else if opts.PruneAllUnusedImages {
+			// If no apps are removed, we can still prune the images that are not used by any app.
+			if dockerClient, errClient := compose.GetDockerClient(u.config.DockerHost); errClient == nil {
+				_, err = dockerClient.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "false")))
+				return fmt.Errorf("failed to prune unused images: %w", err)
+			} else {
+				return fmt.Errorf("failed to create docker client for image pruning: %w", errClient)
 			}
 		}
 	}
