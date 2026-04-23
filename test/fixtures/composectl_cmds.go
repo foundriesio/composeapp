@@ -188,26 +188,32 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 }
 
 func (a *App) Pull(t *testing.T) {
+	t.Helper()
 	a.runCmd(t, "pull app", "pull", a.PublishedUri, "-u", "90")
 }
 
 func (a *App) Remove(t *testing.T) {
+	t.Helper()
 	a.runCmd(t, "remove app", "rm", a.PublishedUri)
 }
 
 func (a *App) Install(t *testing.T) {
+	t.Helper()
 	a.runCmd(t, "install app", "install", a.PublishedUri)
 }
 
 func (a *App) Uninstall(t *testing.T) {
+	t.Helper()
 	a.runCmd(t, "uninstall app", "uninstall", "--prune=true", a.Name)
 }
 
 func (a *App) Run(t *testing.T) {
+	t.Helper()
 	a.runCmd(t, "run app", "run", a.Name)
 }
 
 func (a *App) Up(t *testing.T) {
+	t.Helper()
 	t.Run("compose up", func(t *testing.T) {
 		composeRoot := path.Join(AppComposeRootRoot, a.Name)
 
@@ -219,6 +225,7 @@ func (a *App) Up(t *testing.T) {
 }
 
 func (a *App) Stop(t *testing.T) {
+	t.Helper()
 	a.runCmd(t, "stop app", "stop", a.Name)
 }
 
