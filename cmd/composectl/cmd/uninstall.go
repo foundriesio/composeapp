@@ -31,5 +31,9 @@ func init() {
 
 func uninstallApps(cmd *cobra.Command, args []string, opts *uninstallOptions) {
 	appURIs := checkUserListedApps(cmd.Context(), config, args, !opts.ignoreNonInstalled, true)
-	DieNotNil(compose.UninstallApps(cmd.Context(), config, appURIs))
+	pruneType := compose.PruneTypeOnlyAppImages
+	if opts.prune {
+		pruneType = compose.PruneTypeAllUnusedImages
+	}
+	DieNotNil(compose.UninstallApps(cmd.Context(), config, appURIs, compose.WithImagePruning(pruneType)))
 }
