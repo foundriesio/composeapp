@@ -528,8 +528,8 @@ services:
 	// We need to run "bad" app stop before trying to install a new valid app because one of the bad app containers
 	// could have started before the other failed to start, and it would interfere with the new app installation.
 	badApp.Stop(t)
-	defer badApp.Uninstall(t)
 	defer badApp.Remove(t)
+	defer badApp.Uninstall(t)
 
 	app := f.NewApp(t, appComposeDef)
 	app.Publish(t)
