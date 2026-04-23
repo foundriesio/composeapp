@@ -54,8 +54,14 @@ func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options .
 	}
 	for _, app := range status.Apps {
 		if appsInStore[app.Name()] > 1 {
-			// Cannot remove compose app dir if there is another version of this app in the store
-			continue
+			// Multiple versions of the same app exist in the store.
+			// If the version being removed is not installed, another version may still be
+			// installed and using the same compose directory. In that case, keep the app
+			// compose directory; otherwise we could remove compose files needed by the
+			// other installed version.
+			if _, isNotInstalled := status.NotInstalledCompose[app.Ref().Digest]; isNotInstalled {
+				continue
+			}
 		}
 		err = os.RemoveAll(cfg.GetAppComposeDir(app.Name()))
 		if err != nil {
