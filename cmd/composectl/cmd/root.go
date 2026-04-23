@@ -160,7 +160,7 @@ func getDockerConfig() (*configfile.ConfigFile, error) {
 // many app operations such as "run", "rm", etc.
 // If `userListedApps` is empty, then return all apps from the local store.
 // Return the list of validated app URIs.
-func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApps []string, checkIfExist bool) []string {
+func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApps []string, checkIfExist bool, allowMultipleVersions ...bool) []string {
 	// Get the list of all apps in the local store
 	apps, err := compose.ListApps(ctx, cfg)
 	DieNotNil(err)
@@ -173,25 +173,28 @@ func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApp
 		}
 	}
 
-	checkedApps := map[string]compose.App{}
+	checkedApps := map[string][]compose.App{}
 	for _, appNameOrURI := range inputAppRefs {
 		var foundName bool
 		var foundURI bool
-		var foundApp compose.App
+		// Keep track of all found apps with the same name,
+		// since more than one version of the same app can be in the local store,
+		// and the user can specify the app by name without version, which is an ambiguous reference to the app.
+		var foundApps []compose.App
 
 		// Search for the app in the local app store by name or by URI
 		for _, app := range apps {
 			if app.Name() == appNameOrURI {
-				if foundName {
+				if (len(allowMultipleVersions) == 0 || !allowMultipleVersions[0]) && foundName {
 					DieNotNil(fmt.Errorf("more than two versions of the same app found in the local app store:"+
-						" %s (%s and %s)", app.Name(), foundApp.Ref().String(), app.Ref().String()))
+						" %s (%s and %s)", app.Name(), foundApps[0].Ref().String(), app.Ref().String()))
 				}
 				foundName = true
-				foundApp = app
+				foundApps = append(foundApps, app)
 				// Continue searching because there might be more than one version of the same app in the store
 			} else if app.Ref().String() == appNameOrURI {
 				foundURI = true
-				foundApp = app
+				foundApps = append(foundApps, app)
 				// No need to continue searching because app URIs are unique
 				break
 			}
@@ -205,16 +208,18 @@ func checkUserListedApps(ctx context.Context, cfg *compose.Config, userListedApp
 			continue
 		}
 
-		if _, exists := checkedApps[foundApp.Name()]; exists {
-			DieNotNil(fmt.Errorf("the same app specified more than once: %s", foundApp.Name()))
+		if _, exists := checkedApps[foundApps[0].Name()]; exists {
+			DieNotNil(fmt.Errorf("the same app specified more than once: %s", foundApps[0].Name()))
 		} else {
-			checkedApps[foundApp.Name()] = foundApp
+			checkedApps[foundApps[0].Name()] = foundApps
 		}
 	}
 
 	var appURIs []string
-	for _, app := range checkedApps {
-		appURIs = append(appURIs, app.Ref().String())
+	for _, allAppVersions := range checkedApps {
+		for _, app := range allAppVersions {
+			appURIs = append(appURIs, app.Ref().String())
+		}
 	}
 	return appURIs
 }
