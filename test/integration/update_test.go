@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/docker/docker/api/types"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/foundriesio/composeapp/pkg/update"
 	f "github.com/foundriesio/composeapp/test/fixtures"
@@ -638,4 +639,17 @@ services:
 	f.Check(t, compose.StopApps(ctx, cfg, oneAppURI))
 	f.Check(t, compose.UninstallApps(ctx, cfg, oneAppURI, compose.WithImagePruning()))
 	f.Check(t, compose.RemoveApps(ctx, cfg, oneAppURI))
+
+	// check if no images are left after uninstalling the only app with image pruning
+	cli, err := compose.GetDockerClient("")
+	f.Check(t, err)
+	defer cli.Close()
+	images, err := cli.ImageList(ctx, types.ImageListOptions{All: true})
+	f.Check(t, err)
+	if len(images) != 0 {
+		for _, img := range images {
+			t.Logf("unexpected image left after pruning: ID=%s, RepoTags=%v, RepoDigests=%v\n", img.ID, img.RepoTags, img.RepoDigests)
+		}
+		t.Fatalf("no images are expected to be left after pruning, found %d", len(images))
+	}
 }

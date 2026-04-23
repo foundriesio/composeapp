@@ -9,18 +9,27 @@ import (
 
 type (
 	UninstallOpts struct {
-		Prune bool
+		Prune     bool
+		PruneType PruneType
 	}
 	UninstallOpt func(*UninstallOpts)
+
+	PruneType string
 )
 
 var (
-	ErrUninstallRunningApps = errors.New("failed to uninstall apps: some apps are still running, please stop them first")
+	ErrUninstallRunningApps            = errors.New("failed to uninstall apps: some apps are still running, please stop them first")
+	PruneTypeAllUnusedImages PruneType = "all-unused-images"
+	PruneTypeOnlyAppImages   PruneType = "only-app-images"
 )
 
-func WithImagePruning() UninstallOpt {
+func WithImagePruning(pruneType ...PruneType) UninstallOpt {
 	return func(opts *UninstallOpts) {
 		opts.Prune = true
+		opts.PruneType = PruneTypeOnlyAppImages
+		if len(pruneType) > 0 {
+			opts.PruneType = pruneType[0]
+		}
 	}
 }
 
@@ -79,7 +88,14 @@ func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options .
 		// TODO: consider pruning volumes and networks if needed.
 		// TODO: consider pruning only those images that are related to the uninstalled apps,
 		//       otherwise it prunes all dangling images including those that are not managed by composectl
-		_, err = cli.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "true")))
+		var dangling string
+		switch opts.PruneType {
+		case PruneTypeAllUnusedImages:
+			dangling = "false"
+		case PruneTypeOnlyAppImages:
+			dangling = "true"
+		}
+		_, err = cli.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", dangling)))
 	}
 	return err
 }
