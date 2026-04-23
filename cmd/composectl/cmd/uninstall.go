@@ -1,11 +1,8 @@
 package composectl
 
 import (
-	"fmt"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 type (
@@ -18,7 +15,7 @@ type (
 func init() {
 	uninstallCmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "uninstall <app-name> [<app-name>]",
+		Short: "uninstall <app-name-or-URI> [<app-name-or-URI>]",
 		Long:  ``,
 		Args:  cobra.MinimumNArgs(1),
 	}
@@ -33,23 +30,6 @@ func init() {
 }
 
 func uninstallApps(cmd *cobra.Command, args []string, opts *uninstallOptions) {
-	apps := getAllAppStatuses(cmd.Context(), false)
-	for _, app := range args {
-		if _, ok := apps[app]; ok {
-			DieNotNil(fmt.Errorf("cannot uninstall running app: %s", app))
-		}
-		appComposeDir := config.GetAppComposeDir(app)
-		if !opts.ignoreNonInstalled {
-			if _, err := os.Stat(appComposeDir); os.IsNotExist(err) {
-				DieNotNil(fmt.Errorf("app is not installed: %s", app))
-			}
-		}
-		DieNotNil(os.RemoveAll(appComposeDir))
-	}
-	if opts.prune {
-		cli, err := compose.GetDockerClient(dockerHost)
-		DieNotNil(err)
-		_, err = cli.ImagesPrune(cmd.Context(), filters.NewArgs(filters.Arg("dangling", "false")))
-		DieNotNil(err)
-	}
+	appURIs := checkUserListedApps(cmd.Context(), config, args, !opts.ignoreNonInstalled, true)
+	DieNotNil(compose.UninstallApps(cmd.Context(), config, appURIs))
 }
