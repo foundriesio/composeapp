@@ -41,46 +41,51 @@ func WithImagePruning(pruneType ...PruneType) UninstallOpt {
 }
 
 func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options ...UninstallOpt) error {
-	if len(appRefs) == 0 {
-		return nil
-	}
 	opts := &UninstallOpts{}
 	for _, o := range options {
 		o(opts)
 	}
-	status, err := CheckAppsStatus(ctx, cfg, appRefs)
-	if err != nil {
-		return err
-	}
-	if status.AreRunning() {
-		return ErrUninstallRunningApps
+	if len(appRefs) == 0 && (!opts.Prune || opts.PruneType != PruneTypeAllUnusedImages) {
+		return nil
 	}
 
-	store, err := cfg.AppStoreFactory()
-	if err != nil {
-		return err
-	}
-	appInStoreRefs, err := store.ListApps(ctx)
-	if err != nil {
-		return err
-	}
-	appsInStore := make(map[string]int)
-	for _, ref := range appInStoreRefs {
-		appsInStore[ref.Name] += 1
-	}
-	for _, app := range status.Apps {
-		if appsInStore[app.Name()] > 1 {
-			// Multiple versions of the same app exist in the store.
-			// If the version being removed is not installed, another version may still be
-			// installed and using the same compose directory. In that case, keep the app
-			// compose directory; otherwise we could remove compose files needed by the
-			// other installed version.
-			if _, isNotInstalled := status.NotInstalledCompose[app.Ref().Digest]; isNotInstalled {
-				continue
-			}
-		}
-		if err = os.RemoveAll(cfg.GetAppComposeDir(app.Name())); err != nil {
+	var err error
+	var status *AppsStatus
+	if len(appRefs) > 0 {
+		status, err = CheckAppsStatus(ctx, cfg, appRefs)
+		if err != nil {
 			return err
+		}
+		if status.AreRunning() {
+			return ErrUninstallRunningApps
+		}
+
+		store, err := cfg.AppStoreFactory()
+		if err != nil {
+			return err
+		}
+		appInStoreRefs, err := store.ListApps(ctx)
+		if err != nil {
+			return err
+		}
+		appsInStore := make(map[string]int)
+		for _, ref := range appInStoreRefs {
+			appsInStore[ref.Name] += 1
+		}
+		for _, app := range status.Apps {
+			if appsInStore[app.Name()] > 1 {
+				// Multiple versions of the same app exist in the store.
+				// If the version being removed is not installed, another version may still be
+				// installed and using the same compose directory. In that case, keep the app
+				// compose directory; otherwise we could remove compose files needed by the
+				// other installed version.
+				if _, isNotInstalled := status.NotInstalledCompose[app.Ref().Digest]; isNotInstalled {
+					continue
+				}
+			}
+			if err = os.RemoveAll(cfg.GetAppComposeDir(app.Name())); err != nil {
+				return err
+			}
 		}
 	}
 
