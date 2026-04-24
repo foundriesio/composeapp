@@ -11,15 +11,20 @@ import (
 
 type (
 	CompleteOpts struct {
-		Prune bool
-		Force bool
+		Prune          bool
+		ImagePruneType compose.PruneType
+		Force          bool
 	}
 	CompleteOpt func(*CompleteOpts)
 )
 
-func CompleteWithPruning() CompleteOpt {
+func CompleteWithPruning(imagePruneType ...compose.PruneType) CompleteOpt {
 	return func(opts *CompleteOpts) {
 		opts.Prune = true
+		opts.ImagePruneType = compose.PruneTypeOnlyAppImages
+		if len(imagePruneType) > 0 {
+			opts.ImagePruneType = imagePruneType[0]
+		}
 	}
 }
 
@@ -93,10 +98,10 @@ func (u *runnerImpl) complete(ctx context.Context, options ...CompleteOpt) error
 				appsToPrune = append(appsToPrune, app.Ref().String())
 			}
 		}
+		if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning(opts.ImagePruneType)); err != nil {
+			return err
+		}
 		if len(appsToPrune) > 0 {
-			if err := compose.UninstallApps(ctx, u.config, appsToPrune, compose.WithImagePruning()); err != nil {
-				return err
-			}
 			if err := compose.RemoveApps(ctx, u.config, appsToPrune, compose.WithCheckStatus(false)); err != nil {
 				return err
 			}

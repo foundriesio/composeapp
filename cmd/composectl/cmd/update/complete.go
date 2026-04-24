@@ -1,6 +1,7 @@
 package updatectl
 
 import (
+	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
 	"github.com/spf13/cobra"
@@ -8,7 +9,8 @@ import (
 
 type (
 	completeOptions struct {
-		Prune bool
+		Prune          bool
+		PruneAllImages bool
 	}
 )
 
@@ -25,7 +27,10 @@ This will mark the update as successful after checking whether the update apps a
 	opts := completeOptions{}
 
 	completeCmd.Flags().BoolVar(&opts.Prune, "prune", false,
-		"Uninstall and remove the apps that are not included in the update.")
+		"Uninstall and remove the apps that are not included in the update and images referenced by those apps")
+	completeCmd.Flags().BoolVar(&opts.PruneAllImages, "prune-all-images", false,
+		"Remove all unused images, even those that are not associated with the apps being uninstalled and pruned by the update complete process."+
+			" This option is only effective when --prune is also specified.")
 	completeCmd.Run = func(cmd *cobra.Command, args []string) {
 		completeUpdateCmd(cmd, args, &opts)
 	}
@@ -42,7 +47,11 @@ func completeUpdateCmd(cmd *cobra.Command, args []string, opts *completeOptions)
 
 	var options []update.CompleteOpt
 	if opts.Prune {
-		options = append(options, update.CompleteWithPruning())
+		imagePruneType := compose.PruneTypeOnlyAppImages
+		if opts.PruneAllImages {
+			imagePruneType = compose.PruneTypeAllUnusedImages
+		}
+		options = append(options, update.CompleteWithPruning(imagePruneType))
 	}
 	err = updateCtl.Complete(cmd.Context(), options...)
 	ExitIfNotNil(err)
