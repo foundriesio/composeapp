@@ -1,3 +1,29 @@
+composectl (96.2.1) unstable; urgency=medium
+
+  [ Mike Sul ]
+  * ci: login to ghcr.io to get CI image
+  * fix(pull): fix import ordering
+  * refact(pull): use private structure for parameters
+  * feat(pull): add flag for a quick check of blobs
+  * refact(check): check watermark value
+  * app: set app service name as image descriptor meta
+  * compose: adjust image load options for containerd storage
+  * compose: image load progress reporting for containerd
+  * compose: move docker image load progress logic into helper
+  * fix(test): app must be uninstalled before removal
+  * compose: remove compose dir for installed apps with multiple versions
+  * test: mark composectl app helpers as test helpers
+  * composectl: use shared uninstall implementation
+  * compose: support configurable image pruning on uninstall
+  * compose: fix app image pruning and add all-unused-images mode
+  * update: remove unused keep-app pruning exclusions
+  * update: add option to prune all unused images on complete
+
+  [ Andre Detsch ]
+  * cmd: Add optional json format to inspect command output
+
+ -- Mike Sul <bot@foundries.io>  Mon, 27 Apr 2026 10:29:17 +0000
+
 composectl (96.1.1) unstable; urgency=medium
 
   * docs: add info about installation from APT
