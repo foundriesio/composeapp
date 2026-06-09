@@ -9,6 +9,7 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/foundriesio/composeapp/internal/progress"
 	"github.com/opencontainers/go-digest"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 
 const (
 	DefaultPollInterval = 300 // Default interval between polling/checking blob download status in milliseconds
+	DefaultFetchWorkers = 3   // Default number of concurrent blob-fetch workers
 )
 
 type (
@@ -41,6 +43,7 @@ type (
 		ProgressHandler      FetchProgressFunc
 		ProgressPollInterval int    // interval between polling/checking blob download status in milliseconds
 		SourcePath           string // path to the source directory containing blobs to fetch, if specified, the blobs will be fetched from this directory instead of remote registry
+		Workers              int    // number of concurrent blob-fetch workers; defaults to DefaultFetchWorkers when not positive
 	}
 
 	FetchOption       func(*FetchOptions)
@@ -76,6 +79,12 @@ func WithProgressPollInterval(pollInterval int) FetchOption {
 func WithSourcePath(sourcePath string) FetchOption {
 	return func(opts *FetchOptions) {
 		opts.SourcePath = sourcePath
+	}
+}
+
+func WithFetchWorkers(workers int) FetchOption {
+	return func(opts *FetchOptions) {
+		opts.Workers = workers
 	}
 }
 
@@ -164,11 +173,11 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 		}(stopChan)
 	}
 
-	for _, bi := range getOrderedBlobsToFetch(blobsToFetch) {
-		if err = fetchSingleBlob(ctx, blobProvider, ls, bi); err != nil {
-			break
-		}
+	workers := opts.Workers
+	if workers <= 0 {
+		workers = DefaultFetchWorkers
 	}
+	err = runBlobFetchPool(ctx, blobProvider, ls, getOrderedBlobsToFetch(blobsToFetch), workers)
 
 	if progressReporter != nil {
 		if ctx.Err() == nil {
@@ -181,6 +190,20 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 		return err
 	}
 	return ctx.Err()
+}
+
+// runBlobFetchPool downloads the given blobs concurrently using a bounded pool of
+// workers. It is fail-fast: the first error cancels the derived context so that
+// any in-flight or queued downloads stop, and that error is returned.
+func runBlobFetchPool(ctx context.Context, blobProvider BlobProvider, ls content.Store, blobs []*BlobFetchProgress, workers int) error {
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(workers)
+	for _, bi := range blobs {
+		g.Go(func() error {
+			return fetchSingleBlob(gctx, blobProvider, ls, bi)
+		})
+	}
+	return g.Wait()
 }
 
 // fetchSingleBlob downloads one blob into the local store. The reader is created
