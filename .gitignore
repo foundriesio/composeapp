@@ -1,3 +1,38 @@
 .idea
 bin/
 .cache
+
+# ==========================================
+# AI Agents & Agentic Coding Environments
+# ==========================================
+
+# Claude Code
+.claude/
+claude.log
+
+# Cursor & Windsurf
+.cursor/
+.windsurf/
+.cursorrules.local
+.cursor_history/
+
+# Cline / Roo Code / VS Code Extensions
+.cline/
+.roocode/
+.copilot-instructions.local.md
+
+# Aider
+.aider*
+!.aider.conf.yml
+
+# OpenAI Codex
+.codex/
+codex.log
+.codex-profile/
+codex_history/
+.codex-worktree/
+
+# General AI/Agent Local Configurations & Overrides
+*.local.md
+agents.env
+.env.agent
