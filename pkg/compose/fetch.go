@@ -165,29 +165,7 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 	}
 
 	for _, bi := range getOrderedBlobsToFetch(blobsToFetch) {
-		err = func() error {
-			// Get the reader without digest calculation and verification because the writer/ingester of
-			// the local store (`ls`) will do that.
-			//r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor))
-			r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor), WithSecureReadOff())
-			if err != nil {
-				return fmt.Errorf("failed to initiate request to fetch blob %s: %w", bi.Descriptor.Digest, err)
-			}
-			defer r.Close()
-			blobReader, ok := r.(io.ReadSeekCloser)
-			if !ok {
-				return fmt.Errorf("blob fetch reader for %s does not implement io.ReadSeekCloser", bi.Ref())
-			}
-			bi.FetchStartTime = time.Now()
-			rm := NewReadMonitor(ctx, blobReader, bi)
-			rm.Start()
-			defer rm.Stop()
-			if err := CopyBlob(ctx, rm, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
-				return fmt.Errorf("failed to fetch blob %s: %w", bi.Descriptor.Digest, err)
-			}
-			return nil
-		}()
-		if err != nil {
+		if err = fetchSingleBlob(ctx, blobProvider, ls, bi); err != nil {
 			break
 		}
 	}
@@ -203,6 +181,29 @@ func FetchBlobs(ctx context.Context, cfg *Config, blobs BlobsInfo, options ...Fe
 		return err
 	}
 	return ctx.Err()
+}
+
+// fetchSingleBlob downloads one blob into the local store. The reader is created
+// without digest calculation/verification because the local store ingester (`ls`)
+// performs that during the copy.
+func fetchSingleBlob(ctx context.Context, blobProvider BlobProvider, ls content.Store, bi *BlobFetchProgress) error {
+	r, err := blobProvider.GetReadCloser(ctx, WithRef(bi.Ref()), WithDescriptor(*bi.Descriptor), WithSecureReadOff())
+	if err != nil {
+		return fmt.Errorf("failed to initiate request to fetch blob %s: %w", bi.Descriptor.Digest, err)
+	}
+	defer r.Close()
+	blobReader, ok := r.(io.ReadSeekCloser)
+	if !ok {
+		return fmt.Errorf("blob fetch reader for %s does not implement io.ReadSeekCloser", bi.Ref())
+	}
+	bi.FetchStartTime = time.Now()
+	rm := NewReadMonitor(ctx, blobReader, bi)
+	rm.Start()
+	defer rm.Stop()
+	if err := CopyBlob(ctx, rm, bi.Ref(), *bi.Descriptor, ls, true); err != nil {
+		return fmt.Errorf("failed to fetch blob %s: %w", bi.Descriptor.Digest, err)
+	}
+	return nil
 }
 
 func checkAndUpdateBlobStatus(ctx context.Context, fetchProgress *FetchProgress, ls content.Store, sr progress.Reporter[FetchProgress]) {
