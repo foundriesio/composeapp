@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -190,6 +191,11 @@ func (a *App) Publish(t *testing.T, publishOpts ...func(*PublishOpts)) {
 func (a *App) Pull(t *testing.T) {
 	t.Helper()
 	a.runCmd(t, "pull app", "pull", a.PublishedUri, "-u", "90")
+}
+
+func (a *App) PullWithWorkers(t *testing.T, workers int) {
+	t.Helper()
+	a.runCmd(t, "pull app", "pull", a.PublishedUri, "-u", "90", "-w", strconv.Itoa(workers))
 }
 
 func (a *App) Remove(t *testing.T) {
@@ -441,6 +447,22 @@ func runCmd(t *testing.T, appDir string, args ...string) []byte {
 	}
 	output, err := c.CombinedOutput()
 	Checkf(t, err, "failed to run `%s` command: %s\n", args[0], output)
+	return output
+}
+
+// RunCmdExpectFail runs composectl with the given args and fails the test unless
+// the command exits with a non-zero status. It returns the combined output so the
+// caller can assert on the user-facing error message.
+func RunCmdExpectFail(t *testing.T, appDir string, args ...string) []byte {
+	t.Helper()
+	c := exec.Command(composeExec, args...)
+	if len(appDir) > 0 {
+		c.Dir = appDir
+	}
+	output, err := c.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected `%s` command to fail, but it succeeded; output: %s\n", args[0], output)
+	}
 	return output
 }
 

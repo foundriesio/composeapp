@@ -20,7 +20,14 @@ type (
 		SrcStorePath   string
 		PrintUsageStat bool
 		Quick          bool
+		Workers        uint
 	}
+)
+
+const (
+	MinWorkers     = 1
+	MaxWorkers     = 10
+	DefaultWorkers = 3
 )
 
 var (
@@ -41,12 +48,22 @@ func init() {
 	pullCmd.Flags().StringVarP(&opts.SrcStorePath, "source-store-path", "l", "", "A path to the source store root directory")
 	pullCmd.Flags().BoolVarP(&opts.PrintUsageStat, "print-usage-stat", "p", false, "A flag to enable/disable usage statistic output to stderr")
 	pullCmd.Flags().BoolVar(&opts.Quick, "quick", false, "Skip checking hash of app blobs; verify only their presence and size")
+	pullCmd.Flags().UintVarP(&opts.Workers, "workers", "w", DefaultWorkers,
+		fmt.Sprintf("Number of concurrent blob download workers in range %d-%d", MinWorkers, MaxWorkers))
 	pullCmd.Run = func(cmd *cobra.Command, args []string) {
 		checkWatermark(opts.UsageWatermark)
+		checkWorkers(opts.Workers)
 		pullApps(cmd, args, &opts)
 	}
 
 	rootCmd.AddCommand(pullCmd)
+}
+
+func checkWorkers(workers uint) {
+	if workers < MinWorkers || workers > MaxWorkers {
+		DieNotNilWithCode(fmt.Errorf("invalid `--workers` value: %d; should be between %d and %d",
+			workers, MinWorkers, MaxWorkers), 1, "invalid argument")
+	}
 }
 
 func pullApps(cmd *cobra.Command, args []string, opts *pullOptions) {
@@ -78,7 +95,8 @@ func pullApps(cmd *cobra.Command, args []string, opts *pullOptions) {
 		err := compose.FetchBlobs(cmd.Context(), config, cr.MissingBlobs,
 			compose.WithProgressPollInterval(1000),
 			compose.WithFetchProgress(getFetchProgressHandler()),
-			compose.WithSourcePath(opts.SrcStorePath))
+			compose.WithSourcePath(opts.SrcStorePath),
+			compose.WithFetchWorkers(int(opts.Workers)))
 		DieNotNil(err, "failed to fetch blobs")
 		fmt.Println("\n\nApp blobs pull completed at " + time.Now().UTC().Format("15:04:05 02 Jan 2006"))
 	}
