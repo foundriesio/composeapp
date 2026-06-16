@@ -205,7 +205,7 @@ func checkApps(ctx context.Context,
 		checkResult.TotalRuntimeSize += bi.RuntimeSize
 	}
 	ui, err := compose.GetUsageInfo(config.StoreRoot,
-		checkResult.TotalStoreSize+checkResult.TotalRuntimeSize, usageWatermark)
+		checkResult.TotalStoreSize+checkResult.TotalRuntimeSize, uint64(usageWatermark), false)
 	if err != nil {
 		return nil, nil, nil, err
 	}

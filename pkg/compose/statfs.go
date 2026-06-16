@@ -48,20 +48,29 @@ func (u *UsageInfo) Print() {
 		FormatBytesUint64(u.Reserved), u.ReservedP)
 }
 
-func GetUsageInfo(path string, required int64, watermark uint) (*UsageInfo, error) {
+// GetUsageInfo reports filesystem usage for path against a watermark that bounds
+// how much storage apps may consume. The watermark is interpreted as a percentage
+// of total size when watermarkInBytes is false, or as an absolute amount of free
+// space to keep reserved (in bytes) when watermarkInBytes is true.
+func GetUsageInfo(path string, required int64, watermark uint64, watermarkInBytes bool) (*UsageInfo, error) {
 	fsStat, err := GetFsStat(path)
 	if err != nil {
 		return nil, err
 	}
 	ui := UsageInfo{
-		Path:      path,
-		SizeB:     uint64(fsStat.BlockSize) * fsStat.Blocks,
-		Free:      fsStat.Bfree * uint64(fsStat.BlockSize),
-		FreeP:     (float32(fsStat.Bfree) / float32(fsStat.Blocks)) * 100.0,
-		ReservedP: float32(100 - watermark),
-		Required:  uint64(required),
+		Path:     path,
+		SizeB:    uint64(fsStat.BlockSize) * fsStat.Blocks,
+		Free:     fsStat.Bfree * uint64(fsStat.BlockSize),
+		FreeP:    (float32(fsStat.Bfree) / float32(fsStat.Blocks)) * 100.0,
+		Required: uint64(required),
 	}
-	ui.Reserved = uint64((float64(100-watermark) / 100.0) * float64(ui.SizeB))
+	if watermarkInBytes {
+		ui.Reserved = watermark
+		ui.ReservedP = (float32(ui.Reserved) / float32(ui.SizeB)) * 100.0
+	} else {
+		ui.Reserved = uint64((float64(100-watermark) / 100.0) * float64(ui.SizeB))
+		ui.ReservedP = float32(100 - watermark)
+	}
 	ui.RequiredP = (float32(ui.Required) / float32(ui.SizeB)) * 100.0
 	if ui.Free > ui.Reserved {
 		ui.Available = ui.Free - ui.Reserved
