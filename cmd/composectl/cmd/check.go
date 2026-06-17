@@ -103,7 +103,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		opts.SrcStorePath = &config.StoreRoot
 	}
 	cr, ui, _, err := checkApps(cmd.Context(), args, blobProvider,
-		*opts.UsageWatermark, *opts.SrcStorePath, quietCheck, opts.Quick)
+		uint64(*opts.UsageWatermark), false, *opts.SrcStorePath, quietCheck, opts.Quick)
 	DieNotNil(err, "failed to check apps status")
 
 	var ir InstallCheckResult
@@ -153,7 +153,8 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 func checkApps(ctx context.Context,
 	appRefs []string,
 	srcBlobProvider compose.BlobProvider,
-	usageWatermark uint,
+	watermark uint64,
+	watermarkInBytes bool,
 	srcStorePath string,
 	quiet bool,
 	quick bool) (*CheckAppResult, *compose.UsageInfo, []compose.App, error) {
@@ -205,7 +206,7 @@ func checkApps(ctx context.Context,
 		checkResult.TotalRuntimeSize += bi.RuntimeSize
 	}
 	ui, err := compose.GetUsageInfo(config.StoreRoot,
-		checkResult.TotalStoreSize+checkResult.TotalRuntimeSize, uint64(usageWatermark), false)
+		checkResult.TotalStoreSize+checkResult.TotalRuntimeSize, watermark, watermarkInBytes)
 	if err != nil {
 		return nil, nil, nil, err
 	}
