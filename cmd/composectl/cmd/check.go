@@ -16,12 +16,13 @@ import (
 
 type (
 	checkOptions struct {
-		UsageWatermark *uint
-		SrcStorePath   *string
-		Locally        *bool
-		Format         string
-		CheckInstall   bool
-		Quick          bool
+		UsageWatermark  *uint
+		ReservedStorage *string
+		SrcStorePath    *string
+		Locally         *bool
+		Format          string
+		CheckInstall    bool
+		Quick           bool
 	}
 
 	CheckAppResult struct {
@@ -61,6 +62,8 @@ func init() {
 	opts := checkOptions{}
 	opts.UsageWatermark = checkCmd.Flags().UintP("storage-usage-watermark", "u", DefaultUsageWatermark,
 		fmt.Sprintf("The maximum allowed storage usage in percentage in range %d-%d", MinUsageWatermark, MaxUsageWatermark))
+	opts.ReservedStorage = checkCmd.Flags().String("reserved-storage", "",
+		"Absolute amount of free space to keep reserved, e.g. \"2GiB\" or \"500MB\"; takes precedence over --storage-usage-watermark")
 	opts.SrcStorePath = checkCmd.Flags().StringP("source-store-path", "l", "",
 		"A path to the source store root directory")
 	opts.Locally = checkCmd.Flags().BoolP("local", "", false,
@@ -77,8 +80,8 @@ func init() {
 			fmt.Fprintf(os.Stderr, "unsupported  `--format` value: %s\n", opts.Format)
 			os.Exit(1)
 		}
-		checkWatermark(*opts.UsageWatermark)
-		checkAppsCmd(cmd, args, &opts)
+		watermark, watermarkInBytes := resolveWatermark(cmd, *opts.UsageWatermark, *opts.ReservedStorage)
+		checkAppsCmd(cmd, args, &opts, watermark, watermarkInBytes)
 	}
 
 	rootCmd.AddCommand(checkCmd)
@@ -91,7 +94,7 @@ func checkWatermark(watermark uint) {
 	}
 }
 
-func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
+func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions, watermark uint64, watermarkInBytes bool) {
 	var quietCheck bool
 	if opts.Format == "json" {
 		quietCheck = true
@@ -103,7 +106,7 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions) {
 		opts.SrcStorePath = &config.StoreRoot
 	}
 	cr, ui, _, err := checkApps(cmd.Context(), args, blobProvider,
-		uint64(*opts.UsageWatermark), false, *opts.SrcStorePath, quietCheck, opts.Quick)
+		watermark, watermarkInBytes, *opts.SrcStorePath, quietCheck, opts.Quick)
 	DieNotNil(err, "failed to check apps status")
 
 	var ir InstallCheckResult
