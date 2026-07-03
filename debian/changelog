@@ -1,3 +1,21 @@
+composectl (96.3.0) unstable; urgency=medium
+
+  [ Mike Sul ]
+  * fix(build): drop stale package path that aborted the unit test target
+  * chore(ci): setup secure containerized agent workflows
+  * refactor(compose): extract single-blob fetch into helper
+  * feat(compose): pull blobs via bounded concurrent worker pool
+  * feat(cli): add --workers flag to pull for concurrent fetch
+  * build(dev): add cgo toolchain and run unit tests with -race
+  * fix(cli): render pull blob progress one line per blob
+
+  [ Andre Detsch ]
+  * feat(compose): support byte-based storage watermark
+  * feat(cli): add --reserved-storage flag to pull
+  * feat(cli): add --reserved-storage flag to check
+
+ -- Mike Sul <bot@foundries.io>  Fri, 03 Jul 2026 09:49:17 +0000
+
 composectl (96.2.1) unstable; urgency=medium
 
   [ Mike Sul ]
