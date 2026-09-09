@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/docker/cli/cli/config"
@@ -146,12 +147,37 @@ func (r repositoryEndpoint) BaseURL() string {
 	return r.endpoint.URL.String()
 }
 
+// insecureRegistriesEnvVar mirrors pkg/compose.InsecureRegistriesEnvVar (this package can't
+// import pkg/compose -- pkg/compose already imports internal, so that would cycle).
+const insecureRegistriesEnvVar = "COMPOSECTL_INSECURE_REGISTRIES"
+
+func newRegistryService() (*registry.Service, error) {
+	var insecureRegistries []string
+	for _, h := range strings.Split(os.Getenv(insecureRegistriesEnvVar), ",") {
+		if h != "" {
+			insecureRegistries = append(insecureRegistries, h)
+		}
+	}
+	return registry.NewService(registry.ServiceOptions{InsecureRegistries: insecureRegistries})
+}
+
 func newDefaultRepositoryEndpoint(ref reference.Named, insecure bool) (repositoryEndpoint, error) {
-	repoInfo, err := registry.ParseRepositoryInfo(ref)
+	registryService, err := newRegistryService()
 	if err != nil {
 		return repositoryEndpoint{}, err
 	}
-	endpoint, err := getDefaultEndpointFromRepoInfo(repoInfo)
+	// Use this same, InsecureRegistries-aware service instance for both calls below:
+	// registry.ParseRepositoryInfo(ref) (a package-level convenience function) always resolves
+	// repoInfo.Index.Secure against a separate, empty-options service built once at package
+	// init, so it would never see our InsecureRegistries list and always report the host as
+	// secure/TLS-required. ResolveRepository (the instance method) resolves it against this
+	// service's own config instead, matching the endpoint scheme LookupPushEndpoints then picks
+	// below.
+	repoInfo, err := registryService.ResolveRepository(ref)
+	if err != nil {
+		return repositoryEndpoint{}, err
+	}
+	endpoint, err := getDefaultEndpointFromRepoInfo(registryService, repoInfo)
 	if err != nil {
 		return repositoryEndpoint{}, err
 	}
@@ -161,14 +187,7 @@ func newDefaultRepositoryEndpoint(ref reference.Named, insecure bool) (repositor
 	return repositoryEndpoint{info: repoInfo, endpoint: endpoint}, nil
 }
 
-func getDefaultEndpointFromRepoInfo(repoInfo *registry.RepositoryInfo) (registry.APIEndpoint, error) {
-	var err error
-
-	options := registry.ServiceOptions{}
-	registryService, err := registry.NewService(options)
-	if err != nil {
-		return registry.APIEndpoint{}, err
-	}
+func getDefaultEndpointFromRepoInfo(registryService *registry.Service, repoInfo *registry.RepositoryInfo) (registry.APIEndpoint, error) {
 	endpoints, err := registryService.LookupPushEndpoints(reference.Domain(repoInfo.Name))
 	if err != nil {
 		return registry.APIEndpoint{}, err
