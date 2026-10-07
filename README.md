@@ -1,40 +1,31 @@
 # Utility To Manage Compose Apps
 
-This package provides both a library and a CLI utility to manage Compose Apps built by [FoundriesFactory](https://foundries.io/).
-For more detailed information about the FoundriesFactory® Compose App, please refer to [the user documentation](https://docs.foundries.io/latest/tutorials/compose-app/compose-app.html).
-Essentially, a FoundriesFactory Compose App adheres to [the Compose specification](https://github.com/compose-spec/compose-spec/blob/master/spec.md).
-FoundriesFactory offers mechanisms for building, packaging, and distributing Compose Apps in the form of [OCI images](https://github.com/opencontainers/image-spec/blob/main/spec.md).
-This utility enables users to pull Compose Apps from the [FoundriesFactory® App Hub](https://hub.foundries.io/) and manage them on a device or a local host.
-This includes tasks such as installation, running, stopping, etc.
+composeapp provides a Go library and the `composectl` CLI to package, distribute,
+and manage Docker Compose applications through compatible OCI container registries.
+It can be used for local development, CI/CD delivery, and deploying applications
+on servers or devices using a public registry or a private registry you operate.
+
+A Compose App packages a project defined using the
+[Compose specification](https://github.com/compose-spec/compose-spec/blob/master/spec.md)
+as an [OCI artifact](https://github.com/opencontainers/image-spec/blob/main/spec.md).
+It contains a bundle of the Compose project and supporting files, with references to
+the service images pinned by digest. `composectl` pulls and checks the app's
+blobs, installs its files and images, and manages its services through Docker Compose.
+
+For FoundriesFactory authentication, target discovery, and APT installation, see
+[Using composectl with FoundriesFactory](docs/foundriesfactory.md).
 
 ## Installation
 
-### Install From APT (Debian/Ubuntu)
+Running apps requires Docker Engine and Docker Compose v2, with the `docker`
+command available on your host.
 
-1. Update the `apt` package index and install packages needed to use the fioup `apt` repository:
+### Install A Release
 
-   ```
-   sudo apt update
-   sudo apt install -y apt-transport-https ca-certificates curl gnupg
-   ```
-
-1. Download the public signing key for the package repositories:
-
-   ```
-   curl -L https://fioup.foundries.io/pkg/deb/dists/stable/Release.gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/fioup-stable.gpg
-   ```
-
-1. Add the appropriate `apt` repository.
-
-   ```
-   echo 'deb [signed-by=/etc/apt/trusted.gpg.d/fioup-stable.gpg] https://fioup.foundries.io/pkg/deb stable main' | sudo tee /etc/apt/sources.list.d/fioup.list
-   ```
-
-1. Install composectl
-
-   ```
-   sudo apt update && sudo apt install composectl
-   ```
+Linux binaries and Debian packages for amd64 and arm64 are available from the
+[project releases](https://github.com/foundriesio/composeapp/releases).
+For the Foundries-maintained APT repository, follow the
+[APT installation instructions](docs/foundriesfactory.md#install-from-apt-debianubuntu).
 
 ### Install The Development Version (from source)
 
@@ -43,7 +34,8 @@ git clone https://github.com/foundriesio/composeapp.git
 ```
 
 ```commandline
-cd composeapp && make
+cd composeapp
+./dev-shell.sh make
 ```
 
 As a result, the `composectl` binary should appear in the `./bin` directory.
@@ -65,25 +57,50 @@ The Docker engine store is determined by the Docker daemon instance that the uti
 
 By default, the utility talks to the Docker daemon through `unix:///var/run/docker.sock`,
 which in turn stores image layers and containers data under `/var/lib/docker`.
-The Docker daemon socket can be specified in the `--host/-H` parameter.
-Also, the `composectl` utility respects `DOCKER_HOST` environment variable, which is another way to specify the Docker daemon socket.
+Set `DOCKER_HOST` to select a different daemon for both `composectl` and the
+Docker Compose commands it launches. The `--host/-H` parameter selects the daemon
+for operations using the Docker API.
 
 ### Authentication
 
-Prior to communicating with the [FoundriesFactory App Hub](https://hub.foundries.io/) authentication should be set.
-It can be done either by logging at the hub `docker login hub.foundries.io -u "doesnotmatter" -p <FoundriesFactory token>`
-or setting the Docker credential helper by running `fioctl configure-docker` command.
+For a registry that requires authentication, log in using its hostname and the
+credentials or token provided by its operator:
 
-The `FoundriesFactory token` can be obtained at <https://app.foundries.io/settings/tokens/>.
+```sh
+docker login registry.example.com
+```
 
-The both methods updates a Docker configuration file on a local host (e.g. `~/.docker/config.json`).
-Make sure to backup it before running the aforementioned commands.
+`composectl` uses Docker's credential configuration, including configured
+credential helpers. Back up your Docker configuration (usually
+`~/.docker/config.json`) before changing it. Configure credentials for the app
+registry and any other registries hosting its service images. Public repositories
+may allow pulling without authentication.
+
+### Publishing An App
+
+If you already have a published app URI, proceed to [Pulling App](#pulling-app).
+Otherwise, run the following from your project directory, containing
+`docker-compose.yml` and its supporting files:
+
+```sh
+composectl publish registry.example.com/apps/myapp:1.0
+```
+
+Replace `registry.example.com/apps/myapp:1.0` with a repository and tag you can
+write to. Each service must reference an image already published in a registry,
+using a tag or digest. Publishing resolves service image references to digests
+and uploads the Compose bundle; it does not build or upload your service images.
+Use `.composeappignores` to exclude files from the bundle.
+
+The command prints the app URI as
+`registry.example.com/apps/myapp@sha256:<digest>`. Save this URI to identify the
+exact app version when pulling it on another host.
 
 ### Pulling App
 
-Once the authentication is set, Compose App can be pulled for the hub. At first, the App's URI should be found.
-To do so, a user can run `fioctl targets list` and `fioctl targets show compose-app <version> <app name>`.
-The last command outputs the target's app URI.
+Use the app URI from `composectl publish` or from the app's publisher. It must
+include the manifest digest, for example
+`registry.example.com/apps/myapp@sha256:<digest>`, rather than just a tag.
 
 ```commandline
 composectl pull <app URI> [<app URI>]
