@@ -74,8 +74,12 @@ As a result, the `composectl` binary should appear in the `./bin` directory.
 
 Compose Apps' data are spread across three locations on a local file system:
 
-1. The App store directory — all app blobs are stored in this location, by default it is `~/.composeapps/store`.
-2. The App project or compose directory — where the Docker compose YAML along with its complementary files are stored, by default in `~/.composeapps/projects`.
+1. The App store directory — stores downloaded app blobs, including the Compose
+   bundle and service image content (manifests, configs, image layer blobs).
+   Defaults to `~/.composeapps/store`.
+2. The App project directory (Compose runtime directory) — contains each installed
+   app's extracted Compose YAML and supporting files. Docker Compose runs from
+   the app's subdirectory, by default `~/.composeapps/projects/<app name>`.
 3. The Docker engine store — a few sub-directories in the Docker engine data root, by default in `/var/lib/docker`.
 
 ### Configuration
