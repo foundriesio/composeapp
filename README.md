@@ -12,7 +12,7 @@ It contains a bundle of the Compose project and supporting files, with reference
 the service images pinned by digest. `composectl` pulls and checks the app's
 blobs, installs its files and images, and manages its services through Docker Compose.
 
-For FoundriesFactory authentication, target discovery, and APT installation, see
+For FoundriesFactory authentication and target discovery, see
 [Using composectl with FoundriesFactory](docs/foundriesfactory.md).
 
 ## Installation
@@ -20,12 +20,40 @@ For FoundriesFactory authentication, target discovery, and APT installation, see
 Running apps requires Docker Engine and Docker Compose v2, with the `docker`
 command available on your host.
 
+### Install From APT (Debian/Ubuntu)
+
+Foundries maintains an APT repository containing the `composectl` package.
+These packages can be used with any compatible registry.
+
+1. Update the package index and install the prerequisites:
+
+   ```sh
+   sudo apt update
+   sudo apt install -y apt-transport-https ca-certificates curl gnupg
+   ```
+
+2. Download the public signing key for the repository:
+
+   ```sh
+   curl -L https://fioup.foundries.io/pkg/deb/dists/stable/Release.gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/fioup-stable.gpg
+   ```
+
+3. Add the repository:
+
+   ```sh
+   echo 'deb [signed-by=/etc/apt/trusted.gpg.d/fioup-stable.gpg] https://fioup.foundries.io/pkg/deb stable main' | sudo tee /etc/apt/sources.list.d/fioup.list
+   ```
+
+4. Install `composectl`:
+
+   ```sh
+   sudo apt update && sudo apt install composectl
+   ```
+
 ### Install A Release
 
 Linux binaries and Debian packages for amd64 and arm64 are available from the
 [project releases](https://github.com/foundriesio/composeapp/releases).
-For the Foundries-maintained APT repository, follow the
-[APT installation instructions](docs/foundriesfactory.md#install-from-apt-debianubuntu).
 
 ### Install The Development Version (from source)
 
