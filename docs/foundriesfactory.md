@@ -7,35 +7,7 @@ or local host using the same workflow described in the [main documentation](../R
 For details about creating Compose Apps in FoundriesFactory, see the
 [FoundriesFactory Compose App documentation](https://docs.foundries.io/latest/tutorials/compose-app/compose-app.html).
 
-## Install From APT (Debian/Ubuntu)
-
-Foundries maintains an APT repository containing the `composectl` package.
-These packages can be used with any compatible registry.
-
-1. Update the package index and install the prerequisites:
-
-   ```sh
-   sudo apt update
-   sudo apt install -y apt-transport-https ca-certificates curl gnupg
-   ```
-
-2. Download the public signing key for the repository:
-
-   ```sh
-   curl -L https://fioup.foundries.io/pkg/deb/dists/stable/Release.gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/fioup-stable.gpg
-   ```
-
-3. Add the repository:
-
-   ```sh
-   echo 'deb [signed-by=/etc/apt/trusted.gpg.d/fioup-stable.gpg] https://fioup.foundries.io/pkg/deb stable main' | sudo tee /etc/apt/sources.list.d/fioup.list
-   ```
-
-4. Install `composectl`:
-
-   ```sh
-   sudo apt update && sudo apt install composectl
-   ```
+Install `composectl` using the [installation instructions](../README.md#installation).
 
 ## Authenticate To The App Hub
 
