@@ -1,8 +1,13 @@
-# Stock dockerd with a newer containerd, for the test environment.
-# Built by `docker compose` on first start; rebuild with `docker compose build dockerd`.
+# dockerd with a newer containerd, for the test environment.
+# Built by `docker compose` on first start; rebuild with `docker compose build`.
 ARG DOCKER_VERSION=29.7.2
-FROM docker:${DOCKER_VERSION}-dind
+# Empty: the stock dockerd; 1: the dockerd with the Foundries patches
+ARG DOCKERD_FIO_PATCH=
 
+FROM docker:${DOCKER_VERSION}-dind AS dockerd
+FROM ghcr.io/foundriesio/moby:${DOCKER_VERSION}_fio AS dockerd-fio
+
+FROM dockerd${DOCKERD_FIO_PATCH:+-fio}
 ARG CONTAINERD_VERSION=2.4.1
 ARG TARGETARCH
 # Replace the containerd shipped with Docker; dockerd starts the one found on its PATH

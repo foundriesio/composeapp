@@ -12,9 +12,11 @@ services:
       - ${REG_DIR}/config.yml:/etc/distribution/config.yml
 
   dockerd:
-    image: composeapp-test-dockerd:29.7.2
+    image: composeapp-test-dockerd:29.7.2${DOCKERD_FIO_PATCH:+-fio}
     build:
       context: ${CPS_DIR}/dockerd
+      args:
+        DOCKERD_FIO_PATCH: ${DOCKERD_FIO_PATCH}
     command: ["dockerd", "-D", "-H", "unix:///var/run/docker/docker.sock",
               "--feature", "containerd-snapshotter=${CONTAINERD_SNAPSHOTTER}"]
     privileged: true
@@ -30,6 +32,8 @@ services:
     image: composeapp-test-dockerd:29.7.2
     build:
       context: ${CPS_DIR}/dockerd
+      args:
+        DOCKERD_FIO_PATCH: ""
     command: ["dockerd", "-D", "-H", "unix:///var/run/docker-publisher/docker.sock",
               "--feature", "containerd-snapshotter=false"]
     privileged: true
