@@ -7,6 +7,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 type (
@@ -65,32 +66,64 @@ func StartApps(ctx context.Context, cfg *Config, appURIs []string, options ...St
 		if opts.ProgressHandler != nil {
 			opts.ProgressHandler(app, AppStartStatusStarting, nil)
 		}
-		cmd := exec.Command("docker", "compose", "up", "-d", "--remove-orphans")
-		cmd.Dir = cfg.GetAppComposeDir(app.Name())
-		if opts.Verbose {
-			// Directly connect to stdout/stderr, so we can see the output in real time
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		} else {
-			// Capture stdout/stderr for error reporting
-			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := composeUp(cfg.GetAppComposeDir(app.Name()), opts.Verbose); err != nil {
 			if opts.ProgressHandler != nil {
 				opts.ProgressHandler(app, AppStartStatusFailed, err)
 			}
-			if opts.Verbose {
-				return fmt.Errorf("failed to start %s: %w", app, err)
-			} else {
-				return fmt.Errorf("failed to start %s: %w\n\tstdout: %s\n\tstderr: %s", app, err, cmd.Stdout, cmd.Stderr)
-			}
-
+			return fmt.Errorf("failed to start %s: %w", app, err)
 		}
 		if opts.ProgressHandler != nil {
 			opts.ProgressHandler(app, AppStartStatusStarted, nil)
 		}
+	}
+	return nil
+}
+
+// composeUp runs `docker compose up` in the given app compose directory.
+// If it fails, the app containers that were created but not started are removed.
+func composeUp(composeDir string, verbose bool) error {
+	cmd := exec.Command("docker", "compose", "up", "-d", "--remove-orphans")
+	cmd.Dir = composeDir
+	var stdout, stderr bytes.Buffer
+	if verbose {
+		// Directly connect to stdout/stderr, so we can see the output in real time
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		// Capture stdout/stderr for error reporting
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+	}
+	err := cmd.Run()
+	if err == nil {
+		return nil
+	}
+	if !verbose {
+		err = fmt.Errorf("%w\n\tstdout: %s\n\tstderr: %s", err, stdout.String(), stderr.String())
+	}
+	if errRm := removeCreatedContainers(composeDir); errRm != nil {
+		err = fmt.Errorf("%w\n\tfailed to clean up after the failed start: %s", err, errRm.Error())
+	}
+	return err
+}
+
+// removeCreatedContainers removes the app containers that `docker compose up` created but failed to start.
+// Starting such a container again may succeed without its published ports (Docker 29.7.2 does so after
+// a host port conflict), so the next start attempt could report success for an app that is broken.
+func removeCreatedContainers(composeDir string) error {
+	cmd := exec.Command("docker", "compose", "ps", "--all", "--quiet", "--status", "created")
+	cmd.Dir = composeDir
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list containers in the created state: %w", err)
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		return nil
+	}
+	cmd = exec.Command("docker", append([]string{"rm"}, ids...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to remove containers in the created state: %w: %s", err, out)
 	}
 	return nil
 }
