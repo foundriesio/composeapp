@@ -396,7 +396,7 @@ func reportProgressIfContainerd(body io.ReadCloser, imageURIs []imageURI2RefCoun
 		if strings.HasPrefix(jm.Stream, "Error unpacking image") {
 			return fmt.Errorf("error unpacking image: %s", jm.Stream)
 		}
-		if strings.HasPrefix(jm.Stream, "Loaded image: ") {
+		if reporter != nil && strings.HasPrefix(jm.Stream, "Loaded image: ") {
 			imageRef := strings.TrimPrefix(jm.Stream, "Loaded image: ")
 			// Remove end line character if present
 			imageRef = strings.TrimSuffix(imageRef, "\n")
