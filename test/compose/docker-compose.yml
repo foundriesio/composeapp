@@ -12,14 +12,31 @@ services:
       - ${REG_DIR}/config.yml:/etc/distribution/config.yml
 
   dockerd:
-    image: ghcr.io/foundriesio/moby:25.0.3_fio
-    command: ["dockerd", "-D", "-H", "unix:///var/run/docker/docker.sock"]
+    image: composeapp-test-dockerd:29.7.2
+    build:
+      context: ${CPS_DIR}/dockerd
+    command: ["dockerd", "-D", "-H", "unix:///var/run/docker/docker.sock",
+              "--feature", "containerd-snapshotter=${CONTAINERD_SNAPSHOTTER}"]
     privileged: true
     volumes:
       - docker-runtime:/var/run/docker
       - docker-data:/var/lib/docker
       - ${REG_DIR}/daemon.json:/etc/docker/daemon.json:ro
       - reset-apps:/var/sota/reset-apps
+
+  # Plays the role of the FoundriesFactory CI when tests publish apps: test images are pulled into it
+  # and the layer sizes are read from its overlay2 store, whatever image store the dockerd above uses.
+  dockerd-publisher:
+    image: composeapp-test-dockerd:29.7.2
+    build:
+      context: ${CPS_DIR}/dockerd
+    command: ["dockerd", "-D", "-H", "unix:///var/run/docker-publisher/docker.sock",
+              "--feature", "containerd-snapshotter=false"]
+    privileged: true
+    volumes:
+      - publisher-runtime:/var/run/docker-publisher
+      - publisher-data:/var/lib/docker
+      - ${REG_DIR}/daemon.json:/etc/docker/daemon.json:ro
 
   composectl:
     build:
@@ -34,11 +51,14 @@ services:
       - docker-runtime:/var/run/docker
       - docker-data:/var/lib/docker
       - reset-apps:/var/sota/reset-apps
+      - publisher-runtime:/var/run/docker-publisher
+      - publisher-data:/var/lib/docker-publisher:ro
     working_dir: ${SRC_DIR}
     depends_on:
       - registry
       - registry-org
       - dockerd
+      - dockerd-publisher
     environment:
       - GOCACHE=${SRC_DIR}/.cache
       - DOCKER_HOST=unix:///var/run/docker/docker.sock
@@ -46,8 +66,13 @@ services:
       - SRC_DIR=${SRC_DIR}
       - STOREROOT=/var/sota/reset-apps
       - COMPOSEROOT=/var/sota/compose-apps
+      - DOCKERD_FIO_PATCH=${DOCKERD_FIO_PATCH}
+      - PUBLISHER_DOCKER_HOST=unix:///var/run/docker-publisher/docker.sock
+      - PUBLISHER_DOCKER_DATA_ROOT=/var/lib/docker-publisher
 
 volumes:
   docker-data:
   docker-runtime:
   reset-apps:
+  publisher-data:
+  publisher-runtime:

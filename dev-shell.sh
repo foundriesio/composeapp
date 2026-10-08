@@ -1,7 +1,8 @@
 down() {
     docker compose --env-file=test/compose/.env.test -f test/compose/docker-compose.yml down --remove-orphans
 	# remove the docker runtime and compose app store volumes
-    docker volume rm compose_docker-data compose_docker-runtime compose_reset-apps
+    docker volume rm compose_docker-data compose_docker-runtime compose_reset-apps \
+        compose_publisher-data compose_publisher-runtime
 }
 
 trap down EXIT

@@ -45,6 +45,9 @@ services:
 
 	err = loadImages(t, context.Background(), cli, composeApp, layersRoot)
 	f.Check(t, err)
+	if os.Getenv("DOCKERD_FIO_PATCH") != "1" {
+		t.Skip("skipping image loading that requires the Foundries patches to dockerd; set DOCKERD_FIO_PATCH=1 to run it")
+	}
 	err = loadImages(t, context.Background(), cli, composeApp, layersRoot,
 		compose.WithProgressReporting(progressHandler), compose.WithBlobReadingFromStore(), compose.WithRefWithDigest())
 	f.Check(t, err)
