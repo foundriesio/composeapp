@@ -123,10 +123,18 @@ func (a *App) getAppImages(t *testing.T, composeFilePath string) []string {
 	return images
 }
 
+// publisherDockerCommand returns a docker CLI command run against the publisher dockerd,
+// the daemon that the layers meta script reads image layer sizes from.
+func publisherDockerCommand(args ...string) *exec.Cmd {
+	c := exec.Command("docker", args...)
+	c.Env = append(os.Environ(), "DOCKER_HOST="+os.Getenv("PUBLISHER_DOCKER_HOST"))
+	return c
+}
+
 func (a *App) pullImages(t *testing.T) {
 	images := a.GetAppImages(t)
 	for _, image := range images {
-		c := exec.Command("docker", "pull", image)
+		c := publisherDockerCommand("pull", image)
 		output, cmdErr := c.CombinedOutput()
 		Checkf(t, cmdErr, "failed to pull app images: %s\n", output)
 	}
@@ -139,7 +147,7 @@ func (a *App) removeImages(t *testing.T) {
 		if _, ok := removedImages[image]; ok {
 			continue
 		}
-		c := exec.Command("docker", "image", "rm", image)
+		c := publisherDockerCommand("image", "rm", image)
 		output, cmdErr := c.CombinedOutput()
 		Checkf(t, cmdErr, "failed to pull app images: %s\n", output)
 		removedImages[image] = true

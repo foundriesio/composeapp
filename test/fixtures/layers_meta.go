@@ -12,7 +12,7 @@ func GenerateLayersMetaFile(t *testing.T, appsRootDir string) string {
 	tmpDir := t.TempDir()
 	layerSizesFile := filepath.Join(tmpDir, "layers_meta.json")
 	c := exec.Command("python", os.Getenv("LAYERS_SIZE_SCRIPT"), "--apps-root",
-		appsRootDir, "-o", layerSizesFile)
+		appsRootDir, "-o", layerSizesFile, "--docker-data-root", os.Getenv("PUBLISHER_DOCKER_DATA_ROOT"))
 	output, err := c.CombinedOutput()
 	Checkf(t, err, "failed to run command to gather app layer sizes: %s", string(output))
 	b, err := os.ReadFile(layerSizesFile)
