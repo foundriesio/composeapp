@@ -3,6 +3,7 @@ package composectl
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/spf13/cobra"
 )
@@ -34,8 +35,13 @@ func init() {
 func pruneApps(cmd *cobra.Command, opts *pruneOptions) {
 	cs, err := v1.NewAppStore(config.StoreRoot, config.Platform)
 	DieNotNil(err)
+	unlock, err := compose.LockInstall(config.StoreRoot)
+	DieNotNil(err)
+	defer unlock()
 	prunedBlobs, err := cs.Prune(cmd.Context())
 	DieNotNil(err)
+	// Leases left by interrupted installs hold blobs and snapshots in dockerd's containerd.
+	DieNotNil(compose.PruneInstallLeases(cmd.Context(), config), "failed to prune install leases")
 	if opts.Format == "json" {
 		if b, err := json.MarshalIndent(prunedBlobs, "", "  "); err == nil {
 			fmt.Println(string(b))
