@@ -39,6 +39,16 @@ disk. Without it, a crash right after install left 3 of 3 images broken on the b
 The snapshots of an interrupted install are held only by its lease, which the next
 install, or `composectl prune`, deletes before anything is reused.
 
+## Storage check
+
+`check` sizes what an install writes on each filesystem: the missing blobs in the
+store, the app bundle in the compose root, the compressed layers to write in
+containerd's content root (an over-estimate where they are hardlinked from the
+store) and the new unpacked snapshots in the snapshotter root. Terms on one
+filesystem are summed and compared with its free space, and `check --format json`
+reports them in a `storage` array (`path`, `required`, `free`, `ok`). With `docker
+load` the single check of the store root stays.
+
 ## Limits
 
 - `docker save` and `docker push` of app images do not work: the compressed layers

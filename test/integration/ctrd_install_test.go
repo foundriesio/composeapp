@@ -598,3 +598,131 @@ func aklitePruneAfterKilledInstall(t *testing.T) {
 		t.Errorf("install leases left after the prune: %+v", leftovers)
 	}
 }
+
+// TestCtrdStorageCheck: `check` reports the storage each filesystem needs; what the install still
+// has to write shrinks once the app is installed.
+func TestCtrdStorageCheck(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+
+	check := func() []composectl.StorageCheck {
+		c := exec.Command(os.Getenv("COMPOSECTL_EXE"), "check", "--local", "--format", "json", app.PublishedUri)
+		out, err := c.CombinedOutput()
+		f.Checkf(t, err, "check failed: %s", out)
+		var res composectl.CheckAndInstallResult
+		f.Check(t, json.Unmarshal(out, &res))
+		if len(res.Storage) == 0 {
+			t.Fatalf("no storage entries in the check output: %s", out)
+		}
+		return res.Storage
+	}
+	required := func(storage []composectl.StorageCheck) (total uint64) {
+		for _, s := range storage {
+			if !s.Ok || s.Path == "" || s.Free == 0 {
+				t.Errorf("unexpected storage entry: %+v", s)
+			}
+			total += s.Required
+		}
+		return total
+	}
+	r.pruneImages(r.topChainIDs(app))
+	before := required(check())
+	app.Install(t)
+	defer app.Uninstall(t)
+	after := required(check())
+	if before <= after {
+		t.Fatalf("storage required before the install (%d) is not larger than after it (%d)", before, after)
+	}
+}
+
+// TestCtrdStorageCheckWithMissingConfig: `check --local` of an app whose image config is not in
+// the store (an interrupted fetch) still reports the missing blob, and sizes the install as if
+// every layer of that image had to be streamed and unpacked.
+func TestCtrdStorageCheckWithMissingConfig(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	r.pruneImages(r.topChainIDs(app)) // no snapshot of the app exists: every layer counts
+
+	// Lower bounds on what the install writes: the compressed layers of both images (one of them
+	// will have no config) and their unpacked size, each layer once.
+	cfg := f.NewTestConfig(t)
+	tree, err := v1.NewAppLoader().LoadAppTree(context.Background(), compose.NewStoreBlobProvider(r.blobsRoot),
+		platforms.OnlyStrict(cfg.Platform), app.PublishedUri)
+	f.Check(t, err)
+	var compressed, unpacked uint64
+	seen := map[digest.Digest]bool{}
+	imgs := r.images(app.PublishedUri)
+	for _, img := range imgs {
+		for _, layer := range img.manifest.Layers {
+			if seen[layer.Digest] {
+				continue
+			}
+			seen[layer.Digest] = true
+			compressed += uint64(layer.Size)
+			unpacked += uint64(tree.GetBlobRuntimeSize(&layer, cfg.Platform.Architecture, cfg.BlockSize))
+		}
+	}
+
+	configDigest := imgs[0].manifest.Config.Digest
+	configPath := filepath.Join(r.blobsRoot, configDigest.Encoded())
+	config, err := os.ReadFile(configPath)
+	f.Check(t, err)
+	f.Check(t, os.Remove(configPath))
+	defer func() { f.Check(t, os.WriteFile(configPath, config, 0o444)) }()
+
+	for _, quick := range []string{"", "--quick"} {
+		args := []string{"check", "--local", "--format", "json", app.PublishedUri}
+		if quick != "" {
+			args = append(args, quick)
+		}
+		out, err := exec.Command(os.Getenv("COMPOSECTL_EXE"), args...).CombinedOutput()
+		f.Checkf(t, err, "check %v failed: %s", args, out)
+		var res composectl.CheckAndInstallResult
+		f.Checkf(t, json.Unmarshal(out, &res), "check %v printed no JSON: %s", args, out)
+		if _, ok := res.FetchCheck.MissingBlobs[configDigest]; !ok {
+			t.Errorf("check %v does not list the config among the missing blobs: %+v", args, res.FetchCheck.MissingBlobs)
+		}
+		checkStorageBounds(t, res.Storage, r.contentRoot, compressed, unpacked)
+	}
+}
+
+// checkStorageBounds checks the storage entries against the bytes the install has to write. The
+// entries are merged per filesystem, so the content root's entry is the one on its filesystem,
+// which may be listed under another path.
+func checkStorageBounds(t *testing.T, storage []composectl.StorageCheck, contentRoot string, compressed, unpacked uint64) {
+	t.Helper()
+	var total uint64
+	var contentEntry *composectl.StorageCheck
+	contentDev := deviceOf(t, contentRoot)
+	for i, s := range storage {
+		if !s.Ok || s.Path == "" || s.Free == 0 {
+			t.Errorf("unexpected storage entry: %+v", s)
+		}
+		total += s.Required
+		if deviceOf(t, s.Path) == contentDev {
+			contentEntry = &storage[i]
+		}
+	}
+	if contentEntry == nil {
+		t.Fatalf("no storage entry on the filesystem of the content root %s: %+v", contentRoot, storage)
+	}
+	if contentEntry.Required < compressed {
+		t.Errorf("content root entry %+v is below the compressed layer size %d", *contentEntry, compressed)
+	}
+	if total < compressed+unpacked {
+		t.Errorf("storage %+v is below the layers' compressed+unpacked size %d+%d", storage, compressed, unpacked)
+	}
+}
+
+func deviceOf(t *testing.T, path string) uint64 {
+	t.Helper()
+	var st syscall.Stat_t
+	f.Check(t, syscall.Stat(path, &st))
+	return uint64(st.Dev) // Dev is 32 bits wide on some architectures
+}

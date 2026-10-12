@@ -32,9 +32,19 @@ type (
 		TotalRuntimeSize int64             `json:"total_runtime_size"`
 	}
 
+	// StorageCheck is what the checked apps need on one filesystem against what it has free,
+	// after the watermark or reserved storage is kept back.
+	StorageCheck struct {
+		Path     string `json:"path"`
+		Required uint64 `json:"required"`
+		Free     uint64 `json:"free"`
+		Ok       bool   `json:"ok"`
+	}
+
 	CheckAndInstallResult struct {
 		FetchCheck   *CheckAppResult     `json:"fetch_check"`
 		InstallCheck *InstallCheckResult `json:"install_check"`
+		Storage      []StorageCheck      `json:"storage"`
 	}
 
 	AppInstallCheckResult struct {
@@ -105,9 +115,14 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions, waterma
 	if len(*opts.SrcStorePath) == 0 && *opts.Locally {
 		opts.SrcStorePath = &config.StoreRoot
 	}
-	cr, ui, _, err := checkApps(cmd.Context(), args, blobProvider,
+	cr, _, apps, err := checkApps(cmd.Context(), args, blobProvider,
 		watermark, watermarkInBytes, *opts.SrcStorePath, quietCheck, opts.Quick)
 	DieNotNil(err, "failed to check apps status")
+
+	needs, err := compose.StorageNeeds(cmd.Context(), config, blobProvider, apps, cr.TotalStoreSize, cr.TotalRuntimeSize)
+	DieNotNil(err, "failed to check storage")
+	storage, err := compose.CheckStorage(needs, watermark, watermarkInBytes)
+	DieNotNil(err, "failed to check storage")
 
 	var ir InstallCheckResult
 	if opts.CheckInstall {
@@ -115,39 +130,56 @@ func checkAppsCmd(cmd *cobra.Command, args []string, opts *checkOptions, waterma
 		DieNotNil(err)
 	}
 	if opts.Format == "json" {
-		aggregatedCheckRes :=
-			struct {
-				FetchCheck   *CheckAppResult     `json:"fetch_check"`
-				InstallCheck *InstallCheckResult `json:"install_check"`
-			}{
-				FetchCheck:   cr,
-				InstallCheck: &ir,
-			}
+		aggregatedCheckRes := CheckAndInstallResult{
+			FetchCheck:   cr,
+			InstallCheck: &ir,
+			Storage:      toStorageChecks(storage),
+		}
 		if b, err := json.MarshalIndent(aggregatedCheckRes, "", "  "); err == nil {
 			fmt.Println(string(b))
 		} else {
 			DieNotNil(err)
 		}
-	} else {
+		return
+	}
+	for _, ui := range storage {
 		ui.Print()
-		cr.print()
-		if opts.CheckInstall {
-			for appRef, r := range ir {
-				if len(r.MissingImages) > 0 || len(r.BundleErrors) > 0 {
-					fmt.Printf("%s is not installed (%s)\n", r.AppName, appRef)
-					if len(r.MissingImages) > 0 {
-						fmt.Println("\tmissing images:")
-						for _, val := range r.MissingImages {
-							fmt.Println("\t\t" + val)
-						}
-					}
-					if len(r.BundleErrors) > 0 {
-						fmt.Println("\tapp bundle errors:")
-						for f, e := range r.BundleErrors {
-							fmt.Printf("\t\t%s:\t%s\n", f, e)
-						}
-					}
-				}
+	}
+	cr.print()
+	if opts.CheckInstall {
+		printInstallCheck(ir)
+	}
+}
+
+func toStorageChecks(usage []*compose.UsageInfo) []StorageCheck {
+	checks := make([]StorageCheck, 0, len(usage))
+	for _, ui := range usage {
+		checks = append(checks, StorageCheck{
+			Path:     ui.Path,
+			Required: ui.Required,
+			Free:     ui.Free,
+			Ok:       ui.Required <= ui.Available,
+		})
+	}
+	return checks
+}
+
+func printInstallCheck(ir InstallCheckResult) {
+	for appRef, r := range ir {
+		if len(r.MissingImages) == 0 && len(r.BundleErrors) == 0 {
+			continue
+		}
+		fmt.Printf("%s is not installed (%s)\n", r.AppName, appRef)
+		if len(r.MissingImages) > 0 {
+			fmt.Println("\tmissing images:")
+			for _, val := range r.MissingImages {
+				fmt.Println("\t\t" + val)
+			}
+		}
+		if len(r.BundleErrors) > 0 {
+			fmt.Println("\tapp bundle errors:")
+			for f, e := range r.BundleErrors {
+				fmt.Printf("\t\t%s:\t%s\n", f, e)
 			}
 		}
 	}
