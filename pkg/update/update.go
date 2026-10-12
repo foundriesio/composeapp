@@ -41,6 +41,7 @@ type (
 		LoadedImages    map[string]struct{}        `json:"loaded_images"`     // images that have been loaded into the docker storage
 		FetchedBytes    int64                      `json:"fetched_bytes"`     // total bytes fetched so far
 		FetchedBlobs    int                        `json:"fetched_blobs"`     // number of blobs fetched so far
+		Storage         []compose.StorageNeed      `json:"storage"`           // bytes the update needs, per filesystem
 	}
 
 	runnerImpl struct {

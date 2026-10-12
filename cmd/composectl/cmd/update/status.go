@@ -61,6 +61,9 @@ func updateStatusCmd(cmd *cobra.Command, args []string, opts *statusOptions) {
 	cmd.Printf("Progress: \t%d%%\n", u.Progress)
 	cmd.Printf("Fetched Bytes: \t%s\n", compose.FormatBytesInt64(u.FetchedBytes))
 	cmd.Printf("Fetched Blobs: \t%d\n", u.FetchedBlobs)
+	for _, s := range u.Storage {
+		cmd.Printf("Storage: \t%s required at %s\n", compose.FormatBytesInt64(s.Required), s.Path)
+	}
 
 	cmd.Println("URIs:")
 	for _, appURI := range u.URIs {
