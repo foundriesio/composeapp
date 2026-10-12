@@ -48,8 +48,12 @@ func UninstallApps(ctx context.Context, cfg *Config, appRefs []string, options .
 	if len(appRefs) == 0 && (!opts.Prune || opts.PruneType != PruneTypeAllUnusedImages) {
 		return nil
 	}
+	unlock, err := LockInstall(cfg.StoreRoot)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
-	var err error
 	var status *AppsStatus
 	if len(appRefs) > 0 {
 		status, err = CheckAppsStatus(ctx, cfg, appRefs)
