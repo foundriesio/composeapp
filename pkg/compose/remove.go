@@ -32,6 +32,11 @@ func RemoveApps(ctx context.Context, cfg *Config, appRefs []string, options ...R
 	for _, o := range options {
 		o(opts)
 	}
+	unlock, err := LockInstall(cfg.StoreRoot)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if opts.CheckStatus {
 		appsStatus, err := CheckAppsStatus(ctx, cfg, appRefs)
 		if err != nil {
