@@ -348,25 +348,15 @@ func getImageID(imageURIs []imageURI2RefCounter, imageIndex int, printWarning bo
 }
 
 func adjustOptionsIfContainerd(ctx context.Context, client *client.Client, options *LoadImageOptions) bool {
-	var isCtrd = false
-	// Check if the docker daemon is using ctrd storage, which requires special handling when loading images.
-	if dockerInfo, err := client.Info(ctx); err == nil {
-		if dockerInfo.Driver == "overlayfs" &&
-			len(dockerInfo.DriverStatus) > 0 &&
-			dockerInfo.DriverStatus[0][1] == "io.containerd.snapshotter.v1" {
-			isCtrd = true
-		}
+	// Check if the docker daemon uses the containerd image store, which requires special handling when loading images.
+	info, err := GetDockerInfo(ctx, client)
+	if err != nil || info.Snapshotter() == "" {
+		return false
 	}
-
-	if isCtrd {
-		if options.ReadBlobsFromStore {
-			// The ctrd storage does not support loading image layers from an external directory,
-			// thus, the image load will fail if `options.ReadBlobsFromStore` is set.
-			options.ReadBlobsFromStore = false
-		}
-	}
-
-	return isCtrd
+	// The containerd image store does not support loading image layers from an external directory,
+	// thus, the image load will fail if `options.ReadBlobsFromStore` is set.
+	options.ReadBlobsFromStore = false
+	return true
 }
 
 func reportProgressIfContainerd(body io.ReadCloser, imageURIs []imageURI2RefCounter, reporter progress.Reporter[LoadImageProgress]) error {
