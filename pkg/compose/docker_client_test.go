@@ -130,6 +130,9 @@ func TestGetDockerInfoOverTCP(t *testing.T) {
 	if info.Containerd != nil {
 		t.Fatalf("the typed info must not carry a containerd address: %+v", info.Containerd)
 	}
+	if isCtrdInstallTarget(info, cli.DaemonHost()) {
+		t.Fatal("a tcp host must not be an install target")
+	}
 }
 
 func TestIsLocalDockerHost(t *testing.T) {
