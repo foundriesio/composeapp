@@ -483,3 +483,23 @@ func randomString(length int) string {
 	}
 	return string(b)
 }
+
+// PublishDerivedImage builds an image on top of base with one layer of sizeMB random bytes and
+// pushes it to the test registry through the publisher dockerd, which the publish step reads the
+// image layers from. It returns the image reference.
+func PublishDerivedImage(t *testing.T, base string, sizeMB int) string {
+	t.Helper()
+	name := "derived-" + randomString(8)
+	ref := "registry:5000/factory/" + name + ":v1"
+	pub := func(args ...string) {
+		out, err := publisherDockerCommand(args...).CombinedOutput()
+		Checkf(t, err, "docker %v: %s", args, out)
+	}
+	pub("pull", base)
+	pub("run", "--name", name, base, "sh", "-c", fmt.Sprintf("head -c %d /dev/urandom > /derived", sizeMB<<20))
+	pub("commit", name, ref)
+	pub("rm", name)
+	pub("push", ref)
+	pub("image", "rm", ref)
+	return ref
+}
