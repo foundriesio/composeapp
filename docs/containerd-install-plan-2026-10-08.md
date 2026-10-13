@@ -118,8 +118,9 @@ So after an interrupted install:
 - Records the interrupted install already created point at synced snapshots. The
   retry updates them (step 6).
 - If the crash came during lease deletion, the lease may be gone with GC not
-  finished. The records protect everything that must stay, and GC finishes on its
-  own.
+  finished. The records protect everything that must stay. The layer records are
+  removed before the files are unlinked, so a cut in between leaves orphan files
+  that containerd removes at its next content cleanup (see the 2026-10-13 results).
 
 Out of scope, and documented as unsupported on devices:
 
@@ -354,22 +355,50 @@ The rerun with the fix took the containerd path:
 
 The listing is therefore checked on 29.5.2 and 29.7.2; the minimum stays 29.5.2.
 
+### Results on the device, 2026-10-13 (cuts during install, real composectl)
+
+Same board and apps, `composectl` built from the reviewed tree. Every cut is a
+sysrq-b with nothing synced, fired on the board itself: during unpack by a loop
+that watches the snapshot directory count; between the first image record and the
+lease delete by a probe that polls containerd's image service every 300 µs for the
+pinned-digest record; right after `install` returns by the shell. The board came
+back on its own each time (77–246 s) and the checks ran with no manual step.
+
+| Cut | Trials | State after the reboot | Recovery |
+|---|---|---|---|
+| During unpack, at snapshot 3, 9 and 15 of 17 | 3 | Lease present, the 17 streamed layer blobs present. Snapshots torn in two trials: the metadata had 9 and 15 committed snapshots, the disk had 3 and 7 directories. `check --install` reports the image missing | The next `install` deleted the lease, GC dropped the torn snapshots, the image was unpacked again (17 snapshots, blobs back to 7), the container ran, `check` clean. 3 of 3 |
+| After the first image record, before the lease delete | 3 | Both records, 17 snapshots, 24 blobs and the lease present; no bundle yet, so `check --install` reports the image present and `docker-compose.yml` missing | The next `install` (or `run`) deleted the stale lease, GC dropped the layers (blobs 7), the bundle was written, the container ran, `check` clean. 3 of 3 |
+| Right after `install` returned | 5 | Records, snapshots and the lease deletion durable in all five; the image ran in all five. In two, the content metadata had 7 records but 24 files on disk: the unlinks of the 17 layer files were lost. The bundle was missing in all five | The next `install` rewrote the bundle. The orphan layer files survived that install's GC and were removed by the uninstall |
+
+`docker image prune -a` with a stopped container of the app keeps the image (Docker
+drops the tag record only); without a container it removes the image, `check
+--install` reports it missing, and `install` brings it back from the store and the
+container runs.
+
+Two findings, neither introduced by this change:
+
+1. The compose bundle is not durable when `install` returns: `InstallCompose`
+   untars it without a sync, on both routes. A cut inside the writeback window
+   loses it, `check --install` reports it, the next install rewrites it. Follow-up:
+   `syncfs` on the compose root after the untar.
+2. A cut between the GC's metadata commit and its unlinks leaves the compressed
+   layers as files unknown to containerd (208 MB here). containerd removes such
+   files only in `cleanupContent`, which walks the blob directory after a GC that
+   removed a content record, so they stay until the next image removal on the
+   device (the uninstall of the previous version at the next update, or `docker
+   image prune`). Bounded to one install's compressed layers and self-healing.
+   Follow-up option: let `composectl prune` force a content GC.
+
 ## Still unproven, ranked by risk
 
-1. Cuts during `Unpack` and during lease deletion on the board, followed by a retry
-   with no manual step. The integration test covers a killed install (SIGKILL after
-   the lease and the first snapshot exist, then reinstall) in the dev container; a
-   power cut at those points on eMMC is not covered.
-2. Real power cuts on the eMMC, and the fleet's snapshotter. Phase 0 used a sysrq
-   reboot and overlayfs only. If the fleet uses erofs (with its differ and
+1. Real power cuts on the eMMC, and the fleet's snapshotter. The crash trials used a
+   sysrq reboot and overlayfs only. If the fleet uses erofs (with its differ and
    fs-verity), the crash checks are repeated there before deployment; overlayfs
    results do not qualify erofs.
-3. `docker image prune` with a stopped container of the app (`update cancel` after a
-   containerd install is covered by the integration test).
-4. The storage precheck on separate mounts and on a nearly full filesystem (an app
+2. The storage precheck on separate mounts and on a nearly full filesystem (an app
    whose image config is unreadable is covered by the integration test).
 
-2 is a deployment gate; the others are follow-ups.
+1 is a deployment gate; 2 and the two follow-ups above are follow-ups.
 
 ## Integration test
 
