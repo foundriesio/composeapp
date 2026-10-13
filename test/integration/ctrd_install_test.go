@@ -1,0 +1,576 @@
+package e2e_tests
+
+// Tests of the install of app images into dockerd's containerd, see
+// docs/containerd-install-plan-2026-10-08.md. They need the dockerd on the containerd image store
+// (CONTAINERD_SNAPSHOTTER=true) and skip on the graphdriver one.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/leases"
+	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/snapshots"
+	"github.com/docker/docker/api/types/filters"
+	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
+	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
+	"github.com/foundriesio/composeapp/pkg/update"
+	f "github.com/foundriesio/composeapp/test/fixtures"
+	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/identity"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+)
+
+const (
+	ctrdTestApp = `
+services:
+  base:
+    image: ghcr.io/foundriesio/busybox:1.36
+    command: sh -c "while true; do sleep 60; done"
+  multi:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	ctrdDerivedApp = `
+services:
+  derived:
+    image: %s
+    command: sh -c "while true; do sleep 60; done"
+`
+	ctrdKilledApp = `
+services:
+  a-base:
+    image: %s
+    command: sh -c "while true; do sleep 60; done"
+  b-derived:
+    image: %s
+    command: sh -c "while true; do sleep 60; done"
+`
+)
+
+type (
+	// ctrdRig is the containerd behind the test dockerd.
+	ctrdRig struct {
+		t           *testing.T
+		c           *containerd.Client
+		snapshotter string
+		contentRoot string
+		blobsRoot   string
+	}
+
+	ctrdTestImage struct {
+		refs     []string // the pinned digest reference and the short tag reference
+		manifest ocispec.Manifest
+		chainIDs []digest.Digest
+	}
+)
+
+// newCtrdRig connects to dockerd's containerd, or skips the test on a graphdriver dockerd.
+func newCtrdRig(t *testing.T) *ctrdRig {
+	t.Helper()
+	cli, err := compose.GetDockerClient("")
+	f.Check(t, err)
+	defer cli.Close()
+	info, err := compose.GetDockerInfo(context.Background(), cli)
+	f.Check(t, err)
+	if info.Snapshotter() == "" {
+		t.Skip("dockerd uses a graphdriver, not the containerd image store")
+	}
+	c, err := containerd.New(info.Containerd.Address, containerd.WithDefaultNamespace(info.Containerd.Namespaces.Containers))
+	f.Check(t, err)
+	t.Cleanup(func() { c.Close() })
+	r := &ctrdRig{t: t, c: c, snapshotter: info.Snapshotter(), blobsRoot: compose.GetBlobsRootFor(f.AppStoreRoot)}
+	resp, err := c.IntrospectionService().Plugins(context.Background(), []string{"type==io.containerd.content.v1,id==content"})
+	f.Check(t, err)
+	if len(resp.Plugins) != 1 {
+		t.Fatalf("content plugin not found: %+v", resp.Plugins)
+	}
+	r.contentRoot = resp.Plugins[0].Exports["root"]
+	return r
+}
+
+func (r *ctrdRig) readJSON(d digest.Digest, v any) {
+	b, err := os.ReadFile(filepath.Join(r.blobsRoot, d.Encoded()))
+	f.Check(r.t, err)
+	f.Check(r.t, json.Unmarshal(b, v))
+}
+
+// images describes the images of the app from the composectl store.
+func (r *ctrdRig) images(appURI string) []ctrdTestImage {
+	cfg := f.NewTestConfig(r.t)
+	app, err := v1.NewAppLoader().LoadAppTree(context.Background(), compose.NewStoreBlobProvider(r.blobsRoot),
+		platforms.OnlyStrict(cfg.Platform), appURI)
+	f.Check(r.t, err)
+	var out []ctrdTestImage
+	for _, root := range app.GetComposeRoot().Children {
+		ref, err := compose.ParseImageRef(root.Ref())
+		f.Check(r.t, err)
+		img := ctrdTestImage{refs: []string{root.Ref(), ref.GetTagRef()}}
+		mNode := root
+		if images.IsIndexType(root.Descriptor.MediaType) {
+			mNode = root.Children[0]
+		}
+		r.readJSON(mNode.Descriptor.Digest, &img.manifest)
+		var imageConfig ocispec.Image
+		r.readJSON(img.manifest.Config.Digest, &imageConfig)
+		img.chainIDs = identity.ChainIDs(imageConfig.RootFS.DiffIDs)
+		out = append(out, img)
+	}
+	return out
+}
+
+func (r *ctrdRig) blobInContentRoot(d digest.Digest) bool {
+	_, err := os.Stat(filepath.Join(r.contentRoot, "blobs", d.Algorithm().String(), d.Encoded()))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		f.Check(r.t, err)
+	}
+	return err == nil
+}
+
+func (r *ctrdRig) snapshot(chainID digest.Digest) (snapshots.Info, bool) {
+	info, err := r.c.SnapshotService(r.snapshotter).Stat(context.Background(), chainID.String())
+	if err != nil && !errdefs.IsNotFound(err) {
+		f.Check(r.t, err)
+	}
+	return info, err == nil
+}
+
+func (r *ctrdRig) installLeases() []leases.Lease {
+	all, err := r.c.LeasesService().List(context.Background())
+	f.Check(r.t, err)
+	var found []leases.Lease
+	for _, l := range all {
+		if strings.HasPrefix(l.ID, "composectl/install/") {
+			found = append(found, l)
+		}
+	}
+	return found
+}
+
+func dockerImageExists(ref string) bool {
+	return exec.Command("docker", "image", "inspect", ref).Run() == nil
+}
+
+// checkInstalled verifies the outcome of the install: dockerd runs every image by both references
+// offline, no compressed layer stays in containerd, and every snapshot of the image is there.
+func (r *ctrdRig) checkInstalled(app *f.App) {
+	t := r.t
+	for _, img := range r.images(app.PublishedUri) {
+		for _, ref := range img.refs {
+			c := exec.Command("docker", "run", "--rm", "--pull", "never", "--network", "none", ref, "echo", "ok")
+			out, err := c.CombinedOutput()
+			f.Checkf(t, err, "docker run %s: %s", ref, out)
+		}
+		for _, layer := range img.manifest.Layers {
+			if r.blobInContentRoot(layer.Digest) {
+				t.Errorf("layer %s is still in the containerd content store", layer.Digest)
+			}
+		}
+		if !r.blobInContentRoot(img.manifest.Config.Digest) {
+			t.Errorf("config %s is not in the containerd content store", img.manifest.Config.Digest)
+		}
+		for _, chainID := range img.chainIDs {
+			if _, ok := r.snapshot(chainID); !ok {
+				t.Errorf("snapshot %s is missing", chainID)
+			}
+		}
+	}
+	if leftovers := r.installLeases(); len(leftovers) > 0 {
+		t.Errorf("install leases left after the install: %+v", leftovers)
+	}
+}
+
+func (r *ctrdRig) checkNotInstalled(app *f.App) {
+	for _, img := range r.images(app.PublishedUri) {
+		for _, ref := range img.refs {
+			if dockerImageExists(ref) {
+				r.t.Errorf("image %s is still in dockerd", ref)
+			}
+		}
+	}
+}
+
+// pruneImages removes the images no container uses, as aktualizr-lite does after a store prune,
+// and waits for containerd's GC to remove the snapshots of the app images.
+func (r *ctrdRig) pruneImages(topChainIDs []digest.Digest) {
+	cli, err := compose.GetDockerClient("")
+	f.Check(r.t, err)
+	defer cli.Close()
+	_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
+	f.Check(r.t, err)
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if !r.anySnapshot(topChainIDs) {
+			return
+		}
+	}
+	r.t.Fatal("snapshots of the app images are still there after the prune")
+}
+
+func (r *ctrdRig) anySnapshot(chainIDs []digest.Digest) bool {
+	for _, chainID := range chainIDs {
+		if _, ok := r.snapshot(chainID); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// topChainIDs returns the chain ID of the top snapshot of each app image.
+func (r *ctrdRig) topChainIDs(app *f.App) []digest.Digest {
+	var tops []digest.Digest
+	for _, img := range r.images(app.PublishedUri) {
+		tops = append(tops, img.chainIDs[len(img.chainIDs)-1])
+	}
+	return tops
+}
+
+// TestCtrdInstall: an app with an image pinned by a manifest and one pinned by an index is installed
+// from the store, runs, is seen by `check --install` and `ps`, and is removed by uninstall.
+func TestCtrdInstall(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+
+	app.Install(t)
+	r.checkInstalled(app)
+	app.CheckInstalled(t)
+
+	app.Run(t)
+	app.CheckRunning(t)
+	app.Stop(t)
+	app.Uninstall(t)
+	r.checkNotInstalled(app)
+}
+
+// TestCtrdInstallSharedLayers: an update whose image is built on top of the installed version's image
+// keeps the base snapshots and adds the new one.
+func TestCtrdInstallSharedLayers(t *testing.T) {
+	r := newCtrdRig(t)
+	const base = "ghcr.io/foundriesio/busybox:1.36"
+	appV1 := f.NewApp(t, fmt.Sprintf(ctrdDerivedApp, base), "ctrdshared")
+	appV1.Publish(t)
+	appV1.Pull(t)
+	appV1.Install(t)
+	r.checkInstalled(appV1)
+
+	baseChain := r.images(appV1.PublishedUri)[0].chainIDs
+	var baseCreated []time.Time
+	for _, chainID := range baseChain {
+		info, ok := r.snapshot(chainID)
+		if !ok {
+			t.Fatalf("base snapshot %s is missing", chainID)
+		}
+		baseCreated = append(baseCreated, info.Created)
+	}
+
+	derived := f.PublishDerivedImage(t, base, 4)
+	appV2 := f.NewApp(t, fmt.Sprintf(ctrdDerivedApp, derived), "ctrdshared")
+	appV2.Publish(t)
+	appV2.Pull(t)
+	defer appV2.Remove(t)
+	app2Chain := r.images(appV2.PublishedUri)[0].chainIDs
+	if len(app2Chain) != len(baseChain)+1 || app2Chain[len(baseChain)-1] != baseChain[len(baseChain)-1] {
+		t.Fatalf("the derived image does not share the base chain: %v vs %v", app2Chain, baseChain)
+	}
+
+	appV2.Install(t)
+	defer r.pruneImages(baseChain[len(baseChain)-1:]) // v1's images stay in dockerd until v2 is uninstalled
+	defer appV2.Uninstall(t)
+	appV1.Remove(t) // `run` by name needs one version of the app in the store
+	r.checkInstalled(appV2)
+	for i, chainID := range baseChain {
+		info, ok := r.snapshot(chainID)
+		if !ok || !info.Created.Equal(baseCreated[i]) {
+			t.Errorf("base snapshot %s was recreated by the update: %v -> %v", chainID, baseCreated[i], info.Created)
+		}
+	}
+	appV2.Run(t)
+	appV2.CheckRunning(t)
+	appV2.Stop(t)
+}
+
+// TestCtrdInstallAfterPrune: `/images/prune` with aktualizr-lite's filter removes the installed app
+// images, `check --install` reports them missing, and the app is reinstalled from the store.
+func TestCtrdInstallAfterPrune(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	app.Install(t)
+	r.checkInstalled(app)
+
+	r.pruneImages(r.topChainIDs(app))
+	if res := app.GetInstallCheckRes(t); len(res.MissingImages) == 0 {
+		t.Fatal("check --install reports no missing image after the prune")
+	}
+
+	app.Install(t)
+	defer app.Uninstall(t)
+	r.checkInstalled(app)
+	app.CheckInstalled(t)
+	app.Run(t)
+	app.CheckRunning(t)
+	app.Stop(t)
+}
+
+// TestCtrdInstallRecoversFromKilledInstall: an install is killed after it created snapshots; its
+// lease stays, the next install removes the lease and with it the snapshots it alone held, and
+// recreates them, so that nothing a power cut may have broken is reused.
+func TestCtrdInstallRecoversFromKilledInstall(t *testing.T) {
+	r := newCtrdRig(t)
+	const base = "ghcr.io/foundriesio/busybox:1.36"
+	// The small base image is installed first; the big derived layer keeps the install busy after that.
+	app := f.NewApp(t, fmt.Sprintf(ctrdKilledApp, base, f.PublishDerivedImage(t, base, 48)))
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	r.pruneImages(r.topChainIDs(app))
+	firstChain := r.images(app.PublishedUri)[0].chainIDs
+
+	install := exec.Command(os.Getenv("COMPOSECTL_EXE"), "install", app.PublishedUri)
+	f.Check(t, install.Start())
+	defer func() { _ = install.Process.Kill(); _ = install.Wait() }()
+	var killedAt time.Time
+	for deadline := time.Now().Add(2 * time.Minute); killedAt.IsZero(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the install created no lease and snapshot in time")
+		}
+		if _, ok := r.snapshot(firstChain[0]); ok && len(r.installLeases()) > 0 {
+			f.Check(t, install.Process.Kill())
+			killedAt = time.Now()
+		}
+	}
+	_ = install.Wait()
+	if leftovers := r.installLeases(); len(leftovers) != 1 {
+		t.Fatalf("expected the lease of the killed install to stay, got %+v", leftovers)
+	}
+
+	app.Install(t)
+	defer app.Uninstall(t)
+	r.checkInstalled(app)
+	for _, img := range r.images(app.PublishedUri) {
+		for _, chainID := range img.chainIDs {
+			info, ok := r.snapshot(chainID)
+			if !ok || !info.Created.After(killedAt) {
+				t.Errorf("snapshot %s was not recreated after the killed install: created %v, killed at %v", chainID, info.Created, killedAt)
+			}
+		}
+	}
+	app.Run(t)
+	app.CheckRunning(t)
+	app.Stop(t)
+}
+
+// TestCtrdInstallWaitsForLock: a second composectl waits for the install lock instead of installing
+// concurrently.
+func TestCtrdInstallWaitsForLock(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+
+	lock, err := os.OpenFile(filepath.Join(f.AppStoreRoot, ".install.lock"), os.O_RDWR|os.O_CREATE, 0o644)
+	f.Check(t, err)
+	defer lock.Close()
+	f.Check(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
+
+	install := exec.Command(os.Getenv("COMPOSECTL_EXE"), "install", app.PublishedUri)
+	install.Stdout = os.Stdout
+	install.Stderr = os.Stderr
+	f.Check(t, install.Start())
+	done := make(chan error, 1)
+	go func() { done <- install.Wait() }()
+	select {
+	case err := <-done:
+		t.Fatalf("install did not wait for the lock: %v", err)
+	case <-time.After(3 * time.Second):
+	}
+	if _, ok := r.snapshot(r.images(app.PublishedUri)[0].chainIDs[0]); ok {
+		t.Fatal("install created a snapshot while the lock was held")
+	}
+
+	f.Check(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
+	select {
+	case err := <-done:
+		f.Checkf(t, err, "install failed after the lock was released: %v", err)
+	case <-time.After(5 * time.Minute):
+		t.Fatal("install did not finish after the lock was released")
+	}
+	defer app.Uninstall(t)
+	r.checkInstalled(app)
+}
+
+// TestCtrdUpdateCancel: `update cancel` after an install into containerd removes the loaded images.
+func TestCtrdUpdateCancel(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+
+	ctx := context.Background()
+	ur, err := update.NewUpdate(f.NewTestConfig(t), "target-ctrd-cancel")
+	f.Check(t, err)
+	f.Check(t, ur.Init(ctx, []string{app.PublishedUri}))
+	f.Check(t, ur.Fetch(ctx))
+	f.Check(t, ur.Install(ctx))
+	r.checkInstalled(app)
+	imgs := r.images(app.PublishedUri) // the cancel removes the app blobs from the store
+	if len(ur.Status().LoadedImages) != 2 {
+		t.Fatalf("expected 2 loaded images, got %+v", ur.Status().LoadedImages)
+	}
+	f.Check(t, ur.Cancel(ctx))
+	if ur.Status().State != update.StateCanceled {
+		t.Fatalf("update not canceled: %s", ur.Status().State)
+	}
+	for _, img := range imgs {
+		if dockerImageExists(img.refs[1]) {
+			t.Errorf("image %s is still in dockerd after the cancel", img.refs[1])
+		}
+	}
+	f.Check(t, os.RemoveAll(f.NewTestConfig(t).GetAppComposeDir(app.Name)))
+	f.Check(t, compose.RemoveApps(ctx, f.NewTestConfig(t), []string{app.PublishedUri}, compose.WithCheckStatus(false)))
+}
+
+// TestCtrdStorageCheck: `check` reports the storage each filesystem needs; what the install still
+// has to write shrinks once the app is installed.
+func TestCtrdStorageCheck(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+
+	check := func() []composectl.StorageCheck {
+		c := exec.Command(os.Getenv("COMPOSECTL_EXE"), "check", "--local", "--format", "json", app.PublishedUri)
+		out, err := c.CombinedOutput()
+		f.Checkf(t, err, "check failed: %s", out)
+		var res composectl.CheckAndInstallResult
+		f.Check(t, json.Unmarshal(out, &res))
+		if len(res.Storage) == 0 {
+			t.Fatalf("no storage entries in the check output: %s", out)
+		}
+		return res.Storage
+	}
+	required := func(storage []composectl.StorageCheck) (total uint64) {
+		for _, s := range storage {
+			if !s.Ok || s.Path == "" || s.Free == 0 {
+				t.Errorf("unexpected storage entry: %+v", s)
+			}
+			total += s.Required
+		}
+		return total
+	}
+	r.pruneImages(r.topChainIDs(app))
+	before := required(check())
+	app.Install(t)
+	defer app.Uninstall(t)
+	after := required(check())
+	if before <= after {
+		t.Fatalf("storage required before the install (%d) is not larger than after it (%d)", before, after)
+	}
+}
+
+// TestCtrdStorageCheckWithMissingConfig: `check --local` of an app whose image config is not in
+// the store (an interrupted fetch) still reports the missing blob, and sizes the install as if
+// every layer of that image had to be streamed and unpacked.
+func TestCtrdStorageCheckWithMissingConfig(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	r.pruneImages(r.topChainIDs(app)) // no snapshot of the app exists: every layer counts
+
+	// Lower bounds on what the install writes: the compressed layers of both images (one of them
+	// will have no config) and their unpacked size, each layer once.
+	cfg := f.NewTestConfig(t)
+	tree, err := v1.NewAppLoader().LoadAppTree(context.Background(), compose.NewStoreBlobProvider(r.blobsRoot),
+		platforms.OnlyStrict(cfg.Platform), app.PublishedUri)
+	f.Check(t, err)
+	var compressed, unpacked uint64
+	seen := map[digest.Digest]bool{}
+	imgs := r.images(app.PublishedUri)
+	for _, img := range imgs {
+		for _, layer := range img.manifest.Layers {
+			if seen[layer.Digest] {
+				continue
+			}
+			seen[layer.Digest] = true
+			compressed += uint64(layer.Size)
+			unpacked += uint64(tree.GetBlobRuntimeSize(&layer, cfg.Platform.Architecture, cfg.BlockSize))
+		}
+	}
+
+	configDigest := imgs[0].manifest.Config.Digest
+	configPath := filepath.Join(r.blobsRoot, configDigest.Encoded())
+	config, err := os.ReadFile(configPath)
+	f.Check(t, err)
+	f.Check(t, os.Remove(configPath))
+	defer func() { f.Check(t, os.WriteFile(configPath, config, 0o444)) }()
+
+	for _, quick := range []string{"", "--quick"} {
+		args := []string{"check", "--local", "--format", "json", app.PublishedUri}
+		if quick != "" {
+			args = append(args, quick)
+		}
+		out, err := exec.Command(os.Getenv("COMPOSECTL_EXE"), args...).CombinedOutput()
+		f.Checkf(t, err, "check %v failed: %s", args, out)
+		var res composectl.CheckAndInstallResult
+		f.Checkf(t, json.Unmarshal(out, &res), "check %v printed no JSON: %s", args, out)
+		if _, ok := res.FetchCheck.MissingBlobs[configDigest]; !ok {
+			t.Errorf("check %v does not list the config among the missing blobs: %+v", args, res.FetchCheck.MissingBlobs)
+		}
+		checkStorageBounds(t, res.Storage, r.contentRoot, compressed, unpacked)
+	}
+}
+
+// checkStorageBounds checks the storage entries against the bytes the install has to write. The
+// entries are merged per filesystem, so the content root's entry is the one on its filesystem,
+// which may be listed under another path.
+func checkStorageBounds(t *testing.T, storage []composectl.StorageCheck, contentRoot string, compressed, unpacked uint64) {
+	t.Helper()
+	var total uint64
+	var contentEntry *composectl.StorageCheck
+	contentDev := deviceOf(t, contentRoot)
+	for i, s := range storage {
+		if !s.Ok || s.Path == "" || s.Free == 0 {
+			t.Errorf("unexpected storage entry: %+v", s)
+		}
+		total += s.Required
+		if deviceOf(t, s.Path) == contentDev {
+			contentEntry = &storage[i]
+		}
+	}
+	if contentEntry == nil {
+		t.Fatalf("no storage entry on the filesystem of the content root %s: %+v", contentRoot, storage)
+	}
+	if contentEntry.Required < compressed {
+		t.Errorf("content root entry %+v is below the compressed layer size %d", *contentEntry, compressed)
+	}
+	if total < compressed+unpacked {
+		t.Errorf("storage %+v is below the layers' compressed+unpacked size %d+%d", storage, compressed, unpacked)
+	}
+}
+
+func deviceOf(t *testing.T, path string) uint64 {
+	t.Helper()
+	var st syscall.Stat_t
+	f.Check(t, syscall.Stat(path, &st))
+	return uint64(st.Dev) // Dev is 32 bits wide on some architectures
+}

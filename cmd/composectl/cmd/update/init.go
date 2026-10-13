@@ -75,5 +75,8 @@ func initUpdateCmd(cmd *cobra.Command, args []string, opts *initOptions) {
 	us := updateCtl.Status()
 	if len(us.URIs) > 0 {
 		fmt.Printf("Diff summary:\t\t\t\t  %d blobs (%s) to fetch\n", len(us.Blobs), compose.FormatBytesInt64(us.TotalBlobsBytes))
+		for _, s := range us.Storage {
+			fmt.Printf("Storage required:\t\t\t  %s at %s\n", compose.FormatBytesInt64(s.Required), s.Path)
+		}
 	}
 }

@@ -108,11 +108,17 @@ func (u *runnerImpl) complete(ctx context.Context, options ...CompleteOpt) error
 		}
 	}
 
-	// Prune blobs in the app store
+	// Prune blobs in the app store. UninstallApps and RemoveApps above take the install lock
+	// themselves, so it is taken only now, for the prune.
 	store, err := u.config.AppStoreFactory()
 	if err != nil {
 		return err
 	}
+	unlock, err := compose.LockInstall(u.config.StoreRoot)
+	if err != nil {
+		return fmt.Errorf("failed to lock the store for the prune: %w", err)
+	}
+	defer unlock()
 	_, err = store.Prune(ctx)
 	return err
 }

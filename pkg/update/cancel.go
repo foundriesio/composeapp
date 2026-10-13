@@ -12,6 +12,12 @@ import (
 )
 
 func (u *runnerImpl) cancel(ctx context.Context) (err error) {
+	// Removing the loaded images and the fetched blobs must not race with an install.
+	unlock, err := compose.LockInstall(u.config.StoreRoot)
+	if err != nil {
+		return fmt.Errorf("failed to lock the store for the cancel: %w", err)
+	}
+	defer unlock()
 
 	if len(u.LoadedImages) > 0 {
 		cli, err := compose.GetDockerClient(u.config.DockerHost)
