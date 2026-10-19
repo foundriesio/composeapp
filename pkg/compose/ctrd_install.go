@@ -2,10 +2,12 @@ package compose
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,7 +255,8 @@ func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot
 	if err := c.putImage(ctx, img, blobsRoot, first); err != nil {
 		return fmt.Errorf("failed to put the image into containerd: %w", err)
 	}
-	err = c.unpack(ctx, img, platform)
+	loaded := map[int]bool{} // layers reported loaded, across both unpack attempts
+	err = c.unpackWatched(ctx, img, blobsRoot, platform, first, loaded, report)
 	if err == nil {
 		return nil
 	}
@@ -263,10 +266,130 @@ func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot
 	if err := c.linkLayers(ctx, img.layers, blobsRoot); err != nil {
 		return fmt.Errorf("failed to link every layer into containerd after a snapshot went away: %w", err)
 	}
-	if err := c.unpack(ctx, img, platform); err != nil {
+	if err := c.unpackWatched(ctx, img, blobsRoot, platform, 0, loaded, report); err != nil {
 		return fmt.Errorf("failed to unpack after linking every layer: %w", err)
 	}
 	return nil
+}
+
+// unpackWatched runs the unpack and, beside it, reports the layers as their snapshots appear:
+// the first layer without a snapshot as extracting, and every layer whose snapshot exists as
+// loaded, once, with the time it was watched extracting. The report describes what the
+// snapshotter shows, not what the differ does: a snapshot that exists is extracted, not durable,
+// and a layer done within one poll is reported loaded without having been reported extracting.
+func (c *ctrdClient) unpackWatched(ctx context.Context, img *ctrdImage, blobsRoot string, platform platforms.MatchComparer,
+	first int, loaded map[int]bool, report ProgressCallbackFn) error {
+	if report == nil {
+		return c.unpack(ctx, img, platform)
+	}
+	w := &unpackWatch{c: c, img: img, blobsRoot: blobsRoot, first: first, loaded: loaded, report: report,
+		stop: make(chan struct{}), done: make(chan struct{})}
+	go w.run(ctx)
+	err := c.unpack(ctx, img, platform)
+	close(w.stop)
+	<-w.done
+	return err
+}
+
+// unpackWatch measures the extraction of a layer by the free space its snapshot takes from the
+// snapshotter's filesystem, against the size of the layer's tar when that is known; the differ's
+// reads cannot be observed from outside containerd. The measure is an estimate: small files and
+// directories take whole blocks, and anything else written to that filesystem counts too.
+type unpackWatch struct {
+	c          *ctrdClient
+	img        *ctrdImage
+	blobsRoot  string
+	first      int
+	loaded     map[int]bool
+	report     ProgressCallbackFn
+	stop, done chan struct{}
+	extracting int       // index of the layer reported extracting, or -1
+	since      time.Time // when it became the first layer without a snapshot
+	bar        bool      // it is reported with bytes; off when its tar size or a measure is unknown
+	total      int64     // the size of its tar
+	freeAt     int64     // free bytes of the snapshotter's filesystem when it became that layer
+	written    int64     // the most bytes its snapshot has been seen to take
+}
+
+func (w *unpackWatch) run(ctx context.Context) {
+	defer close(w.done)
+	w.extracting = -1
+	// A poll is a stat of the layer being extracted and the free space of the snapshotter root,
+	// cheap enough to sample a layer that is extracted within a second a few times.
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		w.scan(ctx, false)
+		select {
+		case <-w.stop:
+			w.scan(ctx, true)
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// scan reports the layers whose snapshots appeared since the last scan and, unless this is the
+// final scan after the unpack returned, the first layer still without one: with the bytes its
+// snapshot has taken so far against its tar size, or with the milliseconds it has been extracting
+// when that size is unknown. A loaded layer carries the milliseconds it was watched extracting.
+func (w *unpackWatch) scan(ctx context.Context, final bool) {
+	sn := w.c.SnapshotService(w.c.snapshotter)
+	for i := w.first; i < len(w.img.chainIDs); i++ {
+		if w.loaded[i] {
+			continue
+		}
+		_, err := sn.Stat(ctx, w.img.chainIDs[i].String())
+		if err == nil {
+			w.loaded[i] = true
+			var ms int64
+			if w.extracting == i {
+				ms = time.Since(w.since).Milliseconds()
+			}
+			reportLayerState(w.report, w.img, w.img.layers[i], ImageLoadStateLayerLoaded, ms, 0)
+			continue
+		}
+		if !errdefs.IsNotFound(err) {
+			slog.Debug("unpack progress: failed to stat a snapshot", "chainID", w.img.chainIDs[i], "err", err)
+			return
+		}
+		if final {
+			return
+		}
+		if w.extracting != i {
+			w.startLayer(i)
+		}
+		current, total := w.sample()
+		reportLayerState(w.report, w.img, w.img.layers[i], ImageLoadStateLayerSyncing, current, total)
+		return
+	}
+}
+
+// startLayer begins the measure of layer i: its tar size and the free space to count from. The
+// bar is off when either is unknown.
+func (w *unpackWatch) startLayer(i int) {
+	w.extracting, w.since = i, time.Now()
+	w.total = uncompressedSize(w.blobsRoot, w.img.layers[i])
+	w.written = 0
+	free, err := freeBytes(w.c.snapshotterRoot)
+	w.bar = w.total > 0 && err == nil
+	w.freeAt = free
+}
+
+// sample returns what to report for the layer being extracted: the most bytes its snapshot has
+// been seen to take, never more than its tar size, with that size; or the milliseconds since it
+// became the layer being extracted, with 0, when the size is unknown or a measure failed. A
+// failed measure turns the bar off for the rest of the layer.
+func (w *unpackWatch) sample() (current, total int64) {
+	if w.bar {
+		free, err := freeBytes(w.c.snapshotterRoot)
+		if err == nil {
+			w.written = max(w.written, min(w.freeAt-free, w.total))
+			return w.written, w.total
+		}
+		w.bar = false
+	}
+	return time.Since(w.since).Milliseconds(), 0
 }
 
 // firstMissingSnapshot returns the index of the first layer whose snapshot does not exist; every
@@ -507,6 +630,15 @@ func syncFs(path string) error {
 	return nil
 }
 
+// reportLayerState reports a layer of an image; the ID is the compressed layer digest, so that
+// one layer keeps one identity in the output.
+func reportLayerState(report ProgressCallbackFn, img *ctrdImage, layer ocispec.Descriptor, state ImageLoadState, current, total int64) {
+	if report == nil {
+		return
+	}
+	report(&LoadImageProgress{State: state, ImageID: img.ref, ID: layer.Digest.Encoded()[:12], Current: current, Total: total})
+}
+
 func reportImageState(report ProgressCallbackFn, state ImageLoadState, imageID string) {
 	if report != nil {
 		report(&LoadImageProgress{State: state, ImageID: imageID})
@@ -595,4 +727,37 @@ func childOfType(node *TreeNode, blobType BlobType) *TreeNode {
 // the index's platform), keeping what containerd records and content need.
 func plainDescriptor(desc *ocispec.Descriptor) ocispec.Descriptor {
 	return ocispec.Descriptor{MediaType: desc.MediaType, Digest: desc.Digest, Size: desc.Size}
+}
+
+// uncompressedSize returns the size of a layer's tar, which is what the snapshotter writes when it
+// extracts the layer: the blob's size for an uncompressed layer, the size recorded in the last four
+// bytes of a gzip layer (modulo 4 GiB), and 0 for any other compression.
+func uncompressedSize(blobsRoot string, desc ocispec.Descriptor) int64 {
+	const gzipMinSize = 18 // header and trailer of an empty stream
+	switch {
+	case strings.HasSuffix(desc.MediaType, ".tar"):
+		return desc.Size
+	case !strings.HasSuffix(desc.MediaType, "gzip") || desc.Size < gzipMinSize:
+		return 0
+	}
+	f, err := os.Open(filepath.Join(blobsRoot, desc.Digest.Encoded()))
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	var trailer [4]byte
+	if _, err := f.ReadAt(trailer[:], desc.Size-int64(len(trailer))); err != nil {
+		return 0
+	}
+	return int64(binary.LittleEndian.Uint32(trailer[:]))
+}
+
+// freeBytes returns the free space of the filesystem that holds path; a variable so that tests
+// can drive the measure.
+var freeBytes = func(path string) (int64, error) {
+	var st unix.Statfs_t
+	if err := unix.Statfs(path, &st); err != nil {
+		return 0, err
+	}
+	return int64(st.Bavail) * int64(st.Bsize), nil
 }

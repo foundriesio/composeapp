@@ -383,3 +383,64 @@ func TestCtrdLinkedBlobAndGC(t *testing.T) {
 		t.Fatalf("the linked blob has no record: %v", err)
 	}
 }
+
+// checkLayerEvents verifies the per-image event order: the image loading first, then for each
+// registered layer the extraction samples, if any, and one loaded, the image loaded last. No layer
+// is reported as acquired: every one is linked. A sample with a known total counts bytes against
+// the size of the layer's tar; one without counts milliseconds.
+func checkLayerEvents(t *testing.T, events []compose.LoadImageProgress, layers []ocispec.Descriptor, blobsRoot string) {
+	t.Helper()
+	if len(events) < 2 || events[0].State != compose.ImageLoadStateImageLoading || events[len(events)-1].State != compose.ImageLoadStateImageLoaded {
+		t.Fatalf("expected image loading first and image loaded last, got %+v", events)
+	}
+	for _, l := range layers {
+		id := l.Digest.Encoded()[:12]
+		tarSize := compose.UncompressedSize(blobsRoot, l)
+		loadedAt, lastSample := -1, -1
+		for i, e := range events {
+			if e.ID != id {
+				continue
+			}
+			switch e.State {
+			case compose.ImageLoadStateLayerSyncing:
+				lastSample = i
+				if e.Total != tarSize || e.Current < 0 || e.Total > 0 && e.Current > e.Total {
+					t.Errorf("layer %s: sample %d/%d, tar size %d", id, e.Current, e.Total, tarSize)
+				}
+			case compose.ImageLoadStateLayerLoaded:
+				if loadedAt >= 0 {
+					t.Errorf("layer %s reported loaded twice", id)
+				}
+				loadedAt = i
+				if e.Current < 0 || e.Total != 0 || lastSample < 0 && e.Current != 0 {
+					t.Errorf("layer %s: loaded with %d ms after %d samples", id, e.Current, lastSample+1)
+				}
+			default:
+				t.Errorf("layer %s: unexpected event %+v", id, e)
+			}
+		}
+		if loadedAt < 0 || loadedAt < lastSample {
+			t.Errorf("layer %s: loaded at %d, last extraction sample at %d", id, loadedAt, lastSample)
+		}
+	}
+}
+
+func collectEvents(events *[]compose.LoadImageProgress) compose.ProgressCallbackFn {
+	return func(p *compose.LoadImageProgress) { *events = append(*events, *p) }
+}
+
+// TestCtrdInstallReportsLayers: the install reports the extraction of every layer.
+func TestCtrdInstallReportsLayers(t *testing.T) {
+	c := ctrdRig(t)
+	cfg := f.NewTestConfig(t)
+	app, tree, layers := linkRig(t, cfg)
+	defer app.Remove(t)
+	toRegister := layersToRegister(t, c, cfg, tree, layers)
+	if len(toRegister) == 0 {
+		t.Fatal("every layer of the fresh image already has a snapshot")
+	}
+	var events []compose.LoadImageProgress
+	f.Check(t, compose.InstallImagesCtrd(context.Background(), c, tree, cfg, collectEvents(&events)))
+	defer deleteImage(t, c, tree)
+	checkLayerEvents(t, events, toRegister, cfg.GetBlobsRoot())
+}
