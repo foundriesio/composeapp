@@ -24,3 +24,12 @@ Deleting the lease lets containerd's GC unlink its name only; the store keeps it
 The store and the content store must be on one filesystem: a link across filesystems
 fails the install, naming both paths. The test environment keeps its store on the test
 dockerd's data volume for that.
+
+## Per-layer progress
+
+Beside the unpack, a watcher polls the image's snapshots every 100 ms. The first
+layer without a snapshot is reported as extracting, with the space its snapshot has
+taken from the snapshotter's filesystem against the layer's tar size (from the gzip
+trailer for a gzip layer), or with the elapsed time when that size is unknown. The
+differ's reads cannot be observed from outside containerd, so the bar is an
+estimate. A layer whose snapshot appears is reported loaded with the time it took.

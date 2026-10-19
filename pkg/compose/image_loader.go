@@ -480,6 +480,7 @@ func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter,
 				if jm.Progress == nil {
 					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
 						p.State = ImageLoadStateImageLoaded
+						p.Current, p.Total = 0, 0
 						reportProgressIfEnabled(options, p)
 
 						curImageIndex++
@@ -489,7 +490,10 @@ func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter,
 					}
 
 				} else if curLayerID != jm.ID {
+					// A loaded layer carries no bytes: the install into containerd reports the time
+					// it took there, and the printer reads a count as that.
 					p.State = ImageLoadStateLayerLoaded
+					p.Current, p.Total = 0, 0
 					reportProgressIfEnabled(options, p)
 
 					// Start new image layer loading

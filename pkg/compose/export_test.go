@@ -13,6 +13,7 @@ type CtrdClient = ctrdClient
 var (
 	ConnectCtrdIfInstallTarget = connectCtrdIfInstallTarget
 	InstallImagesCtrd          = installImagesCtrd
+	UncompressedSize           = uncompressedSize
 )
 
 func RegisterLayer(ctx context.Context, c *CtrdClient, blobsRoot string, desc ocispec.Descriptor) error {
