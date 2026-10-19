@@ -1,6 +1,7 @@
 package progress
 
 import (
+	"context"
 	"sync"
 )
 
@@ -8,6 +9,7 @@ type (
 	Reporter[T any] interface {
 		Start(progressHandler func(*T))
 		Update(progressValue T) bool
+		Send(ctx context.Context, progressValue T)
 		Stop(drainChannel bool)
 	}
 
@@ -61,7 +63,23 @@ func (sr *reporterImpl[T]) Update(progressValue T) bool {
 	}
 }
 
-// Stop stops the worker and closes the channel
+// Send queues a progress update, waiting for room in the buffer. It drops the update instead when
+// ctx is done first, or already; a done context never enqueues (with both ready, the select could
+// pick the send). Updates that mark a state change go through here so that a slow handler delays
+// them rather than loses them; Update remains for the samples in between.
+func (sr *reporterImpl[T]) Send(ctx context.Context, progressValue T) {
+	if ctx.Err() != nil {
+		return
+	}
+	select {
+	case sr.progressCh <- progressValue:
+	case <-ctx.Done():
+	}
+}
+
+// Stop stops the worker and closes the channel. With drainChannel the worker handles every queued
+// update before Stop returns; without it the worker exits after its current call and queued
+// updates need not be delivered. Either way Stop waits for the handler call in progress.
 func (sr *reporterImpl[T]) Stop(drainChannel bool) {
 	sr.once.Do(func() {
 		close(sr.progressCh)

@@ -60,6 +60,11 @@ func Install(ctx context.Context,
 	for _, o := range options {
 		o(&opts)
 	}
+	if opts.ProgressReporter != nil {
+		// Every state change has been handled when Install returns; after a cancellation the
+		// queue is not waited for. Evaluated at return time, hence the closure.
+		defer func() { opts.ProgressReporter.Stop(ctx.Err() == nil) }()
+	}
 
 	unlock, err := LockInstall(cfg.StoreRoot)
 	if err != nil {
@@ -77,7 +82,7 @@ func Install(ctx context.Context,
 	}
 
 	// TODO: Implement progress reporting for app compose installation
-	reportInstallState(&opts, app, AppInstallStateComposeInstalling)
+	reportInstallState(ctx, &opts, app, AppInstallStateComposeInstalling)
 
 	if err := installImages(ctx, cfg, app, &opts); err != nil {
 		return fmt.Errorf("failed to load images for app %s: %w", app.Ref().String(), err)
@@ -87,42 +92,65 @@ func Install(ctx context.Context,
 		return err
 	}
 	// TODO: Implement progress reporting for app compose installation checking
-	reportInstallState(&opts, app, AppInstallStateComposeChecking)
+	reportInstallState(ctx, &opts, app, AppInstallStateComposeChecking)
 	return checkComposeInstallation(ctx, app, cs, cfg)
 }
 
-func reportInstallState(opts *InstallOptions, app App, state AppInstallState) {
+func reportInstallState(ctx context.Context, opts *InstallOptions, app App, state AppInstallState) {
 	if opts.ProgressReporter == nil {
 		return
 	}
-	opts.ProgressReporter.Update(InstallProgress{
+	opts.ProgressReporter.Send(ctx, InstallProgress{
 		AppInstallState: state,
 		AppID:           app.Ref().String(),
 	})
 }
 
 // imageProgressCallback forwards the image load progress to the install progress reporter and
-// records the loaded images; it is nil when neither is wanted.
-func imageProgressCallback(opts *InstallOptions, app App) ProgressCallbackFn {
+// records the loaded images; it is nil when neither is wanted. A state change of a layer or an
+// image is sent so that it is never lost; the samples that follow it (bytes of a layer being
+// loaded, time of a layer being extracted) may be dropped when the reporter is behind.
+func imageProgressCallback(ctx context.Context, opts *InstallOptions, app App) ProgressCallbackFn {
 	if opts.ProgressReporter == nil && opts.LoadedImages == nil {
 		return nil
 	}
+	var last LoadImageProgress
 	return func(ilp *LoadImageProgress) {
 		if opts.LoadedImages != nil && ilp.State == ImageLoadStateImageLoaded {
 			opts.LoadedImages[ilp.ImageID] = struct{}{}
 		}
-		if opts.ProgressReporter != nil {
-			opts.ProgressReporter.Update(InstallProgress{
-				AppInstallState: AppInstallStateImagesLoading,
-				AppID:           app.Ref().String(),
-				ImageLoadState:  ilp.State,
-				ImageID:         ilp.ImageID,
-				ID:              ilp.ID,
-				Current:         ilp.Current,
-				Total:           ilp.Total,
-			})
+		if opts.ProgressReporter == nil {
+			return
 		}
+		p := InstallProgress{
+			AppInstallState: AppInstallStateImagesLoading,
+			AppID:           app.Ref().String(),
+			ImageLoadState:  ilp.State,
+			ImageID:         ilp.ImageID,
+			ID:              ilp.ID,
+			Current:         ilp.Current,
+			Total:           ilp.Total,
+		}
+		if isProgressSample(ilp, &last) {
+			opts.ProgressReporter.Update(p)
+		} else {
+			opts.ProgressReporter.Send(ctx, p)
+		}
+		last = *ilp
 	}
+}
+
+// isProgressSample reports whether an update only refines the state the previous update already
+// announced for the same layer. The last sample of a layer being loaded, the one that completes
+// it, counts as a state change.
+func isProgressSample(p, last *LoadImageProgress) bool {
+	if p.State != ImageLoadStateLayerLoading && p.State != ImageLoadStateLayerSyncing {
+		return false
+	}
+	if p.State != last.State || p.ID != last.ID || p.ImageID != last.ImageID {
+		return false
+	}
+	return p.State != ImageLoadStateLayerLoading || p.Current < p.Total
 }
 
 // installImages puts the app images into dockerd: straight into its containerd on a daemon that
@@ -133,7 +161,7 @@ func installImages(ctx context.Context, cfg *Config, app App, opts *InstallOptio
 		return err
 	}
 	defer cli.Close()
-	report := imageProgressCallback(opts, app)
+	report := imageProgressCallback(ctx, opts, app)
 	ctrd, err := connectCtrdIfInstallTarget(ctx, cli)
 	if err != nil {
 		return err
