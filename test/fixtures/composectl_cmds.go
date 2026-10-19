@@ -23,7 +23,8 @@ import (
 )
 
 const (
-	AppStoreRoot       = "/var/sota/reset-apps"
+	// On the mount of the test dockerd's containerd: an install hardlinks the store's layers into it.
+	AppStoreRoot       = "/var/lib/docker/reset-apps"
 	AppComposeRootRoot = "/var/sota/compose-apps"
 )
 

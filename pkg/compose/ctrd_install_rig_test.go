@@ -5,18 +5,26 @@ package compose_test
 // (built by `make`) is not there, as under `make test-unit`.
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/platforms"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	f "github.com/foundriesio/composeapp/test/fixtures"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const derivedAppDef = `
@@ -44,7 +52,7 @@ func ctrdRig(t *testing.T) *compose.CtrdClient {
 }
 
 // TestCtrdInstallRetriesAfterBaseSnapshotRemoval: the base snapshot found by the scan is removed
-// before the unpack, as `docker image prune` could do, and the install streams every layer and
+// before the unpack, as `docker image prune` could do, and the install links every layer and
 // unpacks again. The removal runs in the install's progress callback, which installImagesCtrd
 // calls synchronously after the scan and before the layers are streamed.
 func TestCtrdInstallRetriesAfterBaseSnapshotRemoval(t *testing.T) {
@@ -105,4 +113,273 @@ func TestCtrdInstallRetriesAfterBaseSnapshotRemoval(t *testing.T) {
 	derivedRef := derivedTree.GetComposeRoot().Children[0].Ref()
 	out, err := exec.Command("docker", "run", "--rm", "--pull", "never", "--network", "none", derivedRef, "echo", "ok").CombinedOutput()
 	f.Checkf(t, err, "docker run %s: %s", derivedRef, out)
+}
+
+// linkRig publishes and pulls a one-image app with a fresh layer and returns the app, its tree and
+// its layer descriptors.
+func linkRig(t *testing.T, cfg *compose.Config) (*f.App, compose.App, []ocispec.Descriptor) {
+	t.Helper()
+	ctx := context.Background()
+	store := compose.NewStoreBlobProvider(cfg.GetBlobsRoot())
+	app := f.NewApp(t, fmt.Sprintf(derivedAppDef, f.PublishDerivedImage(t, "ghcr.io/foundriesio/busybox:1.36", 3)))
+	app.Publish(t)
+	app.Pull(t)
+	tree, err := cfg.AppLoader.LoadAppTree(ctx, store, platforms.OnlyStrict(cfg.Platform), app.PublishedUri)
+	f.Check(t, err)
+	layers, err := compose.LayerDescriptorsOf(ctx, tree, store)
+	f.Check(t, err)
+	return app, tree, layers[0]
+}
+
+// storeCopyIn copies the store's blobs into a new store root under dir and returns a config that
+// uses it.
+func storeCopyIn(t *testing.T, cfg *compose.Config, dir string) *compose.Config {
+	t.Helper()
+	root, err := os.MkdirTemp(dir, "composectl-store-")
+	f.Check(t, err)
+	t.Cleanup(func() { os.RemoveAll(root) })
+	copyCfg := *cfg
+	copyCfg.StoreRoot = root
+	f.Check(t, os.MkdirAll(copyCfg.GetBlobsRoot(), 0700))
+	blobs, err := os.ReadDir(cfg.GetBlobsRoot())
+	f.Check(t, err)
+	for _, b := range blobs {
+		data, err := os.ReadFile(filepath.Join(cfg.GetBlobsRoot(), b.Name()))
+		f.Check(t, err)
+		f.Check(t, os.WriteFile(filepath.Join(copyCfg.GetBlobsRoot(), b.Name()), data, 0600))
+	}
+	return &copyCfg
+}
+
+// layersToRegister returns the layers whose snapshot does not exist yet, from the first one on: the
+// install leaves the ones below it alone, so only these reach the content store.
+func layersToRegister(t *testing.T, c *compose.CtrdClient, cfg *compose.Config, tree compose.App, layers []ocispec.Descriptor) []ocispec.Descriptor {
+	t.Helper()
+	ctx := context.Background()
+	chains, err := compose.ChainIDsOf(ctx, tree, compose.NewStoreBlobProvider(cfg.GetBlobsRoot()))
+	f.Check(t, err)
+	sn := c.SnapshotService(compose.CtrdSnapshotter(c))
+	for i, chainID := range chains[0] {
+		if _, err := sn.Stat(ctx, chainID); errdefs.IsNotFound(err) {
+			return layers[i:]
+		}
+	}
+	return nil
+}
+
+func deviceOf(t *testing.T, path string) uint64 {
+	t.Helper()
+	var st syscall.Stat_t
+	f.Check(t, syscall.Stat(path, &st))
+	return uint64(st.Dev)
+}
+
+// deleteImage removes both records the install creates for the app's image, the pinned digest
+// reference and the short tag reference, so that containerd's GC drops its snapshots.
+func deleteImage(t *testing.T, c *compose.CtrdClient, tree compose.App) {
+	t.Helper()
+	ref := tree.GetComposeRoot().Children[0].Ref()
+	parsed, err := compose.ParseImageRef(ref)
+	f.Check(t, err)
+	for _, name := range []string{ref, parsed.GetTagRef()} {
+		f.Check(t, c.ImageService().Delete(context.Background(), name, images.SynchronousDelete()))
+	}
+}
+
+func contentBlobPath(c *compose.CtrdClient, d digest.Digest) string {
+	return filepath.Join(compose.CtrdContentRoot(c), "blobs", d.Algorithm().String(), d.Encoded())
+}
+
+func statNlink(t *testing.T, path string) (os.FileInfo, uint64) {
+	t.Helper()
+	fi, err := os.Stat(path)
+	f.Check(t, err)
+	return fi, uint64(fi.Sys().(*syscall.Stat_t).Nlink)
+}
+
+// TestCtrdInstallLinksLayers: every layer blob is a second name of the store blob while the install
+// lease exists, and the content root holds no copy of it afterwards. One layer is linked before the
+// install, as an interrupted install leaves it, and is registered as is.
+func TestCtrdInstallLinksLayers(t *testing.T) {
+	c := ctrdRig(t)
+	cfg := f.NewTestConfig(t)
+	app, tree, layers := linkRig(t, cfg)
+	defer app.Remove(t)
+	layers = layersToRegister(t, c, cfg, tree, layers)
+	if len(layers) == 0 {
+		t.Fatal("every layer of the fresh image already has a snapshot")
+	}
+	storePath := func(d digest.Digest) string { return filepath.Join(cfg.GetBlobsRoot(), d.Encoded()) }
+	f.Check(t, os.MkdirAll(filepath.Dir(contentBlobPath(c, layers[0].Digest)), 0700))
+	f.Check(t, os.Link(storePath(layers[0].Digest), contentBlobPath(c, layers[0].Digest)))
+
+	checked := false
+	atLoaded := func(p *compose.LoadImageProgress) {
+		if p.State != compose.ImageLoadStateImageLoaded {
+			return
+		}
+		checked = true
+		for _, l := range layers {
+			src, nlink := statNlink(t, storePath(l.Digest))
+			dst, _ := statNlink(t, contentBlobPath(c, l.Digest))
+			if nlink != 2 || !os.SameFile(src, dst) {
+				t.Errorf("layer %s: nlink %d, same file %v; expected a link into the content root", l.Digest, nlink, os.SameFile(src, dst))
+			}
+		}
+	}
+	f.Check(t, compose.InstallImagesCtrd(context.Background(), c, tree, cfg, atLoaded))
+	defer deleteImage(t, c, tree)
+	if !checked {
+		t.Fatal("the image was never reported loaded")
+	}
+	for _, l := range layers {
+		if _, nlink := statNlink(t, storePath(l.Digest)); nlink != 1 {
+			t.Errorf("layer %s still has %d names after the lease was deleted", l.Digest, nlink)
+		}
+		if _, err := os.Stat(contentBlobPath(c, l.Digest)); !errdefs.IsNotFound(err) && !os.IsNotExist(err) {
+			t.Errorf("layer %s is still in the content root: %v", l.Digest, err)
+		}
+	}
+}
+
+// TestCtrdInstallFailsAcrossFilesystems: with the store on another filesystem the link fails and
+// so does the install, naming both directories, without a copy of any layer in the content root;
+// the next install from a store on the content root's filesystem removes the lease it left.
+func TestCtrdInstallFailsAcrossFilesystems(t *testing.T) {
+	c := ctrdRig(t)
+	ctx := context.Background()
+	cfg := f.NewTestConfig(t)
+	app, tree, layers := linkRig(t, cfg)
+	defer app.Remove(t)
+	other := "/dev/shm"
+	if _, err := os.Stat(other); err != nil || deviceOf(t, other) == deviceOf(t, compose.CtrdContentRoot(c)) {
+		t.Skip("no filesystem other than the content root's is available")
+	}
+	otherCfg := storeCopyIn(t, cfg, other)
+	layers = layersToRegister(t, c, otherCfg, tree, layers)
+	if len(layers) == 0 {
+		t.Fatal("every layer of the fresh image already has a snapshot")
+	}
+
+	err := compose.InstallImagesCtrd(ctx, c, tree, otherCfg, nil)
+	if err == nil || !strings.Contains(err.Error(), otherCfg.GetBlobsRoot()) || !strings.Contains(err.Error(), compose.CtrdContentRoot(c)) {
+		t.Fatalf("expected the install to fail naming the store and the content root, got %v", err)
+	}
+	for _, l := range layers {
+		if _, err := os.Stat(contentBlobPath(c, l.Digest)); !os.IsNotExist(err) {
+			t.Errorf("layer %s is in the content root after the failed install: %v", l.Digest, err)
+		}
+	}
+	installLeases := func() (n int) {
+		all, err := c.LeasesService().List(ctx)
+		f.Check(t, err)
+		for _, l := range all {
+			if strings.HasPrefix(l.ID, "composectl/install/") {
+				n++
+			}
+		}
+		return n
+	}
+	if installLeases() != 1 {
+		t.Fatalf("expected the failed install to leave its lease, found %d", installLeases())
+	}
+	f.Check(t, compose.InstallImagesCtrd(ctx, c, tree, cfg, nil))
+	defer deleteImage(t, c, tree)
+	if installLeases() != 0 {
+		t.Fatalf("expected the next install to remove the lease, found %d", installLeases())
+	}
+}
+
+// TestCtrdLinkedBlobAndGC: containerd's blob-directory cleanup runs after a GC that removed content.
+// A linked file it finds before the writer is opened is removed, and the registration links it again
+// rather than copy it; once the writer is open its expected digest keeps the file; after the commit
+// the record keeps it.
+func TestCtrdLinkedBlobAndGC(t *testing.T) {
+	c := ctrdRig(t)
+	ctx := context.Background()
+	cfg := f.NewTestConfig(t)
+	app, _, layers := linkRig(t, cfg)
+	defer app.Remove(t)
+	cs, ls := c.ContentStore(), c.LeasesService()
+	layer := layers[len(layers)-1]
+	src := filepath.Join(cfg.GetBlobsRoot(), layer.Digest.Encoded())
+	dst := contentBlobPath(c, layer.Digest)
+	ref := "composectl-" + layer.Digest.String()
+	f.Check(t, os.MkdirAll(filepath.Dir(dst), 0700))
+
+	// forceGC commits a throwaway blob under its own lease and deletes that lease, which removes
+	// the blob's record and so triggers the blob-directory cleanup.
+	forceGC := func() {
+		lease, err := ls.Create(ctx, leases.WithRandomID())
+		f.Check(t, err)
+		data := []byte(fmt.Sprintf("throwaway %d", time.Now().UnixNano()))
+		f.Check(t, content.WriteBlob(leases.WithLease(ctx, lease.ID), cs, "throwaway", bytes.NewReader(data),
+			ocispec.Descriptor{Digest: digest.FromBytes(data), Size: int64(len(data))}))
+		f.Check(t, ls.Delete(ctx, lease, leases.SynchronousDelete))
+	}
+	waitGone := func(path string) bool {
+		for i := 0; i < 50; i++ {
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				return true
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return false
+	}
+	lease, err := ls.Create(ctx, leases.WithRandomID())
+	f.Check(t, err)
+	defer func() { _ = ls.Delete(ctx, lease, leases.SynchronousDelete) }()
+	lctx := leases.WithLease(ctx, lease.ID)
+
+	// (a) cleanup before the writer: the link goes; the registration finds an ordinary writer,
+	// discards its ingest, links again and registers the link, copying nothing.
+	f.Check(t, os.Link(src, dst))
+	forceGC()
+	if !waitGone(dst) {
+		t.Fatal("cleanup did not remove the unreferenced link")
+	}
+	time.Sleep(time.Second) // the cleanup pass that removed the link may still be walking the directory
+	f.Check(t, compose.RegisterLayer(lctx, c, cfg.GetBlobsRoot(), layer))
+	srcInfo, _ := statNlink(t, src)
+	if dstInfo, nlink := statNlink(t, dst); nlink != 2 || !os.SameFile(srcInfo, dstInfo) {
+		t.Fatalf("expected the layer linked again after cleanup removed the link, nlink %d same file %v", nlink, os.SameFile(srcInfo, dstInfo))
+	}
+	if _, err := cs.Info(ctx, layer.Digest); err != nil {
+		t.Fatalf("the relinked blob has no record: %v", err)
+	}
+	if statuses, err := cs.ListStatuses(ctx, "ref=="+ref); err != nil || len(statuses) != 0 {
+		t.Fatalf("expected no ingest left behind, got %v, %v", statuses, err)
+	}
+	f.Check(t, cs.Delete(ctx, layer.Digest))
+	forceGC()
+	if !waitGone(dst) {
+		t.Fatal("the deleted blob was not cleaned up")
+	}
+
+	// (b) cleanup between the writer and the commit: the expected digest keeps the file.
+	f.Check(t, os.Link(src, dst))
+	w, err := content.OpenWriter(lctx, cs, content.WithRef("composectl-"+layer.Digest.String()), content.WithDescriptor(layer))
+	f.Check(t, err)
+	st, err := w.Status()
+	f.Check(t, err)
+	if st.Offset != layer.Size {
+		t.Fatalf("expected a shared writer at offset %d, got %d", layer.Size, st.Offset)
+	}
+	forceGC()
+	time.Sleep(time.Second)
+	if _, nlink := statNlink(t, dst); nlink != 2 {
+		t.Fatalf("the linked blob of an open writer was removed, nlink %d", nlink)
+	}
+	f.Check(t, w.Commit(lctx, layer.Size, layer.Digest))
+	w.Close()
+
+	// (c) cleanup after the commit: the record keeps the file.
+	forceGC()
+	time.Sleep(time.Second)
+	if _, nlink := statNlink(t, dst); nlink != 2 {
+		t.Fatalf("the committed linked blob was removed, nlink %d", nlink)
+	}
+	if _, err := cs.Info(ctx, layer.Digest); err != nil {
+		t.Fatalf("the linked blob has no record: %v", err)
+	}
 }

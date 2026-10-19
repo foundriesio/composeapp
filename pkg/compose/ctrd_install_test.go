@@ -3,13 +3,18 @@ package compose
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/leases"
 	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 func TestInstallLeaseID(t *testing.T) {
@@ -119,5 +124,155 @@ func TestPutImageRecordsRollsBackOnCancel(t *testing.T) {
 	}
 	if !store.deletedWithLiveCtx {
 		t.Fatal("the rollback ran on the cancelled context")
+	}
+}
+
+func writeStoreBlob(t *testing.T, blobsRoot string, data []byte) ocispec.Descriptor {
+	t.Helper()
+	d := digest.FromBytes(data)
+	if err := os.MkdirAll(blobsRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blobsRoot, d.Encoded()), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return ocispec.Descriptor{Digest: d, Size: int64(len(data))}
+}
+
+func TestLinkLayerLinksVerifiedBlob(t *testing.T) {
+	root := t.TempDir()
+	blobsRoot := filepath.Join(root, "store")
+	contentRoot := filepath.Join(root, "content")
+	desc := writeStoreBlob(t, blobsRoot, []byte("layer bytes"))
+
+	if err := linkLayer(contentRoot, blobsRoot, desc); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.Stat(filepath.Join(blobsRoot, desc.Digest.Encoded()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := os.Stat(filepath.Join(contentRoot, "blobs", "sha256", desc.Digest.Encoded()))
+	if err != nil {
+		t.Fatalf("the blob was not linked into the content root: %v", err)
+	}
+	if !os.SameFile(src, dst) {
+		t.Fatal("the content root blob is not a link to the store blob")
+	}
+	// A second install finds the link in place and leaves it alone.
+	if err := linkLayer(contentRoot, blobsRoot, desc); err != nil {
+		t.Fatalf("linking over an existing link must not fail: %v", err)
+	}
+}
+
+func TestLinkLayerRejectsWrongSize(t *testing.T) {
+	root := t.TempDir()
+	blobsRoot := filepath.Join(root, "store")
+	contentRoot := filepath.Join(root, "content")
+	desc := writeStoreBlob(t, blobsRoot, []byte("layer bytes"))
+	desc.Size++
+
+	if err := linkLayer(contentRoot, blobsRoot, desc); err == nil || !strings.Contains(err.Error(), desc.Digest.String()) {
+		t.Fatalf("expected a size mismatch naming %s, got %v", desc.Digest, err)
+	}
+	if _, err := os.Stat(filepath.Join(contentRoot, "blobs")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("nothing must be linked for a blob of the wrong size, stat: %v", err)
+	}
+}
+
+func TestLinkLayerFailsOnAnotherFilesystem(t *testing.T) {
+	root := t.TempDir()
+	blobsRoot := filepath.Join(root, "store")
+	contentRoot := filepath.Join(root, "content")
+	desc := writeStoreBlob(t, blobsRoot, []byte("layer bytes"))
+
+	orig := linkFile
+	t.Cleanup(func() { linkFile = orig })
+	linkFile = func(string, string) error { return &os.LinkError{Op: "link", Err: syscall.EXDEV} }
+
+	err := linkLayer(contentRoot, blobsRoot, desc)
+	if err == nil || !strings.Contains(err.Error(), blobsRoot) || !strings.Contains(err.Error(), contentRoot) {
+		t.Fatalf("expected a failure naming the store and the content root, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentRoot, "blobs", "sha256", desc.Digest.Encoded())); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("no link expected, stat: %v", err)
+	}
+}
+
+func TestLinkLayerFailsOnMissingBlob(t *testing.T) {
+	root := t.TempDir()
+	desc := ocispec.Descriptor{Digest: digest.FromString("absent"), Size: 6}
+	err := linkLayer(filepath.Join(root, "content"), filepath.Join(root, "store"), desc)
+	if !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), desc.Digest.String()) {
+		t.Fatalf("expected a not-found failure naming the layer, got %v", err)
+	}
+}
+
+// fakeIngests is a content.IngestManager whose Abort returns err for the first failures calls, as
+// containerd does while the server side of a closed writer still writes the ingest's status, and
+// calls cancel, when set, on the first call.
+type fakeIngests struct {
+	failures int
+	err      error
+	cancel   context.CancelFunc
+	aborts   int
+}
+
+func (s *fakeIngests) Status(context.Context, string) (content.Status, error) {
+	return content.Status{}, errdefs.ErrNotFound
+}
+func (s *fakeIngests) ListStatuses(context.Context, ...string) ([]content.Status, error) {
+	return nil, nil
+}
+func (s *fakeIngests) Abort(context.Context, string) error {
+	s.aborts++
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.aborts <= s.failures {
+		return s.err
+	}
+	return nil
+}
+
+func TestAbortIngestRetriesWhileTheAbortFails(t *testing.T) {
+	ingests := &fakeIngests{failures: 2, err: errors.New("unlinkat ingest: directory not empty")}
+	if err := abortIngest(context.Background(), ingests, "ref"); err != nil {
+		t.Fatalf("the abort failed after the retries: %v", err)
+	}
+	if ingests.aborts != 3 {
+		t.Fatalf("expected 3 abort calls, got %d", ingests.aborts)
+	}
+}
+
+func TestAbortIngestGivesUpAfterTheBoundedRetries(t *testing.T) {
+	ingests := &fakeIngests{failures: ingestAbortAttempts + 1, err: errors.New("unlinkat ingest: directory not empty")}
+	if err := abortIngest(context.Background(), ingests, "ref"); !errors.Is(err, ingests.err) {
+		t.Fatalf("expected the last abort error, got %v", err)
+	}
+	if ingests.aborts != ingestAbortAttempts {
+		t.Fatalf("expected %d abort calls, got %d", ingestAbortAttempts, ingests.aborts)
+	}
+}
+
+func TestAbortIngestOfUnknownRefSucceeds(t *testing.T) {
+	ingests := &fakeIngests{failures: 1, err: errdefs.ErrNotFound}
+	if err := abortIngest(context.Background(), ingests, "ref"); err != nil {
+		t.Fatalf("an unknown ingest must not fail the abort: %v", err)
+	}
+	if ingests.aborts != 1 {
+		t.Fatalf("expected 1 abort call, got %d", ingests.aborts)
+	}
+}
+
+func TestAbortIngestStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingests := &fakeIngests{failures: ingestAbortAttempts + 1, err: errors.New("unlinkat ingest: directory not empty"), cancel: cancel}
+	if err := abortIngest(ctx, ingests, "ref"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected the cancellation to be returned, got %v", err)
+	}
+	if ingests.aborts != 1 {
+		t.Fatalf("expected the retries to stop at the cancellation, got %d abort calls", ingests.aborts)
 	}
 }

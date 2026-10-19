@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +26,8 @@ import (
 )
 
 // Install of app images straight into the containerd behind dockerd: the compressed layers are
-// streamed under a short lease and dropped by containerd's GC once the lease is deleted.
+// hardlinked into containerd's content store under a short lease and dropped by containerd's GC
+// once the lease is deleted.
 
 const (
 	// MinDockerVersionForCtrdInstall is the oldest dockerd on which `docker image ls` lists an image
@@ -39,6 +41,9 @@ const (
 	gcRefManifestLabel  = "containerd.io/gc.ref.content.m.0"
 	// recordCleanupTimeout bounds the removal of partial image records after a failed write.
 	recordCleanupTimeout = 30 * time.Second
+	// ingestAbortAttempts and ingestAbortDelay bound the retries of a failed ingest abort.
+	ingestAbortAttempts = 20
+	ingestAbortDelay    = 50 * time.Millisecond
 )
 
 type (
@@ -165,7 +170,7 @@ func pluginRoot(ctx context.Context, c *containerd.Client, pluginType, id string
 	return resp.Plugins[0].Exports["root"], nil
 }
 
-// installImagesCtrd installs the images of one app into dockerd's containerd. Under a lease it streams
+// installImagesCtrd installs the images of one app into dockerd's containerd. Under a lease it links
 // the layers that have no snapshot yet, unpacks every image and syncs the snapshotter's filesystem,
 // and only then creates the image records: a record never points at a snapshot that a power cut
 // can still lose. Deleting the lease lets containerd's GC drop the compressed layers.
@@ -234,9 +239,10 @@ func deleteInstallLeases(ctx context.Context, ls leases.Manager) error {
 	return nil
 }
 
-// installImage streams what image needs and unpacks it. If a base snapshot went away between the
-// scan and the unpack (for example `docker image prune` removed the image that held it), the unpack
-// fails on the missing layer blob; then every layer is streamed and the unpack is run once more.
+// installImage puts what the image needs into the content store and unpacks it. If a base snapshot
+// went away between the scan and the unpack (for example `docker image prune` removed the image that
+// held it), the unpack fails on the missing layer blob; then every layer is linked and the unpack is
+// run once more.
 func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot string,
 	platform platforms.MatchComparer, report ProgressCallbackFn) error {
 	first, err := c.firstMissingSnapshot(ctx, img.chainIDs)
@@ -244,8 +250,8 @@ func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot
 		return fmt.Errorf("failed to scan the snapshots: %w", err)
 	}
 	reportImageState(report, ImageLoadStateImageLoading, img.ref)
-	if err := c.streamImage(ctx, img, blobsRoot, first); err != nil {
-		return fmt.Errorf("failed to stream the image to containerd: %w", err)
+	if err := c.putImage(ctx, img, blobsRoot, first); err != nil {
+		return fmt.Errorf("failed to put the image into containerd: %w", err)
 	}
 	err = c.unpack(ctx, img, platform)
 	if err == nil {
@@ -254,17 +260,17 @@ func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot
 	if !errdefs.IsNotFound(err) {
 		return fmt.Errorf("failed to unpack: %w", err)
 	}
-	if err := c.streamLayers(ctx, img.layers, blobsRoot); err != nil {
-		return fmt.Errorf("failed to stream every layer to containerd after a snapshot went away: %w", err)
+	if err := c.linkLayers(ctx, img.layers, blobsRoot); err != nil {
+		return fmt.Errorf("failed to link every layer into containerd after a snapshot went away: %w", err)
 	}
 	if err := c.unpack(ctx, img, platform); err != nil {
-		return fmt.Errorf("failed to unpack after streaming every layer: %w", err)
+		return fmt.Errorf("failed to unpack after linking every layer: %w", err)
 	}
 	return nil
 }
 
 // firstMissingSnapshot returns the index of the first layer whose snapshot does not exist; every
-// layer after it has to be streamed and unpacked too, because a snapshot needs its parent.
+// layer after it has to be linked and unpacked too, because a snapshot needs its parent.
 func (c *ctrdClient) firstMissingSnapshot(ctx context.Context, chainIDs []digest.Digest) (int, error) {
 	sn := c.SnapshotService(c.snapshotter)
 	for i, chainID := range chainIDs {
@@ -279,11 +285,11 @@ func (c *ctrdClient) firstMissingSnapshot(ctx context.Context, chainIDs []digest
 	return len(chainIDs), nil
 }
 
-// streamImage writes the layers from first on, the config, the manifest and, when the image is
-// pinned by one, the index. The manifest gets no layer labels: only the lease holds the layers.
-// WriteBlob leaves the labels of a blob that already exists as they are.
-func (c *ctrdClient) streamImage(ctx context.Context, img *ctrdImage, blobsRoot string, first int) error {
-	if err := c.streamLayers(ctx, img.layers[first:], blobsRoot); err != nil {
+// putImage puts the layers from first on, the config, the manifest and, when the image is pinned
+// by one, the index into the content store. The manifest gets no layer labels: only the lease holds
+// the layers. WriteBlob leaves the labels of a blob that already exists as they are.
+func (c *ctrdClient) putImage(ctx context.Context, img *ctrdImage, blobsRoot string, first int) error {
+	if err := c.linkLayers(ctx, img.layers[first:], blobsRoot); err != nil {
 		return err
 	}
 	if err := c.writeBlob(ctx, blobsRoot, img.config, nil); err != nil {
@@ -306,15 +312,130 @@ func (c *ctrdClient) streamImage(ctx context.Context, img *ctrdImage, blobsRoot 
 	return err
 }
 
-func (c *ctrdClient) streamLayers(ctx context.Context, layers []ocispec.Descriptor, blobsRoot string) error {
+// linkLayers puts the layers into the content store without copying them: each store blob is
+// hardlinked to the path the content store keeps it at, and then registered in place.
+func (c *ctrdClient) linkLayers(ctx context.Context, layers []ocispec.Descriptor, blobsRoot string) error {
 	for _, layer := range layers {
-		if err := c.writeBlob(ctx, blobsRoot, layer, nil); err != nil {
+		if err := linkLayer(c.contentRoot, blobsRoot, layer); err != nil {
+			return err
+		}
+		if err := c.registerLayer(ctx, blobsRoot, layer); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// registerLayer records a layer whose file is at the content store's path for it, without reading
+// it: the writer the content store opens for such a file owns no ingest and reports the layer's
+// size as its offset, and is committed as it is. A writer at any other offset means the file is
+// not there (containerd's blob cleanup removes a file it has no record of): its ingest is
+// discarded, the layer is linked again and the registration is tried once more; a second miss
+// fails the install rather than copy the layer.
+func (c *ctrdClient) registerLayer(ctx context.Context, blobsRoot string, desc ocispec.Descriptor) error {
+	cs := c.ContentStore()
+	ref := "composectl-" + desc.Digest.String()
+	for attempt := 1; ; attempt++ {
+		w, err := content.OpenWriter(ctx, cs, content.WithRef(ref), content.WithDescriptor(desc))
+		if errdefs.IsAlreadyExists(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("failed to open a content writer for layer %s: %w", desc.Digest, err)
+		}
+		st, err := w.Status()
+		if err == nil && st.Offset == desc.Size {
+			err = w.Commit(ctx, desc.Size, desc.Digest)
+			_ = w.Close()
+			if err != nil && !errdefs.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to register layer %s: %w", desc.Digest, err)
+			}
+			return nil
+		}
+		_ = w.Close()
+		if err != nil {
+			return fmt.Errorf("failed to read the content writer status of layer %s: %w", desc.Digest, err)
+		}
+		if err := abortIngest(ctx, cs, ref); err != nil {
+			return fmt.Errorf("failed to discard the ingest of layer %s: %w", desc.Digest, err)
+		}
+		if attempt == 2 {
+			return fmt.Errorf("layer %s cannot be registered in containerd's content store without a copy:"+
+				" its link is removed before it is recorded", desc.Digest)
+		}
+		if err := linkLayer(c.contentRoot, blobsRoot, desc); err != nil {
+			return err
+		}
+	}
+}
+
+// abortIngest discards the ingest of ref, retrying up to ingestAbortAttempts times, ingestAbortDelay
+// apart, while the abort fails: the writer's Close only tells containerd to stop, so its side may
+// still be writing the ingest's status when the abort removes the ingest directory, which then
+// fails as not empty. A cancelled context ends the retries with its error.
+func abortIngest(ctx context.Context, cs content.IngestManager, ref string) error {
+	for attempt := 1; ; attempt++ {
+		err := cs.Abort(ctx, ref)
+		if err == nil || errdefs.IsNotFound(err) {
+			return nil
+		}
+		if attempt == ingestAbortAttempts {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(ingestAbortDelay):
+		}
+	}
+}
+
+// linkFile makes the hardlink of a store blob in the content store; a variable so that tests can
+// make it fail.
+var linkFile = os.Link
+
+// linkLayer checks that the store blob of a layer is there with the layer's size and hardlinks it
+// to the path the content store keeps that blob at. containerd registers a file that is already at
+// that path without copying or hashing it (the "shared" content sharing policy), so the write that
+// follows moves no bytes; the blob was verified when it was pulled, and the unpack checks every
+// extracted layer against the image's diff IDs. A file already at that path is containerd's own
+// blob or a link an interrupted install left, and is used as it is; a link that cannot be made
+// for any other reason fails the install.
+func linkLayer(contentRoot, blobsRoot string, desc ocispec.Descriptor) error {
+	src := filepath.Join(blobsRoot, desc.Digest.Encoded())
+	if err := checkBlob(src, desc); err != nil {
+		return err
+	}
+	dir := filepath.Join(contentRoot, "blobs", desc.Digest.Algorithm().String())
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create the content store directory of layer %s: %w", desc.Digest, err)
+	}
+	err := linkFile(src, filepath.Join(dir, desc.Digest.Encoded()))
+	switch {
+	case err == nil || errors.Is(err, fs.ErrExist):
+		return nil
+	case errors.Is(err, syscall.EXDEV):
+		return fmt.Errorf("cannot link layer %s from %s into containerd's content store %s: both must be on one filesystem",
+			desc.Digest, blobsRoot, contentRoot)
+	default:
+		return fmt.Errorf("failed to link layer %s into containerd's content store: %w", desc.Digest, err)
+	}
+}
+
+// checkBlob checks that the store blob is there and has the size its descriptor promises.
+func checkBlob(path string, desc ocispec.Descriptor) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to find blob %s in the store: %w", desc.Digest, err)
+	}
+	if fi.Size() != desc.Size {
+		return fmt.Errorf("blob %s in the store has %d bytes, expected %d", desc.Digest, fi.Size(), desc.Size)
+	}
+	return nil
+}
+
+// writeBlob writes the store blob of desc to the content store; a blob the content store has
+// already is left as it is.
 func (c *ctrdClient) writeBlob(ctx context.Context, blobsRoot string, desc ocispec.Descriptor, labels map[string]string) error {
 	f, err := os.Open(filepath.Join(blobsRoot, desc.Digest.Encoded()))
 	if err != nil {
