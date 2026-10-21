@@ -20,14 +20,17 @@ containerd cannot be reached on such a daemon, install fails instead of falling 
 Under an exclusive flock on `<StoreRoot>/.install.lock`, which uninstall, `rm` and
 `prune` take too, for each app:
 
-1. Delete every leftover `composectl/install/` lease, then create the lease
-   `composectl/install/<app>@<digest>` with no expiry (a board without a real-time
-   clock can jump forward in time).
+1. Delete every leftover `composectl/install/` lease except this app's own one
+   labelled `composectl/install.synced`, which is resumed: its active snapshot is
+   removed. Otherwise create the lease `composectl/install/<app>@<digest>` with no
+   expiry (a board without a real-time clock can jump forward in time), labelled
+   when containerd is 1.7.14 or newer.
 2. For each image, write under the lease the layers from the first one without a
    snapshot on, the config, the manifest and the index. The manifest has no layer
    GC labels, so only the lease holds the layers.
-3. Unpack the image. If a base snapshot was removed in the meantime, write every
-   layer and unpack once more.
+3. Unpack the image with the `sync_fs` apply option, so that each snapshot is
+   synced before it is committed (containerd 1.7.14 or newer). If a base snapshot
+   was removed in the meantime, write every layer and unpack once more.
 4. `syncfs` the snapshotter root.
 5. Create or update the image records: the digest ref and the tag ref.
 6. Delete the lease; containerd's GC drops the compressed layers.
@@ -36,8 +39,10 @@ Under an exclusive flock on `<StoreRoot>/.install.lock`, which uninstall, `rm` a
 
 The image records are created only after the `syncfs`, so a recorded image is on
 disk. Without it, a crash right after install left 3 of 3 images broken on the board.
-The snapshots of an interrupted install are held only by its lease, which the next
-install, or `composectl prune`, deletes before anything is reused.
+The snapshots of an interrupted install are held only by its lease. A labelled lease
+holds synced snapshots only, so the next install of the same app keeps them and goes
+on from the first missing layer. Any other lease is deleted by the next install, or
+by `composectl prune`, before anything is reused.
 
 ## Limits
 
