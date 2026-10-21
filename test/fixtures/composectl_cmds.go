@@ -447,6 +447,13 @@ func (a *App) runCmd(t *testing.T, desc string, args ...string) {
 	})
 }
 
+// RunCmd runs composectl with the given arguments from the current directory and fails the test
+// unless it exits 0. It returns the combined output.
+func RunCmd(t *testing.T, args ...string) []byte {
+	t.Helper()
+	return runCmd(t, "", args...)
+}
+
 func runCmd(t *testing.T, appDir string, args ...string) []byte {
 	t.Helper()
 	c := exec.Command(composeExec, args...)
@@ -482,4 +489,24 @@ func randomString(length int) string {
 		b[i] = charset[seededRand.Intn(len(charset))]
 	}
 	return string(b)
+}
+
+// PublishDerivedImage builds an image on top of base with one layer of sizeMB random bytes and
+// pushes it to the test registry through the publisher dockerd, which the publish step reads the
+// image layers from. It returns the image reference.
+func PublishDerivedImage(t *testing.T, base string, sizeMB int) string {
+	t.Helper()
+	name := "derived-" + randomString(8)
+	ref := "registry:5000/factory/" + name + ":v1"
+	pub := func(args ...string) {
+		out, err := publisherDockerCommand(args...).CombinedOutput()
+		Checkf(t, err, "docker %v: %s", args, out)
+	}
+	pub("pull", base)
+	pub("run", "--name", name, base, "sh", "-c", fmt.Sprintf("head -c %d /dev/urandom > /derived", sizeMB<<20))
+	pub("commit", name, ref)
+	pub("rm", name)
+	pub("push", ref)
+	pub("image", "rm", ref)
+	return ref
 }
