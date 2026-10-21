@@ -14,11 +14,21 @@ func TestLoadImages(t *testing.T) {
 	t.Skip("TODO: we need to have the docker client and daemon mocks to test this function")
 }
 
-// collectingReporter keeps every update, for tests of what the parsers emit.
-type collectingReporter struct{ got []LoadImageProgress }
+// collectingReporter keeps every update, for tests of what the parsers emit; a saturated one
+// drops every update that may be dropped and keeps only those that wait for room.
+type collectingReporter struct {
+	got       []LoadImageProgress
+	saturated bool
+}
 
-func (r *collectingReporter) Start(func(*LoadImageProgress))              {}
-func (r *collectingReporter) Update(p LoadImageProgress) bool             { r.got = append(r.got, p); return true }
+func (r *collectingReporter) Start(func(*LoadImageProgress)) {}
+func (r *collectingReporter) Update(p LoadImageProgress) bool {
+	if r.saturated {
+		return false
+	}
+	r.got = append(r.got, p)
+	return true
+}
 func (r *collectingReporter) Send(_ context.Context, p LoadImageProgress) { r.got = append(r.got, p) }
 func (r *collectingReporter) Stop(bool)                                   {}
 
@@ -48,7 +58,7 @@ func TestReportProgressIfDockerLoadedCarriesNoBytes(t *testing.T) {
 	})
 	reporter := &collectingReporter{}
 	layers := map[string]string{"l1": "aaaaaaaaaaaa", "l2": "bbbbbbbbbbbb"}
-	err := reportProgressIfDocker(body, []imageURI2RefCounter{{URI: "img", refCounter: 1}}, layers, &LoadImageOptions{ProgressReporter: reporter})
+	err := reportProgressIfDocker(context.Background(), body, []imageURI2RefCounter{{URI: "img", refCounter: 1}}, layers, &LoadImageOptions{ProgressReporter: reporter})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +79,7 @@ func TestReportProgressIfDockerLoadedCarriesNoBytes(t *testing.T) {
 		{ImageLoadStateLayerLoading, "bbbbbbb", 5, 50},
 		{ImageLoadStateLayerLoading, "bbbbbbb", 50, 50},
 		{ImageLoadStateLayerSyncing, "bbbbbbb", 50, 50},
+		{ImageLoadStateLayerLoaded, "bbbbbbb", 0, 0},
 		{ImageLoadStateImageLoaded, "bbbbbbb", 0, 0},
 	}
 	if len(got) != len(want) {
@@ -78,5 +89,67 @@ func TestReportProgressIfDockerLoadedCarriesNoBytes(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("event %d: got %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+// TestReportProgressIfDockerStateChangesWaitForRoom: a saturated reporter loses the samples of a
+// layer (its loading at 20 of 100 bytes) but none of the state changes: its first loading
+// sample, its loading complete, and the last layer's loaded event included.
+func TestReportProgressIfDockerStateChangesWaitForRoom(t *testing.T) {
+	progress := func(id string, cur, total int64) jsonmessage.JSONMessage {
+		return jsonmessage.JSONMessage{ID: id, Progress: &jsonmessage.JSONProgress{Current: cur, Total: total}}
+	}
+	body := dockerLoadStream(t, []jsonmessage.JSONMessage{
+		progress("l1", 10, 100), progress("l1", 20, 100), progress("l1", 100, 100),
+		progress("l2", 50, 50),
+		{Stream: "Loaded image: img\n"},
+	})
+	reporter := &collectingReporter{saturated: true}
+	layers := map[string]string{"l1": "aaaaaaaaaaaa", "l2": "bbbbbbbbbbbb"}
+	err := reportProgressIfDocker(context.Background(), body, []imageURI2RefCounter{{URI: "img", refCounter: 1}}, layers, &LoadImageOptions{ProgressReporter: reporter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range reporter.got {
+		got = append(got, string(p.State)+" "+p.ID)
+	}
+	want := []string{
+		"image-load:layer:loading aaaaaaa", "image-load:layer:loading aaaaaaa", "image-load:layer:syncing aaaaaaa",
+		"image-load:layer:loaded aaaaaaa",
+		"image-load:layer:loading bbbbbbb", "image-load:layer:syncing bbbbbbb", "image-load:layer:loaded bbbbbbb",
+		"image-load:image:loaded bbbbbbb",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got events\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// TestReportProgressIfDockerOneMessageLayers: a layer dockerd loads in one message, the first of
+// the image or not, is syncing from then on, so that the image's loaded line finds no loading.
+func TestReportProgressIfDockerOneMessageLayers(t *testing.T) {
+	progress := func(id string, cur, total int64) jsonmessage.JSONMessage {
+		return jsonmessage.JSONMessage{ID: id, Progress: &jsonmessage.JSONProgress{Current: cur, Total: total}}
+	}
+	body := dockerLoadStream(t, []jsonmessage.JSONMessage{
+		progress("l1", 50, 50), progress("l2", 5, 5), {Stream: "Loaded image: img\n"},
+	})
+	reporter := &collectingReporter{}
+	layers := map[string]string{"l1": "aaaaaaaaaaaa", "l2": "bbbbbbbbbbbb"}
+	err := reportProgressIfDocker(context.Background(), body, []imageURI2RefCounter{{URI: "img", refCounter: 1}}, layers, &LoadImageOptions{ProgressReporter: reporter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range reporter.got {
+		got = append(got, string(p.State)+" "+p.ID)
+	}
+	want := []string{
+		"image-load:layer:loading aaaaaaa", "image-load:layer:syncing aaaaaaa", "image-load:layer:loaded aaaaaaa",
+		"image-load:layer:loading bbbbbbb", "image-load:layer:syncing bbbbbbb", "image-load:layer:loaded bbbbbbb",
+		"image-load:image:loaded bbbbbbb",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got events\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

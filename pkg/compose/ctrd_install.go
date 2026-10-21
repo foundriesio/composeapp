@@ -241,10 +241,11 @@ func deleteInstallLeases(ctx context.Context, ls leases.Manager) error {
 	return nil
 }
 
-// installImage puts what the image needs into the content store and unpacks it. If a base snapshot
-// went away between the scan and the unpack (for example `docker image prune` removed the image that
-// held it), the unpack fails on the missing layer blob; then every layer is linked and the unpack is
-// run once more.
+// installImage announces every layer of the image, as existing when its snapshot is there and as
+// pending otherwise, then puts what the image needs into the content store and unpacks it. If a
+// base snapshot went away between the scan and the unpack (for example `docker image prune`
+// removed the image that held it), the unpack fails on the missing layer blob; then every layer
+// is linked and the unpack is run once more, without announcing the layers again.
 func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot string,
 	platform platforms.MatchComparer, report ProgressCallbackFn) error {
 	first, err := c.firstMissingSnapshot(ctx, img.chainIDs)
@@ -252,6 +253,13 @@ func (c *ctrdClient) installImage(ctx context.Context, img *ctrdImage, blobsRoot
 		return fmt.Errorf("failed to scan the snapshots: %w", err)
 	}
 	reportImageState(report, ImageLoadStateImageLoading, img.ref)
+	for i, layer := range img.layers {
+		state := ImageLoadStateLayerPending
+		if i < first {
+			state = ImageLoadStateLayerExist
+		}
+		reportLayerState(report, img, layer, state, 0, 0)
+	}
 	if err := c.putImage(ctx, img, blobsRoot, first); err != nil {
 		return fmt.Errorf("failed to put the image into containerd: %w", err)
 	}
@@ -631,12 +639,13 @@ func syncFs(path string) error {
 }
 
 // reportLayerState reports a layer of an image; the ID is the compressed layer digest, so that
-// one layer keeps one identity in the output.
+// one layer keeps one identity in the output, and the size is that of the compressed blob.
 func reportLayerState(report ProgressCallbackFn, img *ctrdImage, layer ocispec.Descriptor, state ImageLoadState, current, total int64) {
 	if report == nil {
 		return
 	}
-	report(&LoadImageProgress{State: state, ImageID: img.ref, ID: layer.Digest.Encoded()[:12], Current: current, Total: total})
+	report(&LoadImageProgress{State: state, ImageID: img.ref, ID: layer.Digest.Encoded()[:12],
+		Current: current, Total: total, Size: layer.Size})
 }
 
 func reportImageState(report ProgressCallbackFn, state ImageLoadState, imageID string) {

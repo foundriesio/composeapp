@@ -146,14 +146,16 @@ services:
 	app.CheckFetched(t)
 
 	cfg := f.NewTestConfig(t)
+	var events []compose.InstallProgress
 	err := compose.Install(context.Background(), cfg, app.PublishedUri,
 		compose.WithInstallProgress(func(p *compose.InstallProgress) {
 			if p.AppID != app.PublishedUri {
 				t.Fatalf("expected app ID %s, got %s", app.PublishedUri, p.AppID)
 			}
-			// TODO: check progress
+			events = append(events, *p)
 		}))
 	f.Check(t, err)
+	checkImageLoadEvents(t, events, 2)
 	defer func() {
 		os.RemoveAll(cfg.ComposeRoot)
 		cli, err := compose.GetDockerClient("")
@@ -161,6 +163,48 @@ services:
 		_, err = cli.ImagesPrune(context.Background(), filters.NewArgs(filters.Arg("dangling", "false")))
 		f.Check(t, err)
 	}()
+}
+
+// checkImageLoadEvents checks the image events of an install: every one of the app's images ends
+// as loaded or as already existing, and every layer reported for an image is loaded, or existed,
+// before the image is reported loaded. An image starts with its first event: the docker load route
+// reports no image loading event, only its layers.
+func checkImageLoadEvents(t *testing.T, events []compose.InstallProgress, images int) {
+	t.Helper()
+	open := map[string]map[string]bool{} // layers of each image that are not loaded yet
+	done := map[string]bool{}
+	layerEvents := map[string]int{}
+	defer func() { t.Logf("layer events per image: %v", layerEvents) }()
+	for _, e := range events {
+		if e.ImageLoadState == "" || e.ImageLoadState == compose.ImageLoadStateImageWaiting {
+			continue
+		}
+		if done[e.ImageID] {
+			t.Errorf("event %s for image %s after it was reported loaded", e.ImageLoadState, e.ImageID)
+			continue
+		}
+		if open[e.ImageID] == nil {
+			open[e.ImageID] = map[string]bool{}
+		}
+		if e.ID != "" {
+			layerEvents[e.ImageID]++
+		}
+		switch e.ImageLoadState {
+		case compose.ImageLoadStateImageExist, compose.ImageLoadStateImageLoaded:
+			if left := open[e.ImageID]; len(left) > 0 {
+				t.Errorf("image %s reported %s with layers not loaded: %v", e.ImageID, e.ImageLoadState, left)
+			}
+			done[e.ImageID] = true
+		case compose.ImageLoadStateLayerLoaded, compose.ImageLoadStateLayerExist:
+			delete(open[e.ImageID], e.ID)
+		case compose.ImageLoadStateImageLoading:
+		default:
+			open[e.ImageID][e.ID] = true
+		}
+	}
+	if len(done) != images {
+		t.Errorf("expected %d images loaded or existing, got %d: %v", images, len(done), done)
+	}
 }
 
 func TestAppInstallationWithoutProgress(t *testing.T) {
