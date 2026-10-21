@@ -22,6 +22,7 @@ type (
 		ID              string
 		Current         int64
 		Total           int64
+		Size            int64
 	}
 
 	InstallProgressFunc func(*InstallProgress)
@@ -130,6 +131,7 @@ func imageProgressCallback(ctx context.Context, opts *InstallOptions, app App) P
 			ID:              ilp.ID,
 			Current:         ilp.Current,
 			Total:           ilp.Total,
+			Size:            ilp.Size,
 		}
 		if isProgressSample(ilp, &last) {
 			opts.ProgressReporter.Update(p)

@@ -385,9 +385,10 @@ func TestCtrdLinkedBlobAndGC(t *testing.T) {
 }
 
 // checkLayerEvents verifies the per-image event order: the image loading first, then for each
-// registered layer the extraction samples, if any, and one loaded, the image loaded last. No layer
-// is reported as acquired: every one is linked. A sample with a known total counts bytes against
-// the size of the layer's tar; one without counts milliseconds.
+// registered layer one pending, the extraction samples, if any, and one loaded, the image loaded
+// last. No layer is reported as existing: every one is linked. A sample with a known total counts
+// bytes against the size of the layer's tar; one without counts milliseconds. Every layer event
+// carries the size of the layer's blob.
 func checkLayerEvents(t *testing.T, events []compose.LoadImageProgress, layers []ocispec.Descriptor, blobsRoot string) {
 	t.Helper()
 	if len(events) < 2 || events[0].State != compose.ImageLoadStateImageLoading || events[len(events)-1].State != compose.ImageLoadStateImageLoaded {
@@ -396,12 +397,20 @@ func checkLayerEvents(t *testing.T, events []compose.LoadImageProgress, layers [
 	for _, l := range layers {
 		id := l.Digest.Encoded()[:12]
 		tarSize := compose.UncompressedSize(blobsRoot, l)
-		loadedAt, lastSample := -1, -1
+		pendingAt, loadedAt, lastSample := -1, -1, -1
 		for i, e := range events {
 			if e.ID != id {
 				continue
 			}
+			if e.Size != l.Size {
+				t.Errorf("layer %s: event %s carries size %d, the blob is %d", id, e.State, e.Size, l.Size)
+			}
 			switch e.State {
+			case compose.ImageLoadStateLayerPending:
+				if pendingAt >= 0 || lastSample >= 0 || loadedAt >= 0 {
+					t.Errorf("layer %s: pending at %d after pending %d, sample %d, loaded %d", id, i, pendingAt, lastSample, loadedAt)
+				}
+				pendingAt = i
 			case compose.ImageLoadStateLayerSyncing:
 				lastSample = i
 				if e.Total != tarSize || e.Current < 0 || e.Total > 0 && e.Current > e.Total {
@@ -421,6 +430,9 @@ func checkLayerEvents(t *testing.T, events []compose.LoadImageProgress, layers [
 		}
 		if loadedAt < 0 || loadedAt < lastSample {
 			t.Errorf("layer %s: loaded at %d, last extraction sample at %d", id, loadedAt, lastSample)
+		}
+		if pendingAt < 0 {
+			t.Errorf("layer %s: never reported pending", id)
 		}
 	}
 }

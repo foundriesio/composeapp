@@ -25,6 +25,7 @@ type (
 		ID      string
 		Current int64
 		Total   int64
+		Size    int64 // the compressed layer blob, when known
 	}
 
 	ProgressCallbackFn func(*LoadImageProgress)
@@ -80,6 +81,8 @@ type (
 
 const (
 	ImageLoadStateImageWaiting ImageLoadState = "image-load:image:waiting"
+	ImageLoadStateLayerExist   ImageLoadState = "image-load:layer:exist"
+	ImageLoadStateLayerPending ImageLoadState = "image-load:layer:pending"
 	ImageLoadStateLayerLoading ImageLoadState = "image-load:layer:loading"
 	ImageLoadStateLayerSyncing ImageLoadState = "image-load:layer:syncing"
 	ImageLoadStateLayerLoaded  ImageLoadState = "image-load:layer:loaded"
@@ -212,18 +215,24 @@ func LoadImages(ctx context.Context,
 	if isCtrd {
 		return reportProgressIfContainerd(r.Body, imageURIs, options.ProgressReporter)
 	} else {
-		return reportProgressIfDocker(r.Body, imageURIs, layersMap, options)
+		return reportProgressIfDocker(ctx, r.Body, imageURIs, layersMap, options)
 	}
 
 }
 
-func reportProgressIfEnabled(opts *LoadImageOptions, p *LoadImageProgress) {
+// reportProgressIfEnabled reports an update of the docker load: a sample that only refines the
+// state of the last update may be dropped when the reporter is saturated, a state change waits
+// for room instead.
+func reportProgressIfEnabled(ctx context.Context, opts *LoadImageOptions, p, last *LoadImageProgress) {
 	if opts.ProgressReporter == nil {
 		return
 	}
-
-	// TODO: check whether the progress message was dropped and print log message if so
-	opts.ProgressReporter.Update(*p)
+	if isProgressSample(p, last) {
+		opts.ProgressReporter.Update(*p)
+	} else {
+		opts.ProgressReporter.Send(ctx, *p)
+	}
+	*last = *p
 }
 
 func generateImageLoadingManifestForApp(ctx context.Context, app App, blobsRoot string, options *LoadImageOptions) (imageLoadManifests []*imageLoadManifest, imageURIs []imageURI2RefCounter, layersMap map[string]string, err error) {
@@ -410,12 +419,31 @@ func reportProgressIfContainerd(body io.ReadCloser, imageURIs []imageURI2RefCoun
 	return nil
 }
 
-func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter, layersMap map[string]string, options *LoadImageOptions) error {
+func reportProgressIfDocker(ctx context.Context, body io.ReadCloser, imageURIs []imageURI2RefCounter, layersMap map[string]string, options *LoadImageOptions) error {
 	var err error
+	var last LoadImageProgress
 	dec := json.NewDecoder(body)
 
 	curImageIndex := 0
 	curLayerID := ""
+	// loadLayer reports the first message of a layer: its loading and, when that message already
+	// completes the layer, as a small one's does, its syncing from then on.
+	loadLayer := func(p *LoadImageProgress, jm *jsonmessage.JSONMessage) {
+		curLayerID = jm.ID
+		if _, ok := layersMap[curLayerID]; ok {
+			p.ID = layersMap[curLayerID][:7]
+		} else {
+			p.ID = "unknown"
+		}
+		p.State = ImageLoadStateLayerLoading
+		p.Current = jm.Progress.Current
+		p.Total = jm.Progress.Total
+		reportProgressIfEnabled(ctx, options, p, &last)
+		if jm.Progress.Current == jm.Progress.Total {
+			p.State = ImageLoadStateLayerSyncing
+			reportProgressIfEnabled(ctx, options, p, &last)
+		}
+	}
 	p := &LoadImageProgress{
 		State:   ImageLoadStateImageWaiting,
 		ImageID: imageURIs[curImageIndex].URI,
@@ -442,7 +470,7 @@ func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter,
 				if jm.Progress == nil {
 					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
 						p.State = ImageLoadStateImageExist
-						reportProgressIfEnabled(options, p)
+						reportProgressIfEnabled(ctx, options, p, &last)
 
 						curImageIndex++
 						curLayerID = ""
@@ -450,38 +478,32 @@ func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter,
 						p.ImageID = getImageID(imageURIs, curImageIndex, false)
 					}
 				} else {
-					curLayerID = jm.ID
 					p.ImageID = getImageID(imageURIs, curImageIndex, true)
-					if _, ok := layersMap[curLayerID]; ok {
-						p.ID = layersMap[curLayerID][:7]
-					} else {
-						p.ID = "unknown"
-					}
-					p.State = ImageLoadStateLayerLoading
-					p.Current = jm.Progress.Current
-					p.Total = jm.Progress.Total
-					reportProgressIfEnabled(options, p)
+					loadLayer(p, &jm)
 				}
 			}
 		case ImageLoadStateLayerLoading:
 			{
 				p.Current = jm.Progress.Current
 				p.Total = jm.Progress.Total
-				reportProgressIfEnabled(options, p)
+				reportProgressIfEnabled(ctx, options, p, &last)
 				if jm.Progress.Current == jm.Progress.Total {
 					// Image layer files were extracted and written to filesystem, now fsyncing has started
 					// Unfortunately, we cannot track progress of fsyncing, so we just report the state
 					p.State = ImageLoadStateLayerSyncing
-					reportProgressIfEnabled(options, p)
+					reportProgressIfEnabled(ctx, options, p, &last)
 				}
 			}
 		case ImageLoadStateLayerSyncing:
 			{
 				if jm.Progress == nil {
 					if imageURIs[curImageIndex].refCounter--; imageURIs[curImageIndex].refCounter == 0 {
-						p.State = ImageLoadStateImageLoaded
+						// The last layer of the image is loaded when the image is.
+						p.State = ImageLoadStateLayerLoaded
 						p.Current, p.Total = 0, 0
-						reportProgressIfEnabled(options, p)
+						reportProgressIfEnabled(ctx, options, p, &last)
+						p.State = ImageLoadStateImageLoaded
+						reportProgressIfEnabled(ctx, options, p, &last)
 
 						curImageIndex++
 						curLayerID = ""
@@ -494,20 +516,9 @@ func reportProgressIfDocker(body io.ReadCloser, imageURIs []imageURI2RefCounter,
 					// it took there, and the printer reads a count as that.
 					p.State = ImageLoadStateLayerLoaded
 					p.Current, p.Total = 0, 0
-					reportProgressIfEnabled(options, p)
+					reportProgressIfEnabled(ctx, options, p, &last)
 
-					// Start new image layer loading
-					curLayerID = jm.ID
-					if _, ok := layersMap[curLayerID]; ok {
-						p.ID = layersMap[curLayerID][:7]
-					} else {
-						p.ID = "unknown"
-					}
-					p.State = ImageLoadStateLayerLoading
-
-					p.Current = jm.Progress.Current
-					p.Total = jm.Progress.Total
-					reportProgressIfEnabled(options, p)
+					loadLayer(p, &jm)
 				}
 			}
 		}
