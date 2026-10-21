@@ -330,8 +330,8 @@ func TestCtrdInstallAfterPrune(t *testing.T) {
 }
 
 // TestCtrdInstallRecoversFromKilledInstall: an install is killed after it created snapshots; its
-// lease stays, the next install removes the lease and with it the snapshots it alone held, and
-// recreates them, so that nothing a power cut may have broken is reused.
+// lease stays, marked as synced, and the next install goes on under it: the snapshots the killed
+// install committed are kept, the rest are created, and the lease is gone at the end.
 func TestCtrdInstallRecoversFromKilledInstall(t *testing.T) {
 	r := newCtrdRig(t)
 	const base = "ghcr.io/foundriesio/busybox:1.36"
@@ -342,18 +342,31 @@ func TestCtrdInstallRecoversFromKilledInstall(t *testing.T) {
 	defer app.Remove(t)
 	r.pruneImages(r.topChainIDs(app))
 	killedAt := r.killInstall(app)
-	if leftovers := r.installLeases(); len(leftovers) != 1 {
-		t.Fatalf("expected the lease of the killed install to stay, got %+v", leftovers)
+	if leftovers := r.installLeases(); len(leftovers) != 1 || leftovers[0].Labels["composectl/install.synced"] != "true" {
+		t.Fatalf("expected the lease of the killed install to stay, marked as synced, got %+v", leftovers)
+	}
+	committed := map[digest.Digest]time.Time{}
+	for _, img := range r.images(app.PublishedUri) {
+		for _, chainID := range img.chainIDs {
+			if info, ok := r.snapshot(chainID); ok {
+				committed[chainID] = info.Created
+			}
+		}
 	}
 
 	app.Install(t)
 	defer app.Uninstall(t)
 	r.checkInstalled(app)
+	if leftovers := r.installLeases(); len(leftovers) != 0 {
+		t.Errorf("expected no install lease after the resumed install, got %+v", leftovers)
+	}
 	for _, img := range r.images(app.PublishedUri) {
 		for _, chainID := range img.chainIDs {
 			info, ok := r.snapshot(chainID)
-			if !ok || !info.Created.After(killedAt) {
-				t.Errorf("snapshot %s was not recreated after the killed install: created %v, killed at %v", chainID, info.Created, killedAt)
+			if createdAt, kept := committed[chainID]; kept && (!ok || !info.Created.Equal(createdAt)) {
+				t.Errorf("snapshot %s of the killed install was not kept: created %v, was %v", chainID, info.Created, createdAt)
+			} else if !kept && (!ok || !info.Created.After(killedAt)) {
+				t.Errorf("snapshot %s was not created after the killed install: created %v, killed at %v", chainID, info.Created, killedAt)
 			}
 		}
 	}

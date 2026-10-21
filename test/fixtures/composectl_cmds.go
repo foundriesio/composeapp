@@ -497,6 +497,18 @@ func randomString(length int) string {
 // image layers from. It returns the image reference.
 func PublishDerivedImage(t *testing.T, base string, sizeMB int) string {
 	t.Helper()
+	return publishDerivedImage(t, base, fmt.Sprintf("head -c %d /dev/urandom > /derived", sizeMB<<20))
+}
+
+// PublishDerivedImageOfFiles is PublishDerivedImage with a layer of the given number of small
+// files: its extraction takes a syscall per file, not a disk write, so it stays slow on a fast disk.
+func PublishDerivedImageOfFiles(t *testing.T, base string, files int) string {
+	t.Helper()
+	return publishDerivedImage(t, base, fmt.Sprintf("mkdir /derived-files && for i in $(seq %d); do echo $i > /derived-files/$i; done", files))
+}
+
+func publishDerivedImage(t *testing.T, base, command string) string {
+	t.Helper()
 	name := "derived-" + randomString(8)
 	ref := "registry:5000/factory/" + name + ":v1"
 	pub := func(args ...string) {
@@ -504,7 +516,7 @@ func PublishDerivedImage(t *testing.T, base string, sizeMB int) string {
 		Checkf(t, err, "docker %v: %s", args, out)
 	}
 	pub("pull", base)
-	pub("run", "--name", name, base, "sh", "-c", fmt.Sprintf("head -c %d /dev/urandom > /derived", sizeMB<<20))
+	pub("run", "--name", name, base, "sh", "-c", command)
 	pub("commit", name, ref)
 	pub("rm", name)
 	pub("push", ref)

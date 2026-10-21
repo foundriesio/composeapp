@@ -21,6 +21,7 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/snapshots"
 	"github.com/foundriesio/composeapp/pkg/compose"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"github.com/opencontainers/go-digest"
@@ -242,9 +243,24 @@ func TestCtrdInstallLinksLayers(t *testing.T) {
 	}
 }
 
+// installLeasesOf returns the install leases dockerd's containerd holds.
+func installLeasesOf(t *testing.T, c *compose.CtrdClient) []leases.Lease {
+	t.Helper()
+	all, err := c.LeasesService().List(context.Background())
+	f.Check(t, err)
+	var found []leases.Lease
+	for _, l := range all {
+		if strings.HasPrefix(l.ID, "composectl/install/") {
+			found = append(found, l)
+		}
+	}
+	return found
+}
+
 // TestCtrdInstallFailsAcrossFilesystems: with the store on another filesystem the link fails and
 // so does the install, naming both directories, without a copy of any layer in the content root;
-// the next install from a store on the content root's filesystem removes the lease it left.
+// the next install from a store on the content root's filesystem goes on under the lease it left
+// and removes it at the end.
 func TestCtrdInstallFailsAcrossFilesystems(t *testing.T) {
 	c := ctrdRig(t)
 	ctx := context.Background()
@@ -270,24 +286,147 @@ func TestCtrdInstallFailsAcrossFilesystems(t *testing.T) {
 			t.Errorf("layer %s is in the content root after the failed install: %v", l.Digest, err)
 		}
 	}
-	installLeases := func() (n int) {
-		all, err := c.LeasesService().List(ctx)
-		f.Check(t, err)
-		for _, l := range all {
-			if strings.HasPrefix(l.ID, "composectl/install/") {
-				n++
-			}
-		}
-		return n
-	}
-	if installLeases() != 1 {
-		t.Fatalf("expected the failed install to leave its lease, found %d", installLeases())
+	if left := installLeasesOf(t, c); len(left) != 1 {
+		t.Fatalf("expected the failed install to leave its lease, found %+v", left)
 	}
 	f.Check(t, compose.InstallImagesCtrd(ctx, c, tree, cfg, nil))
 	defer deleteImage(t, c, tree)
-	if installLeases() != 0 {
-		t.Fatalf("expected the next install to remove the lease, found %d", installLeases())
+	if left := installLeasesOf(t, c); len(left) != 0 {
+		t.Fatalf("expected the next install to remove the lease, found %+v", left)
 	}
+}
+
+// TestCtrdInstallResumesAfterInterruption: an install cancelled in the middle of a layer's
+// extraction leaves its lease, marked as synced, holding the committed snapshots, the unfinished
+// one and no image record. The next install of the same app goes on under that lease: it drops
+// the unfinished snapshot before anything else, loads only the layers without a snapshot, removes
+// the lease at the end, and leaves the image as a clean install does. A lease left by another
+// app's install is removed first.
+func TestCtrdInstallResumesAfterInterruption(t *testing.T) {
+	c := ctrdRig(t)
+	ctx := context.Background()
+	cfg := f.NewTestConfig(t)
+	store := compose.NewStoreBlobProvider(cfg.GetBlobsRoot())
+	// A small layer under one of many files, whose extraction outlasts several polls of the
+	// install's watcher: a poll finds the small layer's snapshot while the last layer is still
+	// being extracted. A layer of a few MB is written within one poll on a fast disk.
+	pollInterval := *compose.UnpackPollInterval
+	*compose.UnpackPollInterval = 50 * time.Millisecond
+	t.Cleanup(func() { *compose.UnpackPollInterval = pollInterval })
+	image := f.PublishDerivedImageOfFiles(t, f.PublishDerivedImage(t, "ghcr.io/foundriesio/busybox:1.36", 1), 5000)
+	app := f.NewApp(t, fmt.Sprintf(derivedAppDef, image))
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	tree, err := cfg.AppLoader.LoadAppTree(ctx, store, platforms.OnlyStrict(cfg.Platform), app.PublishedUri)
+	f.Check(t, err)
+	layers, err := compose.LayerDescriptorsOf(ctx, tree, store)
+	f.Check(t, err)
+	toRegister := layersToRegister(t, c, cfg, tree, layers[0])
+	if len(toRegister) == 0 {
+		t.Fatal("every layer of the fresh image already has a snapshot")
+	}
+	chains, err := compose.ChainIDsOf(ctx, tree, store)
+	f.Check(t, err)
+	chain := chains[0]
+	missing := chain[len(chain)-len(toRegister):] // the chain IDs of toRegister
+	lastLayer, lastChainID := layers[0][len(layers[0])-1], chain[len(chain)-1]
+	ref := tree.GetComposeRoot().Children[0].Ref()
+	sn := c.SnapshotService(compose.CtrdSnapshotter(c))
+
+	cutCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// A layer is reported syncing only while the unpack runs and its snapshot is the first
+	// one missing; with bytes taken from the filesystem, its extraction is in progress.
+	midExtraction := func(p *compose.LoadImageProgress) {
+		if p.State == compose.ImageLoadStateLayerSyncing && p.ID == lastLayer.Digest.Encoded()[:12] && p.Current > 0 {
+			cancel()
+		}
+	}
+	if err := compose.InstallImagesCtrd(cutCtx, c, tree, cfg, midExtraction); err == nil || cutCtx.Err() == nil {
+		t.Fatalf("expected the install to fail once cancelled in the extraction of the last layer, got %v", err)
+	}
+	left := installLeasesOf(t, c)
+	if len(left) != 1 || !strings.HasPrefix(left[0].ID, "composectl/install/"+tree.Name()+"@") ||
+		left[0].Labels[compose.InstallLeaseSyncedLabel] != "true" {
+		t.Fatalf("expected the lease of the interrupted install, marked as synced, found %+v", left)
+	}
+	if _, err := c.ImageService().Get(ctx, ref); !errdefs.IsNotFound(err) {
+		t.Fatalf("expected no record of the image after the interrupted install, got %v", err)
+	}
+	committed := 0
+	for _, chainID := range missing {
+		if info, err := sn.Stat(ctx, chainID); err == nil && info.Kind == snapshots.KindCommitted {
+			committed++
+		}
+	}
+	if committed == 0 || committed == len(missing) {
+		t.Fatalf("the interrupted install committed %d of %d snapshots; expected some but not all", committed, len(missing))
+	}
+	t.Logf("the interrupted install committed %d of %d snapshots", committed, len(missing))
+	unfinished := activeExtractSnapshot(t, sn, lastChainID)
+	if unfinished == "" {
+		t.Fatalf("expected the unfinished extraction of %s to leave an active snapshot", lastChainID)
+	}
+	other, err := c.LeasesService().Create(ctx, leases.WithID("composectl/install/other@"+digest.FromString("other").String()),
+		leases.WithLabels(map[string]string{compose.InstallLeaseSyncedLabel: "true"}))
+	f.Check(t, err)
+	defer func() { _ = c.LeasesService().Delete(ctx, other) }()
+
+	var events []compose.LoadImageProgress
+	dropped := false
+	atEvent := func(p *compose.LoadImageProgress) {
+		events = append(events, *p)
+		if len(events) > 1 || p.State != compose.ImageLoadStateImageLoading {
+			return
+		}
+		// The first event comes before any layer is linked or unpacked.
+		if _, err := sn.Stat(ctx, unfinished); !errdefs.IsNotFound(err) {
+			t.Errorf("the unfinished snapshot %s is still there when the resumed install starts: %v", unfinished, err)
+		}
+		dropped = true
+	}
+	f.Check(t, compose.InstallImagesCtrd(ctx, c, tree, cfg, atEvent))
+	defer deleteImage(t, c, tree)
+	if !dropped {
+		t.Error("the resumed install did not report the image loading first")
+	}
+	loaded := 0
+	for _, e := range events {
+		if e.State == compose.ImageLoadStateLayerLoaded {
+			loaded++
+		}
+	}
+	if loaded != len(missing)-committed {
+		t.Errorf("expected %d layers loaded by the resumed install, %d skipped, got %d loaded", len(missing)-committed, committed, loaded)
+	}
+	if left := installLeasesOf(t, c); len(left) != 0 {
+		t.Errorf("expected the resumed install to remove every install lease, found %+v", left)
+	}
+	for _, chainID := range chain {
+		if info, err := sn.Stat(ctx, chainID); err != nil || info.Kind != snapshots.KindCommitted {
+			t.Errorf("snapshot %s after the resumed install: %v, %v", chainID, info.Kind, err)
+		}
+	}
+	if leftover := activeExtractSnapshot(t, sn, lastChainID); leftover != "" {
+		t.Errorf("leftover snapshot %s after the resumed install", leftover)
+	}
+	out, err := exec.Command("docker", "run", "--rm", "--pull", "never", "--network", "none", ref, "echo", "ok").CombinedOutput()
+	f.Checkf(t, err, "docker run %s: %s", ref, out)
+}
+
+// activeExtractSnapshot returns the key of the active "extract-<id> <chain ID>" snapshot of an
+// unpack that did not commit the layer with chainID, or "" when there is none.
+func activeExtractSnapshot(t *testing.T, sn snapshots.Snapshotter, chainID string) string {
+	t.Helper()
+	var key string
+	f.Check(t, sn.Walk(context.Background(), func(_ context.Context, info snapshots.Info) error {
+		if info.Kind == snapshots.KindActive && strings.HasSuffix(info.Name, " "+chainID) {
+			key = info.Name
+		}
+		return nil
+	}))
+	return key
 }
 
 // TestCtrdLinkedBlobAndGC: containerd's blob-directory cleanup runs after a GC that removed content.

@@ -16,10 +16,12 @@ import (
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/snapshots"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
@@ -36,11 +38,17 @@ const (
 	// whose compressed layers are not in containerd; `ps` and `check --install` read that list.
 	MinDockerVersionForCtrdInstall = "29.5.2"
 
-	installLeasePrefix  = "composectl/install/"
-	installLockFileName = ".install.lock"
-	contentPluginType   = "io.containerd.content.v1"
-	gcRefConfigLabel    = "containerd.io/gc.ref.content.config"
-	gcRefManifestLabel  = "containerd.io/gc.ref.content.m.0"
+	installLeasePrefix = "composectl/install/"
+	// installLeaseSyncedLabel marks an install lease whose snapshots were synced to disk before
+	// they were committed; an interrupted install under such a lease is resumed, not restarted.
+	installLeaseSyncedLabel = "composectl/install.synced"
+	// minCtrdVersionForSyncFs is the oldest containerd whose differ honours the sync_fs apply
+	// option; an older one commits unsynced snapshots, so its install leases get no synced label.
+	minCtrdVersionForSyncFs = "1.7.14"
+	installLockFileName     = ".install.lock"
+	contentPluginType       = "io.containerd.content.v1"
+	gcRefConfigLabel        = "containerd.io/gc.ref.content.config"
+	gcRefManifestLabel      = "containerd.io/gc.ref.content.m.0"
 	// recordCleanupTimeout bounds the removal of partial image records after a failed write.
 	recordCleanupTimeout = 30 * time.Second
 	// ingestAbortAttempts and ingestAbortDelay bound the retries of a failed ingest abort.
@@ -55,6 +63,7 @@ type (
 		snapshotter     string
 		contentRoot     string
 		snapshotterRoot string
+		syncFs          bool // the containerd syncs a snapshot before it commits it when asked
 	}
 
 	// ctrdImage is one app image as the containerd install needs it.
@@ -96,7 +105,7 @@ func PruneInstallLeases(ctx context.Context, cfg *Config) error {
 		return err
 	}
 	defer c.Close()
-	if err := deleteInstallLeases(ctx, c.LeasesService()); err != nil {
+	if _, err := deleteInstallLeases(ctx, c.LeasesService(), ""); err != nil {
 		return fmt.Errorf("failed to prune install leases: %w", err)
 	}
 	return nil
@@ -154,10 +163,17 @@ func newCtrdClient(ctx context.Context, info *DockerInfo) (*ctrdClient, error) {
 	if cc.contentRoot, err = pluginRoot(ctx, c, contentPluginType, "content"); err == nil {
 		cc.snapshotterRoot, err = pluginRoot(ctx, c, snapshotterPluginType, cc.snapshotter)
 	}
+	var version containerd.Version
+	if err == nil {
+		if version, err = c.Version(ctx); err != nil {
+			err = fmt.Errorf("failed to query the containerd version: %w", err)
+		}
+	}
 	if err != nil {
 		_ = c.Close()
 		return nil, err
 	}
+	cc.syncFs = versionAtLeast(version.Version, minCtrdVersionForSyncFs)
 	return cc, nil
 }
 
@@ -173,9 +189,12 @@ func pluginRoot(ctx context.Context, c *containerd.Client, pluginType, id string
 }
 
 // installImagesCtrd installs the images of one app into dockerd's containerd. Under a lease it links
-// the layers that have no snapshot yet, unpacks every image and syncs the snapshotter's filesystem,
-// and only then creates the image records: a record never points at a snapshot that a power cut
-// can still lose. Deleting the lease lets containerd's GC drop the compressed layers.
+// the layers that have no snapshot yet, unpacks every image with each layer synced before its
+// snapshot is committed, syncs the snapshotter's filesystem, and only then creates the image
+// records: a record never points at a snapshot that a power cut can still lose. An interrupted
+// install of the same app left its lease behind; its committed snapshots are intact, so the
+// install drops the unfinished one and goes on under that lease, skipping the committed ones.
+// Deleting the lease at the end lets containerd's GC drop the compressed layers.
 func installImagesCtrd(ctx context.Context, c *ctrdClient, app App, cfg *Config, report ProgressCallbackFn) error {
 	blobsRoot := cfg.GetBlobsRoot()
 	imgs, err := ctrdImagesOf(ctx, app, NewStoreBlobProvider(blobsRoot))
@@ -183,11 +202,16 @@ func installImagesCtrd(ctx context.Context, c *ctrdClient, app App, cfg *Config,
 		return fmt.Errorf("failed to read the app images from the store: %w", err)
 	}
 	ls := c.LeasesService()
-	if err := deleteInstallLeases(ctx, ls); err != nil {
+	lease := leases.Lease{ID: installLeaseID(app.Name(), app.Ref().Digest)}
+	resumed, err := deleteInstallLeases(ctx, ls, lease.ID)
+	if err != nil {
 		return fmt.Errorf("failed to remove leases of interrupted installs: %w", err)
 	}
-	lease, err := ls.Create(ctx, leases.WithID(installLeaseID(app.Name(), app.Ref().Digest)))
-	if err != nil {
+	if resumed {
+		if err := c.removeActiveSnapshots(ctx, lease); err != nil {
+			return fmt.Errorf("failed to drop the unfinished snapshots of the interrupted install: %w", err)
+		}
+	} else if _, err := ls.Create(ctx, installLeaseOpts(lease.ID, c.syncFs)...); err != nil {
 		return fmt.Errorf("failed to create the install lease: %w", err)
 	}
 	lctx := leases.WithLease(ctx, lease.ID)
@@ -216,29 +240,76 @@ func installLeaseID(appName string, appDigest digest.Digest) string {
 	return installLeasePrefix + appName + "@" + appDigest.String()
 }
 
-func installLeases(all []leases.Lease) []leases.Lease {
-	var found []leases.Lease
-	for _, l := range all {
-		if strings.HasPrefix(l.ID, installLeasePrefix) {
-			found = append(found, l)
-		}
+// installLeaseOpts creates the install lease with the synced label when the containerd syncs
+// every snapshot before it commits it; a lease without the label is never resumed.
+func installLeaseOpts(id string, syncFs bool) []leases.Opt {
+	opts := []leases.Opt{leases.WithID(id)}
+	if syncFs {
+		opts = append(opts, leases.WithLabels(map[string]string{installLeaseSyncedLabel: "true"}))
 	}
-	return found
+	return opts
 }
 
-// deleteInstallLeases removes the leases that interrupted installs left behind. Under the install
-// lock no other install is running, so every install lease is such a leftover.
-func deleteInstallLeases(ctx context.Context, ls leases.Manager) error {
-	all, err := ls.List(ctx)
+// removeActiveSnapshots removes the snapshots the lease holds that were never committed: the
+// extraction the interrupted install was in the middle of, whose space the resumed extraction
+// needs. The record goes at once and the GC that the removal triggers frees the directory; a
+// directory that a power cut never wrote is simply not there to remove. Committed snapshots stay.
+func (c *ctrdClient) removeActiveSnapshots(ctx context.Context, lease leases.Lease) error {
+	rs, err := c.LeasesService().ListResources(ctx, lease)
 	if err != nil {
-		return fmt.Errorf("failed to list containerd leases: %w", err)
+		return fmt.Errorf("failed to list the resources of lease %s: %w", lease.ID, err)
 	}
-	for _, l := range installLeases(all) {
-		if err := ls.Delete(ctx, l, leases.SynchronousDelete); err != nil && !errdefs.IsNotFound(err) {
-			return fmt.Errorf("failed to delete the install lease %s: %w", l.ID, err)
+	sn := c.SnapshotService(c.snapshotter)
+	for _, r := range rs {
+		if r.Type != "snapshots/"+c.snapshotter {
+			continue
+		}
+		info, err := sn.Stat(ctx, r.ID)
+		if errdefs.IsNotFound(err) || err == nil && info.Kind != snapshots.KindActive {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to stat snapshot %s: %w", r.ID, err)
+		}
+		if err := sn.Remove(ctx, r.ID); err != nil && !errdefs.IsNotFound(err) {
+			return fmt.Errorf("failed to remove snapshot %s: %w", r.ID, err)
 		}
 	}
 	return nil
+}
+
+// staleInstallLeases selects, among all leases, the install leases that an install under keepID
+// deletes first, and reports whether the lease keepID itself is kept: it is when it exists and
+// its snapshots were synced before they were committed. Every other install lease is stale.
+func staleInstallLeases(all []leases.Lease, keepID string) (stale []leases.Lease, kept bool) {
+	for _, l := range all {
+		if !strings.HasPrefix(l.ID, installLeasePrefix) {
+			continue
+		}
+		if l.ID == keepID && l.Labels[installLeaseSyncedLabel] == "true" {
+			kept = true
+			continue
+		}
+		stale = append(stale, l)
+	}
+	return stale, kept
+}
+
+// deleteInstallLeases removes the install leases other than keepID, which stays when its snapshots
+// are intact (see staleInstallLeases); keepID is empty to remove them all. Under the install lock
+// no other install is running, so every install lease was left by an interrupted install.
+func deleteInstallLeases(ctx context.Context, ls leases.Manager, keepID string) (kept bool, err error) {
+	all, err := ls.List(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list containerd leases: %w", err)
+	}
+	stale, kept := staleInstallLeases(all, keepID)
+	for _, l := range stale {
+		if err := ls.Delete(ctx, l, leases.SynchronousDelete); err != nil && !errdefs.IsNotFound(err) {
+			return false, fmt.Errorf("failed to delete the install lease %s: %w", l.ID, err)
+		}
+	}
+	return kept, nil
 }
 
 // installImage announces every layer of the image, as existing when its snapshot is there and as
@@ -322,9 +393,7 @@ type unpackWatch struct {
 func (w *unpackWatch) run(ctx context.Context) {
 	defer close(w.done)
 	w.extracting = -1
-	// A poll is a stat of the layer being extracted and the free space of the snapshotter root,
-	// cheap enough to sample a layer that is extracted within a second a few times.
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(unpackPollInterval)
 	defer ticker.Stop()
 	for {
 		w.scan(ctx, false)
@@ -585,9 +654,12 @@ func (c *ctrdClient) writeBlob(ctx context.Context, blobsRoot string, desc ocisp
 
 // unpack creates the snapshots of the image's layers. The target is the platform manifest the app
 // tree selected, not the index: on arm64 the default platform matcher would also accept arm/v7.
+// The differ syncs the snapshot's filesystem after applying each layer and before the snapshot
+// is committed, so a committed snapshot survives a power cut; a containerd older than
+// minCtrdVersionForSyncFs ignores the request and commits unsynced snapshots.
 func (c *ctrdClient) unpack(ctx context.Context, img *ctrdImage, platform platforms.MatchComparer) error {
 	ci := containerd.NewImageWithPlatform(c.Client, images.Image{Name: img.ref, Target: img.manifest}, platform)
-	return ci.Unpack(ctx, c.snapshotter)
+	return ci.Unpack(ctx, c.snapshotter, containerd.WithUnpackApplyOpts(diff.WithSyncFs(true)))
 }
 
 // putImageRecords creates the pinned digest reference and the short tag reference, or points the
@@ -760,6 +832,11 @@ func uncompressedSize(blobsRoot string, desc ocispec.Descriptor) int64 {
 	}
 	return int64(binary.LittleEndian.Uint32(trailer[:]))
 }
+
+// unpackPollInterval is how often the unpack watcher polls the snapshots: a stat of the layer
+// being extracted and the free space of the snapshotter root, cheap enough to sample a layer
+// that is extracted within a second a few times; a variable so that tests can poll faster.
+var unpackPollInterval = 100 * time.Millisecond
 
 // freeBytes returns the free space of the filesystem that holds path; a variable so that tests
 // can drive the measure.

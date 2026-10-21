@@ -28,19 +28,48 @@ func TestInstallLeaseID(t *testing.T) {
 	}
 }
 
-func TestInstallLeasesFilter(t *testing.T) {
+func TestInstallLeaseOpts(t *testing.T) {
+	for _, syncFs := range []bool{true, false} {
+		var l leases.Lease
+		for _, opt := range installLeaseOpts("composectl/install/app@sha256:aaaa", syncFs) {
+			if err := opt(&l); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if l.ID != "composectl/install/app@sha256:aaaa" || (l.Labels[installLeaseSyncedLabel] == "true") != syncFs {
+			t.Fatalf("sync_fs %v: unexpected lease %+v", syncFs, l)
+		}
+	}
+}
+
+func TestStaleInstallLeases(t *testing.T) {
+	synced := map[string]string{installLeaseSyncedLabel: "true"}
+	mine := "composectl/install/app1@sha256:aaaa"
 	all := []leases.Lease{
-		{ID: "composectl/install/app1@sha256:aaaa"},
+		{ID: mine, Labels: synced},
 		{ID: "moby-pull-123"},
-		{ID: "composectl/install/app2@sha256:bbbb"},
+		{ID: "composectl/install/app2@sha256:bbbb", Labels: synced},
 		{ID: "composectl/other"},
+		{ID: "composectl/install/app3@sha256:cccc"},
 	}
-	got := installLeases(all)
-	if len(got) != 2 || got[0].ID != all[0].ID || got[1].ID != all[2].ID {
-		t.Fatalf("unexpected install leases: %+v", got)
+	stale, kept := staleInstallLeases(all, mine)
+	if !kept || len(stale) != 2 || stale[0].ID != all[2].ID || stale[1].ID != all[4].ID {
+		t.Fatalf("expected the synced lease of the app kept and the other install leases stale, got kept %v, stale %+v", kept, stale)
 	}
-	if got := installLeases(nil); len(got) != 0 {
-		t.Fatalf("expected no leases, got %+v", got)
+	// The same app's lease without the label: its snapshots may be torn, so it is stale too.
+	all[0].Labels = nil
+	stale, kept = staleInstallLeases(all, mine)
+	if kept || len(stale) != 3 || stale[0].ID != mine {
+		t.Fatalf("expected the unlabelled lease of the app stale, got kept %v, stale %+v", kept, stale)
+	}
+	// No lease to keep: every install lease is stale.
+	all[0].Labels = synced
+	stale, kept = staleInstallLeases(all, "")
+	if kept || len(stale) != 3 {
+		t.Fatalf("expected every install lease stale, got kept %v, stale %+v", kept, stale)
+	}
+	if stale, kept := staleInstallLeases(nil, mine); kept || len(stale) != 0 {
+		t.Fatalf("expected nothing from no leases, got kept %v, stale %+v", kept, stale)
 	}
 }
 
