@@ -10,6 +10,10 @@ import (
 
 type CtrdClient = ctrdClient
 
+const InstallLeaseSyncedLabel = installLeaseSyncedLabel
+
+var UnpackPollInterval = &unpackPollInterval
+
 var (
 	ConnectCtrdIfInstallTarget = connectCtrdIfInstallTarget
 	InstallImagesCtrd          = installImagesCtrd

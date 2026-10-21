@@ -95,6 +95,12 @@ func TestVersionAtLeast(t *testing.T) {
 		{"29.5", "29.5.2", false},
 		{"29.6", "29.5.2", true},
 		{"", "29.5.2", false},
+		// containerd versions against the sync_fs floor
+		{"v2.4.1", "1.7.14", true},
+		{"2.2.3+unknown", "1.7.14", true},
+		{"v1.7.14", "1.7.14", true},
+		{"v1.7.13", "1.7.14", false},
+		{"dev", "1.7.14", false},
 		{"garbage", "29.5.2", false},
 	} {
 		if got := versionAtLeast(tc.version, tc.min); got != tc.want {
