@@ -78,8 +78,10 @@ tidy-mod:
 preload-images:
 	test/fixtures/preload-images.sh
 
+# -p 1: the test binaries share one dockerd, one publisher dockerd and one app store,
+# so the packages must not run concurrently
 test-e2e: $(exe) preload-images
-	@$(GO) test -v ./...
+	@$(GO) test -v -p 1 ./...
 
 test-smoke: $(exe) preload-images
 	@$(GO) test -v -run TestSmoke test/integration/smoke_test.go
