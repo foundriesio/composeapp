@@ -611,3 +611,80 @@ func aklitePruneAfterKilledInstall(t *testing.T) {
 		t.Errorf("install leases left after the prune: %+v", leftovers)
 	}
 }
+
+// TestCtrdCheckSizesByMissingSnapshots: `check` sizes the runtime by the snapshots the install
+// still has to create, not by the blobs missing from the store: after a prune every blob is still
+// in the store, yet the layers have to be unpacked again.
+func TestCtrdCheckSizesByMissingSnapshots(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	app.Install(t)
+	defer app.Uninstall(t)
+
+	runtimeSize := func(when string) int64 {
+		t.Helper()
+		res := akliteCheck(t, app.PublishedUri, "--local")
+		if len(res.FetchCheck.MissingBlobs) != 0 {
+			t.Fatalf("%s: check reports missing blobs: %+v", when, res.FetchCheck.MissingBlobs)
+		}
+		return res.FetchCheck.TotalRuntimeSize
+	}
+	if size := runtimeSize("installed"); size != 0 {
+		t.Fatalf("installed: total_runtime_size is %d, want 0", size)
+	}
+	r.pruneImages(r.topChainIDs(app))
+	if size := runtimeSize("pruned"); size <= 0 {
+		t.Fatalf("pruned: total_runtime_size is %d, want more than 0", size)
+	}
+	app.Install(t)
+	if size := runtimeSize("reinstalled"); size != 0 {
+		t.Fatalf("reinstalled: total_runtime_size is %d, want 0", size)
+	}
+}
+
+// TestCtrdCheckSizesImageWithMissingConfig: `check --local` of an app whose image config is not
+// in the store (an interrupted fetch) reports the missing config and sizes the runtime as if every
+// layer had to be unpacked.
+func TestCtrdCheckSizesImageWithMissingConfig(t *testing.T) {
+	r := newCtrdRig(t)
+	app := f.NewApp(t, ctrdTestApp)
+	app.Publish(t)
+	app.Pull(t)
+	defer app.Remove(t)
+	r.pruneImages(r.topChainIDs(app)) // no snapshot of the app exists: every layer counts
+
+	cfg := f.NewTestConfig(t)
+	tree, err := v1.NewAppLoader().LoadAppTree(context.Background(), compose.NewStoreBlobProvider(r.blobsRoot),
+		platforms.OnlyStrict(cfg.Platform), app.PublishedUri)
+	f.Check(t, err)
+	var unpacked int64
+	seen := map[digest.Digest]bool{}
+	imgs := r.images(app.PublishedUri)
+	for _, img := range imgs {
+		for _, layer := range img.manifest.Layers {
+			if !seen[layer.Digest] {
+				seen[layer.Digest] = true
+				unpacked += tree.GetBlobRuntimeSize(&layer, cfg.Platform.Architecture, cfg.BlockSize)
+			}
+		}
+	}
+
+	configDigest := imgs[0].manifest.Config.Digest
+	configPath := filepath.Join(r.blobsRoot, configDigest.Encoded())
+	config, err := os.ReadFile(configPath)
+	f.Check(t, err)
+	f.Check(t, os.Remove(configPath))
+	defer func() { f.Check(t, os.WriteFile(configPath, config, 0o444)) }()
+
+	res := akliteCheck(t, app.PublishedUri, "--local")
+	if _, ok := res.FetchCheck.MissingBlobs[configDigest]; !ok {
+		t.Errorf("check does not list the config among the missing blobs: %+v", res.FetchCheck.MissingBlobs)
+	}
+	if res.FetchCheck.TotalRuntimeSize < unpacked {
+		t.Errorf("total_runtime_size %d is below the unpacked size of the layers %d",
+			res.FetchCheck.TotalRuntimeSize, unpacked)
+	}
+}

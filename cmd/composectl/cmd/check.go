@@ -195,8 +195,15 @@ func checkApps(ctx context.Context,
 			fmt.Println()
 		}
 	}
+	// On a daemon whose images are installed into containerd, the layers to unpack are those without
+	// a snapshot, whether their blobs are in the store or not.
+	unpackSize, onCtrd, err := compose.CtrdUnpackSize(ctx, config, status.Apps, srcBlobProvider)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to size the install into dockerd's containerd: %w", err)
+	}
 	checkResult := &CheckAppResult{
-		MissingBlobs: status.MissingBlobs,
+		MissingBlobs:     status.MissingBlobs,
+		TotalRuntimeSize: unpackSize,
 	}
 	for _, bi := range status.MissingBlobs {
 		if bi.State == compose.BlobFetching {
@@ -206,7 +213,9 @@ func checkApps(ctx context.Context,
 			checkResult.TotalPullSize += bi.Descriptor.Size
 			checkResult.TotalStoreSize += bi.StoreSize
 		}
-		checkResult.TotalRuntimeSize += bi.RuntimeSize
+		if !onCtrd || bi.Type != compose.BlobTypeImageLayer {
+			checkResult.TotalRuntimeSize += bi.RuntimeSize
+		}
 	}
 	ui, err := compose.GetUsageInfo(config.StoreRoot,
 		checkResult.TotalStoreSize+checkResult.TotalRuntimeSize, watermark, watermarkInBytes)
