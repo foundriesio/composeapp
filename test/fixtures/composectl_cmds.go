@@ -482,6 +482,18 @@ func RunCmdExpectFail(t *testing.T, appDir string, args ...string) []byte {
 	return output
 }
 
+// RunCmdOffline runs composectl with the given args through an unreachable proxy, so every
+// registry request fails. It returns the combined output and the command's error.
+func RunCmdOffline(t *testing.T, args ...string) ([]byte, error) {
+	t.Helper()
+	c := exec.Command(composeExec, args...)
+	c.Env = append(os.Environ(),
+		"HTTP_PROXY=http://127.0.0.1:1", "HTTPS_PROXY=http://127.0.0.1:1",
+		"http_proxy=http://127.0.0.1:1", "https_proxy=http://127.0.0.1:1",
+		"NO_PROXY=", "no_proxy=")
+	return c.CombinedOutput()
+}
+
 func randomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	seededRand := rand2.New(rand2.NewSource(time.Now().UnixNano()))
