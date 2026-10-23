@@ -277,7 +277,7 @@ func getAppStoreAndDstBlobProvider(srcStorePath string, local bool) (srcBlobProv
 		// to Registry. Requires app manifest and app archive presence in the local store, otherwise fails.
 		srcBlobProvider = store
 	} else {
-		srcBlobProvider = compose.NewRemoteBlobProviderFromConfig(config)
+		srcBlobProvider = compose.NewStoreFirstBlobProviderFromConfig(config)
 	}
 	return
 }

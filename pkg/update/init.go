@@ -65,7 +65,7 @@ func (u *runnerImpl) initUpdate(ctx context.Context, b *session, options ...Init
 		}
 	}()
 
-	srcBlobProvider := compose.NewRemoteBlobProviderFromConfig(u.config)
+	srcBlobProvider := compose.NewStoreFirstBlobProviderFromConfig(u.config)
 
 	p := InitProgress{
 		State:   UpdateInitStateLoadingTree,
