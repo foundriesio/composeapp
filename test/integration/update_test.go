@@ -2,10 +2,12 @@ package e2e_tests
 
 import (
 	"context"
+	"net/url"
 	"testing"
 
 	"github.com/docker/docker/api/types"
 	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	"github.com/foundriesio/composeapp/pkg/update"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 )
@@ -89,6 +91,43 @@ services:
 	}
 
 	defer finalizeUpdate(t, ctx, updateRunner)
+}
+
+func TestAppUpdateInitOffline(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	// Route every registry request of the config through an unreachable proxy.
+	proxyURL, err := url.Parse("http://127.0.0.1:1")
+	f.Check(t, err)
+	cfg, err := v1.NewDefaultConfig(v1.WithStoreRoot(f.AppStoreRoot), v1.WithComposeRoot(f.AppComposeRootRoot),
+		v1.WithProxy(func() *compose.ProxyConfig { return &compose.ProxyConfig{ProxyURL: proxyURL} }))
+	f.Check(t, err)
+	ctx := context.Background()
+
+	updateRunner, err := update.NewUpdate(cfg, "target-1")
+	f.Check(t, err)
+	if err := updateRunner.Init(ctx, []string{app.PublishedUri}); err == nil {
+		t.Fatal("expected init of a not fetched app to fail offline")
+	}
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	updateRunner, err = update.NewUpdate(cfg, "target-2")
+	f.Check(t, err)
+	defer finalizeUpdate(t, ctx, updateRunner)
+	err = updateRunner.Init(ctx, []string{app.PublishedUri})
+	f.Checkf(t, err, "init of a fetched app failed offline: %v\n", err)
+	if updateStatus := updateRunner.Status(); updateStatus.State != update.StateInitialized {
+		t.Fatalf("update not initialized: %s\n", updateStatus.State)
+	}
 }
 
 func TestAppSync(t *testing.T) {

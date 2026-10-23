@@ -1,7 +1,14 @@
 package e2e_tests
 
 import (
+	"bytes"
+	"encoding/json"
+	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
+	"github.com/foundriesio/composeapp/pkg/compose"
+	v1 "github.com/foundriesio/composeapp/pkg/compose/v1"
 	f "github.com/foundriesio/composeapp/test/fixtures"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"os"
 	"path"
 	"strings"
@@ -202,4 +209,134 @@ services:
 		}
 		break
 	}
+}
+
+func TestCheckAndPullOffline(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	if output, err := f.RunCmdOffline(t, "check", app.PublishedUri); err == nil {
+		t.Fatalf("expected check of a not fetched app to fail offline; output: %s", output)
+	}
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	output, err := f.RunCmdOffline(t, "check", app.PublishedUri, "--format", "json")
+	f.Checkf(t, err, "check of a fetched app failed offline: %s\n", output)
+	checkResult := composectl.CheckAndInstallResult{}
+	f.Check(t, json.Unmarshal(output, &checkResult))
+	if len(checkResult.FetchCheck.MissingBlobs) > 0 {
+		t.Errorf("there are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
+	}
+
+	output, err = f.RunCmdOffline(t, "pull", app.PublishedUri)
+	f.Checkf(t, err, "pull of a fetched app failed offline: %s\n", output)
+}
+
+func TestCheckAndPullRepairCorruptManifest(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	// Overwrite the stored app manifest with bytes of the same size but another digest.
+	appRef, err := compose.ParseAppRef(app.PublishedUri)
+	f.Check(t, err)
+	manifestPath := path.Join(compose.GetBlobsRootFor(f.AppStoreRoot), appRef.Digest.Encoded())
+	manifest, err := os.ReadFile(manifestPath)
+	f.Check(t, err)
+	f.Check(t, os.WriteFile(manifestPath, bytes.Repeat([]byte("x"), len(manifest)), 0644))
+
+	checkRepairedBlob(t, app, appRef.Digest)
+}
+
+// readStoredAppManifest returns the app manifest as stored in the app store.
+func readStoredAppManifest(t *testing.T, app *f.App) ocispec.Manifest {
+	t.Helper()
+	appRef, err := compose.ParseAppRef(app.PublishedUri)
+	f.Check(t, err)
+	b, err := os.ReadFile(path.Join(compose.GetBlobsRootFor(f.AppStoreRoot), appRef.Digest.Encoded()))
+	f.Check(t, err)
+	manifest := ocispec.Manifest{}
+	f.Check(t, json.Unmarshal(b, &manifest))
+	return manifest
+}
+
+// checkRepairedBlob checks that `check` lists the given blob as missing, `pull` repairs it,
+// and `check` of the repaired app then passes offline.
+func checkRepairedBlob(t *testing.T, app *f.App, dgst digest.Digest) {
+	t.Helper()
+	output := f.RunCmd(t, "check", app.PublishedUri, "--format", "json")
+	checkResult := composectl.CheckAndInstallResult{}
+	f.Check(t, json.Unmarshal(output, &checkResult))
+	if _, ok := checkResult.FetchCheck.MissingBlobs[dgst]; !ok {
+		t.Fatalf("expected %s among missing blobs, got: %+v\n", dgst, checkResult.FetchCheck.MissingBlobs)
+	}
+
+	app.Pull(t)
+	app.CheckFetched(t)
+	output, err := f.RunCmdOffline(t, "check", app.PublishedUri, "--format", "json")
+	f.Checkf(t, err, "check of a repaired app failed offline: %s\n", output)
+	checkResult = composectl.CheckAndInstallResult{}
+	f.Check(t, json.Unmarshal(output, &checkResult))
+	if len(checkResult.FetchCheck.MissingBlobs) > 0 {
+		t.Fatalf("there are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
+	}
+}
+
+func TestCheckAndPullRepairMissingBundleIndex(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	// Remove the stored app bundle index, which the bundle descriptor refers to.
+	manifest := readStoredAppManifest(t, app)
+	indexDigest, err := digest.Parse(manifest.Layers[0].Annotations[v1.AnnotationKeyAppBundleIndexDigest])
+	f.Check(t, err)
+	f.Check(t, os.Remove(path.Join(compose.GetBlobsRootFor(f.AppStoreRoot), indexDigest.Encoded())))
+
+	checkRepairedBlob(t, app, indexDigest)
+}
+
+func TestCheckAndPullRepairCorruptBundle(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	// Overwrite the stored app bundle with bytes of the same size but another digest.
+	bundleDesc := readStoredAppManifest(t, app).Layers[0]
+	bundlePath := path.Join(compose.GetBlobsRootFor(f.AppStoreRoot), bundleDesc.Digest.Encoded())
+	f.Check(t, os.WriteFile(bundlePath, bytes.Repeat([]byte("x"), int(bundleDesc.Size)), 0644))
+
+	checkRepairedBlob(t, app, bundleDesc.Digest)
 }
