@@ -1,6 +1,10 @@
 package e2e_tests
 
 import (
+	"bytes"
+	"encoding/json"
+	composectl "github.com/foundriesio/composeapp/cmd/composectl/cmd"
+	"github.com/foundriesio/composeapp/pkg/compose"
 	f "github.com/foundriesio/composeapp/test/fixtures"
 	"os"
 	"path"
@@ -202,4 +206,67 @@ services:
 		}
 		break
 	}
+}
+
+func TestCheckAndPullOffline(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	if output, err := f.RunCmdOffline(t, "check", app.PublishedUri); err == nil {
+		t.Fatalf("expected check of a not fetched app to fail offline; output: %s", output)
+	}
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	output, err := f.RunCmdOffline(t, "check", app.PublishedUri, "--format", "json")
+	f.Checkf(t, err, "check of a fetched app failed offline: %s\n", output)
+	checkResult := composectl.CheckAndInstallResult{}
+	f.Check(t, json.Unmarshal(output, &checkResult))
+	if len(checkResult.FetchCheck.MissingBlobs) > 0 {
+		t.Errorf("there are missing app blobs: %+v\n", checkResult.FetchCheck.MissingBlobs)
+	}
+
+	output, err = f.RunCmdOffline(t, "pull", app.PublishedUri)
+	f.Checkf(t, err, "pull of a fetched app failed offline: %s\n", output)
+}
+
+func TestCheckAndPullRepairCorruptManifest(t *testing.T) {
+	appComposeDef := `
+services:
+  srvs-01:
+    image: registry:5000/factory/runner-image:v0.1
+    command: sh -c "while true; do sleep 60; done"
+`
+	app := f.NewApp(t, appComposeDef)
+	app.Publish(t)
+
+	app.Pull(t)
+	defer app.Remove(t)
+
+	// Overwrite the stored app manifest with bytes of the same size but another digest.
+	appRef, err := compose.ParseAppRef(app.PublishedUri)
+	f.Check(t, err)
+	manifestPath := path.Join(compose.GetBlobsRootFor(f.AppStoreRoot), appRef.Digest.Encoded())
+	manifest, err := os.ReadFile(manifestPath)
+	f.Check(t, err)
+	f.Check(t, os.WriteFile(manifestPath, bytes.Repeat([]byte("x"), len(manifest)), 0644))
+
+	output := f.RunCmd(t, "check", app.PublishedUri, "--format", "json")
+	checkResult := composectl.CheckAndInstallResult{}
+	f.Check(t, json.Unmarshal(output, &checkResult))
+	if _, ok := checkResult.FetchCheck.MissingBlobs[appRef.Digest]; !ok {
+		t.Fatalf("expected the corrupt app manifest among missing blobs, got: %+v\n", checkResult.FetchCheck.MissingBlobs)
+	}
+
+	app.Pull(t)
+	app.CheckFetched(t)
+	output, err = f.RunCmdOffline(t, "check", app.PublishedUri, "--format", "json")
+	f.Checkf(t, err, "check of a repaired app failed offline: %s\n", output)
 }
