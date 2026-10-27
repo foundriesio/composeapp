@@ -1,3 +1,32 @@
+composectl (97.0.0) unstable; urgency=medium
+
+  [ Mike Sul ]
+  * docs(readme): make composeapp guidance registry neutral
+  * docs(readme): keep apt installation in generic guide
+  * docs(readme): clarify app storage and runtime directories
+  * fix(start): remove containers left by a failed start
+  * fix(install): check progress reporter on containerd load
+  * test(compose): run e2e on dockerd 29 with both stores
+  * test(compose): run e2e on the fio-patched dockerd too
+  * docs(design): record the install into containerd
+  * feat(compose): discover containerd behind dockerd from /info
+  * feat(compose): install app images into dockerd's containerd
+  * feat(cli): take the install lock in rm, uninstall and prune
+  * test(integration): cover the containerd install path
+  * docs(design): record the link-in of the install layers
+  * feat(compose): hardlink store blobs into containerd
+  * feat(progress): deliver install state changes completely
+  * feat(compose): report each layer of a containerd install
+  * feat(update): print image layers as a progress table
+  * feat(compose): sync layers and resume an interrupted install
+  * docs(design): record the durable unpack and install resume
+  * feat(check): size runtime by missing snapshots
+  * feat: load app tree from the store first
+  * fix(compose): read the whole app bundle blob before trusting it (#155)
+  * test(compose): cover the whole-blob read of the app bundle
+
+ -- Mike Sul <bot@foundries.io>  Tue, 27 Oct 2026 15:33:35 +0000
+
 composectl (96.3.0) unstable; urgency=medium
 
   [ Mike Sul ]
