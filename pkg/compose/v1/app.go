@@ -387,35 +387,24 @@ func (a *appCtx) indexAppBundle(ctx context.Context, provider compose.BlobProvid
 	}
 	defer srcReader.Close()
 
-	r, err := archive.DecompressStream(srcReader)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	tr := tar.NewReader(r)
-
 	var bundleFiles []fileInfo
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break // End of archive
-		}
-		if err != nil {
-			return nil, err
-		}
+	err = walkVerifiedTar(srcReader, func(hdr *tar.Header, tr io.Reader) error {
 		if hdr.Typeflag != tar.TypeReg {
-			continue // Skip non-regular files
+			return nil // Skip non-regular files
 		}
 		digester := digest.Canonical.Digester()
-		_, err = io.Copy(digester.Hash(), tr)
-		if err != nil {
-			return nil, err
+		if _, err := io.Copy(digester.Hash(), tr); err != nil {
+			return err
 		}
 		bundleFiles = append(bundleFiles, fileInfo{
 			name:   hdr.Name,
 			size:   hdr.Size,
 			digest: digester.Digest(),
 		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return bundleFiles, nil
 }
@@ -444,31 +433,52 @@ func readCompose(ctx context.Context, provider compose.BlobProvider, app *appCtx
 	}
 	defer srcReader.Close()
 
-	r, err := archive.DecompressStream(srcReader)
+	var composeBytes []byte
+	err = walkVerifiedTar(srcReader, func(hdr *tar.Header, tr io.Reader) error {
+		// TODO: support different compose file names and multi-file compose projects
+		if hdr.Name == "docker-compose.yml" {
+			b, err := io.ReadAll(tr)
+			if err != nil {
+				return err
+			}
+			composeBytes = b
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, nil, err
 	}
-	defer r.Close()
-	tr := tar.NewReader(r)
+	return composeBytes, composeDesc, nil
+}
 
-	var composeBytes []byte
+// walkVerifiedTar decompresses the tar archive read from src and calls fn for each entry. Then
+// it reads src to its end, because a verifying reader checks the blob digest and size only at
+// EOF, and the archive can end before the blob does.
+func walkVerifiedTar(src io.Reader, fn func(hdr *tar.Header, tr io.Reader) error) error {
+	r, err := archive.DecompressStream(src)
+	if err != nil {
+		return err
+	}
+	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break // End of archive
 		}
-		if err != nil {
-			return nil, nil, err
+		if err == nil {
+			err = fn(hdr, tr)
 		}
-		// TODO: support different compose file names and multi-file compose projects
-		if hdr.Name == "docker-compose.yml" {
-			composeBytes, err = io.ReadAll(tr)
-			if err != nil {
-				return nil, nil, err
-			}
+		if err != nil {
+			r.Close()
+			return err
 		}
 	}
-	return composeBytes, composeDesc, nil
+	// The decompressor may still be reading src, so stop it before reading src directly.
+	if err := r.Close(); err != nil {
+		return err
+	}
+	_, err = io.Copy(io.Discard, src)
+	return err
 }
 
 func readAndLoadComposeProject(ctx context.Context, provider compose.BlobProvider, app *appCtx) (*composetypes.Project, *ocispec.Descriptor, error) {
