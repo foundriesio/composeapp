@@ -37,6 +37,16 @@ type (
 	memoryBlobProvider struct {
 		blobs map[digest.Digest][]byte
 	}
+	// storeFirstBlobProvider reads blobs from the store and the ones missing or
+	// invalid there from the registry. It reports the remote type so a tree loaded
+	// through it has the same nodes as one loaded from the registry. It serves only
+	// the blobs under the store's blobs/sha256 directory: the manifest and bundle of
+	// an app pulled by skopeo or aklite are kept under apps/ and are still read from
+	// the registry.
+	storeFirstBlobProvider struct {
+		blobRoot string
+		remote   BlobProvider
+	}
 	readCloserWrapper struct {
 		reader io.Reader
 		closer io.Closer
@@ -112,6 +122,13 @@ func NewRemoteBlobProviderFromConfig(config *Config) BlobProvider {
 func newRemoteBlobProvider(resolver remotes.Resolver) BlobProvider {
 	return &remoteBlobProvider{
 		resolver: resolver,
+	}
+}
+
+func NewStoreFirstBlobProviderFromConfig(config *Config) BlobProvider {
+	return &storeFirstBlobProvider{
+		blobRoot: GetBlobsRootFor(config.StoreRoot),
+		remote:   NewRemoteBlobProviderFromConfig(config),
 	}
 }
 
@@ -270,6 +287,87 @@ func (p *memoryBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureRe
 
 func (p *memoryBlobProvider) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
 	return content.Info{}, fmt.Errorf("not implemented")
+}
+
+func (p *storeFirstBlobProvider) Type() BlobProviderType {
+	return BlobProviderTypeRemote
+}
+
+// GetReadCloser serves a stored blob only after reading it once to check its size
+// and digest: a reader cannot switch to the registry once it has handed out bytes.
+func (p *storeFirstBlobProvider) GetReadCloser(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
+	rc, storeErr := p.openVerified(ctx, opts...)
+	if storeErr == nil {
+		return rc, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	rc, err := p.remote.GetReadCloser(ctx, opts...)
+	if err != nil {
+		// The remote error stays the wrapped one so the callers classify it as before.
+		return nil, fmt.Errorf("%w (store copy: %v)", err, storeErr)
+	}
+	return rc, nil
+}
+
+// openVerified opens the stored blob, checks its size and digest, and returns a
+// verifying reader over the same file rewound to the start, so the blob served is
+// the one checked even if its path is replaced in the meantime.
+func (p *storeFirstBlobProvider) openVerified(ctx context.Context, opts ...SecureReadOptions) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	params := GetSecureReadParams(opts...)
+	d := params.ExpectedDigest
+	if len(d) == 0 {
+		if s, err := reference.Parse(params.Ref); err == nil {
+			d = s.Digest()
+		}
+	}
+	if err := d.Validate(); err != nil {
+		return nil, err
+	}
+	opts = append(opts[:len(opts):len(opts)], WithExpectedDigest(d))
+	f, err := os.Open(path.Join(p.blobRoot, d.Encoded()))
+	if err != nil {
+		return nil, err
+	}
+	r, err := NewSecureReadCloser(io.NopCloser(f), opts...)
+	if err == nil {
+		err = discardAll(ctx, r)
+	}
+	if err == nil {
+		_, err = f.Seek(0, io.SeekStart)
+	}
+	if err == nil {
+		r, err = NewSecureReadCloser(f, opts...)
+	}
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return r, nil
+}
+
+func (p *storeFirstBlobProvider) Info(ctx context.Context, dgst digest.Digest) (content.Info, error) {
+	return p.remote.Info(ctx, dgst)
+}
+
+// discardAll reads r to its end in 1 MiB steps and stops as soon as ctx is done,
+// so a cancelled request does not hash a large blob to the end.
+func discardAll(ctx context.Context, r io.Reader) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := io.CopyN(io.Discard, r, 1<<20); err != nil {
+			if err == io.EOF {
+				return ctx.Err()
+			}
+			return err
+		}
+	}
 }
 
 func (w *readCloserWrapper) Read(p []byte) (n int, err error) {
