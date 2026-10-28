@@ -1,3 +1,9 @@
+composectl (97.0.1) unstable; urgency=medium
+
+  * debian: accept docker-ce in place of docker.io
+
+ -- Mike Sul <bot@foundries.io>  Wed, 28 Oct 2026 09:15:26 +0000
+
 composectl (97.0.0) unstable; urgency=medium
 
   [ Mike Sul ]
